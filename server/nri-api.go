@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"strings"
+	"time"
 
 	"github.com/containerd/nri/pkg/api"
 	nrigen "github.com/containerd/nri/pkg/runtime-tools/generate"
@@ -22,6 +24,10 @@ import (
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/nri"
 	"github.com/cri-o/cri-o/internal/oci"
+)
+
+const (
+	nonRunningContainerError = "container not running"
 )
 
 type nriAPI struct {
@@ -359,6 +365,16 @@ func (a *nriAPI) undoCreateContainer(ctx context.Context, specgen *generate.Gene
 	}
 }
 
+type PluginSyncBlock = nri.PluginSyncBlock
+
+func (a *nriAPI) BlockPluginSync() *PluginSyncBlock {
+	if !a.isEnabled() {
+		return nil
+	}
+
+	return a.nri.BlockPluginSync()
+}
+
 //
 // CRI 'upward' interface for NRI
 //
@@ -396,8 +412,10 @@ func (a *nriAPI) ListContainers() []nri.Container {
 	}
 
 	for _, ctr := range ctrList {
-		switch ctr.State().Status {
-		case oci.ContainerStateCreated, oci.ContainerStateRunning, oci.ContainerStatePaused:
+		if s := asyncGetState(ctr); s != nil &&
+			(s.Status == oci.ContainerStateCreated ||
+				s.Status == oci.ContainerStateRunning ||
+				s.Status == oci.ContainerStatePaused) {
 			containers = append(containers, &criContainer{
 				api: a,
 				ctr: ctr,
@@ -443,12 +461,26 @@ func (a *nriAPI) UpdateContainer(ctx context.Context, u *api.ContainerUpdate) er
 		return nil
 	}
 
-	if s := ctr.State().Status; s != oci.ContainerStateRunning && s != oci.ContainerStateCreated {
+	s := asyncGetState(ctr)
+	if s == nil {
+		log.Errorf(ctx, "Failed to get container state %q (timeout)",
+			u.GetContainerId())
+
+		return nil
+	}
+
+	if s.Status != oci.ContainerStateCreated &&
+		s.Status != oci.ContainerStateRunning &&
+		s.Status != oci.ContainerStatePaused {
 		return nil
 	}
 
 	resources := u.GetLinux().GetResources().ToOCI()
 	if err = a.cri.ContainerServer.Runtime().UpdateContainer(ctx, ctr, resources); err != nil {
+		if strings.Contains(err.Error(), nonRunningContainerError) {
+			return nil
+		}
+
 		log.Errorf(ctx, "Failed to update CRI container %q: %v", u.GetContainerId(), err)
 
 		if u.GetIgnoreFailure() {
@@ -669,8 +701,10 @@ func (c *criContainer) GetName() string {
 }
 
 func (c *criContainer) GetState() api.ContainerState {
-	if c.ctr != nil {
-		switch c.ctr.State().Status {
+	state := asyncGetState(c.ctr)
+
+	if state != nil {
+		switch state.Status {
 		case oci.ContainerStateCreated:
 			return api.ContainerState_CONTAINER_CREATED
 		case oci.ContainerStatePaused:
@@ -683,6 +717,45 @@ func (c *criContainer) GetState() api.ContainerState {
 	}
 
 	return api.ContainerState_CONTAINER_UNKNOWN
+}
+
+func asyncGetState(ctr *oci.Container) *oci.ContainerState {
+	// Try to acquire container state asynchronously.
+	//
+	// Notes/TODO(klihub):
+	// This is currently necessary because if a container's init process
+	// is stuck in an unkillable state runtimeOCI.StopLoopForContainer tries
+	// to kill it holding the same c.ctr.opLock, which c.ctr.State() tries to
+	// take causing it to be stuck indefinitely.
+	const timeout = 200 * time.Millisecond
+
+	if ctr == nil {
+		return nil
+	}
+
+	stateCh := make(chan *oci.ContainerState, 1)
+
+	go func() {
+		stateCh <- ctr.State()
+	}()
+
+	var state *oci.ContainerState
+
+	select {
+	case state = <-stateCh:
+	case <-time.After(timeout):
+		log.Errorf(context.TODO(), "failed to get state for container %q (timed out)",
+			ctr.ID())
+		state = ctr.StateNoLock()
+	}
+
+	if state != nil {
+		cpy := *state
+
+		return &cpy
+	}
+
+	return nil
 }
 
 func (c *criContainer) GetLabels() map[string]string {
