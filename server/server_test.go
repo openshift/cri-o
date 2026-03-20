@@ -4,9 +4,9 @@ import (
 	"context"
 	"os"
 
-	cstorage "github.com/containers/storage"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	cstorage "go.podman.io/storage"
 	"go.uber.org/mock/gomock"
 
 	"github.com/cri-o/cri-o/server"
@@ -82,11 +82,13 @@ var _ = t.Describe("Server", func() {
 
 		It("should succeed with container restore", func() {
 			// Given
+			graphroot := t.MustTempDir("graphroot")
 			gomock.InOrder(
 				cniPluginMock.EXPECT().Status().Return(nil),
 				libMock.EXPECT().GetData().Times(2).Return(serverConfig),
 				libMock.EXPECT().GetStore().Return(storeMock, nil),
 				libMock.EXPECT().GetData().Return(serverConfig),
+				storeMock.EXPECT().GraphRoot().Return(graphroot),
 				storeMock.EXPECT().Containers().
 					Return([]cstorage.Container{
 						{

@@ -12,7 +12,6 @@ import (
 	"github.com/cri-o/cri-o/internal/lib"
 	"github.com/cri-o/cri-o/internal/log"
 	oci "github.com/cri-o/cri-o/internal/oci"
-	"github.com/cri-o/cri-o/internal/runtimehandlerhooks"
 )
 
 // StartContainer starts the container.
@@ -20,18 +19,18 @@ func (s *Server) StartContainer(ctx context.Context, req *types.StartContainerRe
 	ctx, span := log.StartSpan(ctx)
 	defer span.End()
 
-	log.Infof(ctx, "Starting container: %s", req.ContainerId)
+	log.Infof(ctx, "Starting container: %s", req.GetContainerId())
 
-	c, err := s.GetContainerFromShortID(ctx, req.ContainerId)
+	c, err := s.GetContainerFromShortID(ctx, req.GetContainerId())
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "could not find container %q: %v", req.ContainerId, err)
+		return nil, status.Errorf(codes.NotFound, "could not find container %q: %v", req.GetContainerId(), err)
 	}
 
 	if c.Restore() {
 		// If the create command found a checkpoint image, the container
 		// has the restore flag set to true. At this point we need to jump
 		// into the restore code.
-		log.Debugf(ctx, "Restoring container %q", req.ContainerId)
+		log.Debugf(ctx, "Restoring container %q", req.GetContainerId())
 
 		ctr, err := s.ContainerRestore(
 			ctx,
@@ -70,10 +69,7 @@ func (s *Server) StartContainer(ctx context.Context, req *types.StartContainerRe
 
 	sandbox := s.getSandbox(ctx, c.Sandbox())
 
-	hooks, err := runtimehandlerhooks.GetRuntimeHandlerHooks(ctx, &s.config, sandbox.RuntimeHandler(), sandbox.Annotations())
-	if err != nil {
-		return nil, fmt.Errorf("failed to get runtime handler %q hooks", sandbox.RuntimeHandler())
-	}
+	hooks := s.hooksRetriever.Get(ctx, sandbox.RuntimeHandler(), sandbox.Annotations())
 
 	if err := s.nri.startContainer(ctx, sandbox, c); err != nil {
 		log.Warnf(ctx, "NRI start failed for container %q: %v", c.ID(), err)

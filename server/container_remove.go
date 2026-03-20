@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/containers/storage"
-	"github.com/containers/storage/pkg/truncindex"
+	"go.podman.io/storage"
+	"go.podman.io/storage/pkg/truncindex"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
@@ -23,9 +23,10 @@ import (
 func (s *Server) RemoveContainer(ctx context.Context, req *types.RemoveContainerRequest) (*types.RemoveContainerResponse, error) {
 	ctx, span := log.StartSpan(ctx)
 	defer span.End()
-	log.Infof(ctx, "Removing container: %s", req.ContainerId)
+
+	log.Infof(ctx, "Removing container: %s", req.GetContainerId())
 	// save container description to print
-	c, err := s.GetContainerFromShortID(ctx, req.ContainerId)
+	c, err := s.GetContainerFromShortID(ctx, req.GetContainerId())
 	if err != nil {
 		// The RemoveContainer RPC is idempotent, and must not return an error
 		// if the container has already been removed. Ref:
@@ -34,7 +35,7 @@ func (s *Server) RemoveContainer(ctx context.Context, req *types.RemoveContainer
 			return &types.RemoveContainerResponse{}, nil
 		}
 
-		return nil, status.Errorf(codes.NotFound, "could not find container %q: %v", req.ContainerId, err)
+		return nil, status.Errorf(codes.NotFound, "could not find container %q: %v", req.GetContainerId(), err)
 	}
 
 	sb := s.getSandbox(ctx, c.Sandbox())
@@ -75,11 +76,6 @@ func (s *Server) removeContainerInPod(ctx context.Context, sb *sandbox.Sandbox, 
 	}
 
 	c.CleanupConmonCgroup(ctx)
-
-	if err := s.ContainerServer.StorageRuntimeServer().StopContainer(ctx, c.ID()); err != nil && !errors.Is(err, storage.ErrContainerUnknown) {
-		// assume container already umounted
-		log.Warnf(ctx, "Failed to stop container %s in pod sandbox %s: %v", c.Name(), sb.ID(), err)
-	}
 
 	if err := s.ContainerServer.StorageRuntimeServer().DeleteContainer(ctx, c.ID()); err != nil && !errors.Is(err, storage.ErrContainerUnknown) {
 		return fmt.Errorf("failed to delete container %s in pod sandbox %s: %w", c.Name(), sb.ID(), err)

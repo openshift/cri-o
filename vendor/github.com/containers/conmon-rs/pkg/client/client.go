@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,7 +11,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -18,18 +21,19 @@ import (
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/blang/semver/v4"
 	"github.com/containers/conmon-rs/internal/proto"
-	"github.com/containers/storage/pkg/idtools"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+	"go.podman.io/storage/pkg/idtools"
 )
 
 const (
-	binaryName     = "conmonrs"
-	socketName     = "conmon.sock"
-	pidFileName    = "pidfile"
-	defaultTimeout = 10 * time.Second
+	binaryName          = "conmonrs"
+	socketName          = "conmon.sock"
+	pidFileName         = "pidfile"
+	defaultTimeout      = 10 * time.Second
+	heaptrackBinaryName = "heaptrack"
 )
 
 var (
@@ -95,6 +99,9 @@ type ConmonServerConfig struct {
 
 	// Tracing can be used to enable OpenTelemetry tracing.
 	Tracing *Tracing
+
+	// Heaptrack can be used to memory profile the server.
+	Heaptrack *Heaptrack
 }
 
 // Tracing is the structure for managing server-side OpenTelemetry tracing.
@@ -108,6 +115,20 @@ type Tracing struct {
 
 	// Tracer allows the client to create additional spans if set.
 	Tracer trace.Tracer
+}
+
+// Heaptrack is the structure for configuring the memory profiling.
+type Heaptrack struct {
+	// Enabled tells the server to run with heaptrack enabled.
+	Enabled bool
+
+	// BinaryPath is the path to the heaptrack binary. Can be empty to lookup
+	// the local $PATH variable.
+	BinaryPath string
+
+	// OutputPath is the storage path for the memory profile. Can be empty to
+	// use the current directory for storing the profile.
+	OutputPath string
 }
 
 // NewConmonServerConfig creates a new ConmonServerConfig instance for the
@@ -177,6 +198,7 @@ func New(config *ConmonServerConfig) (client *ConmonClient, retErr error) {
 
 		return cl, nil
 	}
+
 	if err := cl.startServer(config); err != nil {
 		return nil, fmt.Errorf("start server: %w", err)
 	}
@@ -188,6 +210,10 @@ func New(config *ConmonServerConfig) (client *ConmonClient, retErr error) {
 
 	cl.serverPID = pid
 
+	if config.Heaptrack != nil && config.Heaptrack.Enabled {
+		go cl.attachHeaptrack(config, pid)
+	}
+
 	// Cleanup the background server process
 	// if we fail any of the next steps
 	defer func() {
@@ -197,14 +223,71 @@ func New(config *ConmonServerConfig) (client *ConmonClient, retErr error) {
 			}
 		}
 	}()
+
 	if err := cl.waitUntilServerUp(); err != nil {
 		return nil, fmt.Errorf("wait until server is up: %w", err)
 	}
+
 	if err := os.Remove(cl.pidFile()); err != nil {
 		return nil, fmt.Errorf("remove pid file: %w", err)
 	}
 
 	return cl, nil
+}
+
+// ServerVersion contains the version data of the server instance.
+type ServerVersion struct {
+	// The current version.
+	Version string `json:"version"`
+
+	// The tag of the build, empty if not available.
+	Tag string `json:"tag"`
+
+	// The git commit SHA of the build.
+	Commit string `json:"commit"`
+
+	// The build date string.
+	BuildDate string `json:"build_date"` //nolint:tagliatelle // Rust's serde will use that format.
+
+	// The target triple string.
+	Target string `json:"target"`
+
+	// The used Rust version.
+	RustVersion string `json:"rust_version"` //nolint:tagliatelle // Rust's serde will use that format.
+
+	// The used Cargo version.
+	CargoVersion string `json:"cargo_version"` //nolint:tagliatelle // Rust's serde will use that format.
+
+	// The cargo dependency tree, only available in verbose output.
+	CargoTree string `json:"cargo_tree"` //nolint:tagliatelle // Rust's serde will use that format.
+}
+
+// Version can be used to retrieve the server version without requiring a
+// running Server.
+//
+// If binaryPath is empty, then the default binary will be used.
+// If the server doesn't support it, then an ErrUnsupported error is returned.
+func Version(binaryPath string) (res *ServerVersion, err error) {
+	if binaryPath == "" {
+		binaryPath = binaryName
+	}
+
+	const arg = "--version-json"
+
+	data, err := exec.Command(binaryPath, arg).CombinedOutput()
+	if err != nil {
+		if bytes.Contains(data, []byte("error: unexpected argument")) {
+			return nil, ErrUnsupported
+		}
+
+		return nil, fmt.Errorf("run `%s %s`: %s: %w", binaryPath, arg, string(data), err)
+	}
+
+	if err := json.Unmarshal(data, &res); err != nil {
+		return nil, fmt.Errorf("unmarshal result: %w", err)
+	}
+
+	return res, nil
 }
 
 func (c *ConmonServerConfig) toClient() (*ConmonClient, error) {
@@ -236,6 +319,7 @@ func (c *ConmonClient) startSpan(ctx context.Context, name string) (context.Cont
 	if c.tracer == nil {
 		return ctx, nil
 	}
+
 	const prefix = "conmonrs-client: "
 
 	//nolint:spancheck // https://github.com/jjti/go-spancheck/issues/7
@@ -252,6 +336,7 @@ func (c *ConmonClient) startServer(config *ConmonServerConfig) error {
 	if err != nil {
 		return fmt.Errorf("convert config to args: %w", err)
 	}
+
 	cmd := exec.Command(entrypoint, args...)
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -261,9 +346,11 @@ func (c *ConmonClient) startServer(config *ConmonServerConfig) error {
 	if config.LogDriver == LogDriverStdout {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+
 		if config.Stdout != nil {
 			cmd.Stdout = config.Stdout
 		}
+
 		if config.Stderr != nil {
 			cmd.Stderr = config.Stderr
 		}
@@ -280,22 +367,27 @@ func (c *ConmonClient) toArgs(config *ConmonServerConfig) (entrypoint string, ar
 	if c == nil {
 		return "", args, nil
 	}
+
 	entrypoint = config.ConmonServerPath
 	if entrypoint == "" {
 		path, err := exec.LookPath(binaryName)
 		if err != nil {
 			return "", args, fmt.Errorf("finding path: %w", err)
 		}
+
 		entrypoint = path
 	}
+
 	if config.Runtime == "" {
 		return "", args, errRuntimeUnspecified
 	}
+
 	args = append(args, "--runtime", config.Runtime)
 
 	if config.ServerRunDir == "" {
 		return "", args, errRunDirUnspecified
 	}
+
 	args = append(args, "--runtime-dir", config.ServerRunDir)
 
 	if config.RuntimeRoot != "" {
@@ -306,6 +398,7 @@ func (c *ConmonClient) toArgs(config *ConmonServerConfig) (entrypoint string, ar
 		if err := validateLogLevel(config.LogLevel); err != nil {
 			return "", args, fmt.Errorf("validate log level: %w", err)
 		}
+
 		args = append(args, "--log-level", string(config.LogLevel))
 	}
 
@@ -313,10 +406,12 @@ func (c *ConmonClient) toArgs(config *ConmonServerConfig) (entrypoint string, ar
 		if err := validateLogDriver(config.LogDriver); err != nil {
 			return "", args, fmt.Errorf("validate log driver: %w", err)
 		}
+
 		args = append(args, "--log-driver", string(config.LogDriver))
 	}
 
 	const cgroupManagerFlag = "--cgroup-manager"
+
 	switch config.CgroupManager {
 	case CgroupManagerSystemd:
 		args = append(args, cgroupManagerFlag, "systemd")
@@ -333,6 +428,7 @@ func (c *ConmonClient) toArgs(config *ConmonServerConfig) (entrypoint string, ar
 
 	if config.Tracing != nil && config.Tracing.Enabled {
 		c.tracingEnabled = true
+
 		args = append(args, "--enable-tracing")
 
 		if config.Tracing.Endpoint != "" {
@@ -360,16 +456,15 @@ func validateLogDriver(driver LogDriver) error {
 	return validateStringSlice(
 		"log driver",
 		string(driver),
+		string(LogDriverNone),
 		string(LogDriverStdout),
 		string(LogDriverSystemd),
 	)
 }
 
 func validateStringSlice(typ, given string, possibleValues ...string) error {
-	for _, possibleValue := range possibleValues {
-		if given == possibleValue {
-			return nil
-		}
+	if slices.Contains(possibleValues, given) {
+		return nil
 	}
 
 	return fmt.Errorf("%w: %s %q", errInvalidValue, typ, given)
@@ -380,10 +475,12 @@ func pidGivenFile(file string) (uint32, error) {
 	if err != nil {
 		return 0, fmt.Errorf("reading pid bytes: %w", err)
 	}
+
 	const (
 		base    = 10
 		bitSize = 32
 	)
+
 	pidU64, err := strconv.ParseUint(string(pidBytes), base, bitSize)
 	if err != nil {
 		return 0, fmt.Errorf("parsing pid: %w", err)
@@ -436,15 +533,18 @@ func (c *ConmonClient) newRPCConn() (*rpc.Conn, error) {
 // It assumes a valid path, as well as a file name that doesn't exceed the unix max socket length.
 func DialLongSocket(network, path string) (*net.UnixConn, error) {
 	parent := filepath.Dir(path)
+
 	f, err := os.Open(parent)
 	if err != nil {
 		return nil, fmt.Errorf("open socket parent: %w", err)
 	}
+
 	defer f.Close()
 
 	socketName := filepath.Base(path)
 
 	const procSelfFDPath = "/proc/self/fd"
+
 	socketPath := filepath.Join(procSelfFDPath, strconv.Itoa(int(f.Fd())), socketName)
 
 	conn, err := net.DialUnix(network, nil, &net.UnixAddr{
@@ -507,7 +607,9 @@ func (c *ConmonClient) Version(
 	if err != nil {
 		return nil, fmt.Errorf("create RPC connection: %w", err)
 	}
+
 	defer conn.Close()
+
 	client := proto.Conmon(conn.Bootstrap(ctx))
 
 	future, free := client.Version(ctx, func(p proto.Conmon_version_Params) error {
@@ -524,6 +626,7 @@ func (c *ConmonClient) Version(
 		if cfg != nil {
 			verbose = cfg.Verbose
 		}
+
 		req.SetVerbose(verbose)
 
 		return nil
@@ -549,6 +652,7 @@ func (c *ConmonClient) Version(
 	if err != nil {
 		return nil, fmt.Errorf("parse server version to semver: %w", err)
 	}
+
 	c.serverVersion = semverVersion
 
 	tag, err := response.Tag()
@@ -613,6 +717,7 @@ func (c *ConmonClient) setCgroupManager(
 			"cgroup manager specified in per command config, but global cgroup manager is not set to CgroupManagerPerCommand",
 		)
 	}
+
 	req.SetCgroupManager(proto.Conmon_CgroupManager(cgroupManager))
 }
 
@@ -687,6 +792,7 @@ const (
 	// type.
 	LogDriverTypeContainerRuntimeInterface LogDriverType = iota
 	LogDriverTypeJSONLogger                LogDriverType = iota
+	LogDriverTypeJournald                  LogDriverType = iota
 )
 
 // CreateContainerResponse is the response of the CreateContainer method.
@@ -711,7 +817,9 @@ func (c *ConmonClient) CreateContainer(
 	if err != nil {
 		return nil, fmt.Errorf("create RPC connection: %w", err)
 	}
+
 	defer conn.Close()
+
 	client := proto.Conmon(conn.Bootstrap(ctx))
 
 	future, free := client.CreateContainer(ctx, func(p proto.Conmon_createContainer_Params) error {
@@ -719,20 +827,26 @@ func (c *ConmonClient) CreateContainer(
 		if err != nil {
 			return fmt.Errorf("create request: %w", err)
 		}
+
 		if err := c.setMetadata(ctx, req); err != nil {
 			return err
 		}
+
 		if err := req.SetId(cfg.ID); err != nil {
 			return fmt.Errorf("set ID: %w", err)
 		}
+
 		if err := req.SetBundlePath(cfg.BundlePath); err != nil {
 			return fmt.Errorf("set bundle path: %w", err)
 		}
+
 		req.SetTerminal(cfg.Terminal)
 		req.SetStdin(cfg.Stdin)
+
 		if err := stringSliceToTextList(cfg.ExitPaths, req.NewExitPaths); err != nil {
 			return fmt.Errorf("convert exit paths string slice to text list: %w", err)
 		}
+
 		if err := stringSliceToTextList(cfg.OOMExitPaths, req.NewOomExitPaths); err != nil {
 			return fmt.Errorf("convert oom exit paths string slice to text list: %w", err)
 		}
@@ -840,25 +954,33 @@ func (c *ConmonClient) ExecSyncContainer(ctx context.Context, cfg *ExecSyncConfi
 	defer conn.Close()
 
 	client := proto.Conmon(conn.Bootstrap(ctx))
+
 	future, free := client.ExecSyncContainer(ctx, func(p proto.Conmon_execSyncContainer_Params) error {
 		req, err := p.NewRequest()
 		if err != nil {
 			return fmt.Errorf("create request: %w", err)
 		}
+
 		if err := c.setMetadata(ctx, req); err != nil {
 			return err
 		}
+
 		if err := req.SetId(cfg.ID); err != nil {
 			return fmt.Errorf("set ID: %w", err)
 		}
+
 		req.SetTimeoutSec(cfg.Timeout)
+
 		if err := stringSliceToTextList(cfg.Command, req.NewCommand); err != nil {
 			return err
 		}
+
 		req.SetTerminal(cfg.Terminal)
+
 		if err := stringStringMapToMapEntryList(cfg.EnvVars, req.NewEnvVars); err != nil {
 			return err
 		}
+
 		c.setCgroupManager(cfg.CgroupManager, req)
 
 		return nil
@@ -902,17 +1024,25 @@ func (c *ConmonClient) initLogDrivers(req *proto.Conmon_CreateContainerRequest, 
 	if err != nil {
 		return fmt.Errorf("create log drivers: %w", err)
 	}
+
 	for i, logDriver := range logDrivers {
 		n := newLogDrivers.At(i)
 		if logDriver.Type == LogDriverTypeContainerRuntimeInterface {
 			n.SetType(proto.Conmon_LogDriver_Type_containerRuntimeInterface)
 		}
+
 		if logDriver.Type == LogDriverTypeJSONLogger {
 			n.SetType(proto.Conmon_LogDriver_Type_json)
 		}
+
+		if logDriver.Type == LogDriverTypeJournald {
+			n.SetType(proto.Conmon_LogDriver_Type_journald)
+		}
+
 		if err := n.SetPath(logDriver.Path); err != nil {
 			return fmt.Errorf("set log driver path: %w", err)
 		}
+
 		n.SetMaxSize(logDriver.MaxSize)
 	}
 
@@ -952,6 +1082,7 @@ func (c *ConmonClient) Shutdown() error {
 		waitInterval = 100 * time.Millisecond
 		waitCount    = 100
 	)
+
 	for range waitCount {
 		if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
 			return nil
@@ -990,7 +1121,9 @@ func (c *ConmonClient) ReopenLogContainer(ctx context.Context, cfg *ReopenLogCon
 	if err != nil {
 		return fmt.Errorf("create RPC connection: %w", err)
 	}
+
 	defer conn.Close()
+
 	client := proto.Conmon(conn.Bootstrap(ctx))
 
 	future, free := client.ReopenLogContainer(ctx, func(p proto.Conmon_reopenLogContainer_Params) error {
@@ -1053,6 +1186,7 @@ func (c *ConmonClient) setMetadata(ctx context.Context, req RequestWithMetadata)
 
 	span := trace.SpanFromContext(ctx)
 	m := make(map[string]string)
+
 	if span.SpanContext().HasSpanID() {
 		c.logger.Tracef("Injecting tracing span ID %v", span.SpanContext().SpanID())
 		otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(m))
@@ -1129,6 +1263,7 @@ func (c *ConmonClient) CreateNamespaces(
 
 	// Feature not supported pre v0.5.0
 	const minMinor = 5
+
 	minVersion := semver.Version{Minor: minMinor}
 	if c.serverVersion.LT(minVersion) {
 		return nil, fmt.Errorf("requires at least %v: %w", minVersion, ErrUnsupported)
@@ -1138,7 +1273,9 @@ func (c *ConmonClient) CreateNamespaces(
 	if err != nil {
 		return nil, fmt.Errorf("create RPC connection: %w", err)
 	}
+
 	defer conn.Close()
+
 	client := proto.Conmon(conn.Bootstrap(ctx))
 
 	future, free := client.CreateNamespaces(ctx, func(p proto.Conmon_createNamespaces_Params) error {
@@ -1231,10 +1368,12 @@ func (c *ConmonClient) CreateNamespaces(
 	}
 
 	namespacesResponse := []*NamespacesResponse{}
+
 	for i := range namespaces.Len() {
 		namespace := namespaces.At(i)
 
 		var typ Namespace
+
 		switch namespace.Type() {
 		case proto.Conmon_Namespace_ipc:
 			typ = NamespaceIPC
@@ -1276,4 +1415,287 @@ func mappingsToSlice(mappings []idtools.IDMap) (res []string) {
 	}
 
 	return res
+}
+
+// ServeExecContainerConfig is the configuration for calling the ServeExecContainer method.
+type ServeExecContainerConfig struct {
+	// ID is the container identifier.
+	ID string
+
+	// Command is the command to be run.
+	Command []string
+
+	// Tty indicates if a tty should be used or not.
+	Tty bool
+
+	// Stdin indicates if stdin should be available or not.
+	Stdin bool
+
+	// Stdout indicates if stdout should be available or not.
+	Stdout bool
+
+	// Stderr indicates if stderr should be available or not.
+	Stderr bool
+
+	// CgroupManager can be use to select the cgroup manager.
+	//
+	// To use this option set `ConmonServerConfig.CgroupManager` to
+	// `CgroupManagerPerCommand`.
+	CgroupManager CgroupManager
+}
+
+// ServeExecContainerResult is the result for calling the ServeExecContainer method.
+type ServeExecContainerResult struct {
+	// URL specifies the returned URL.
+	URL string
+}
+
+// ServeExecContainer can be used to execute a command within a running container.
+func (c *ConmonClient) ServeExecContainer(
+	ctx context.Context,
+	cfg *ServeExecContainerConfig,
+) (*ServeExecContainerResult, error) {
+	ctx, span := c.startSpan(ctx, "ServeExecContainer")
+	if span != nil {
+		defer span.End()
+	}
+
+	conn, err := c.newRPCConn()
+	if err != nil {
+		return nil, fmt.Errorf("create RPC connection: %w", err)
+	}
+	defer conn.Close()
+
+	client := proto.Conmon(conn.Bootstrap(ctx))
+
+	future, free := client.ServeExecContainer(ctx, func(p proto.Conmon_serveExecContainer_Params) error {
+		req, err := p.NewRequest()
+		if err != nil {
+			return fmt.Errorf("create request: %w", err)
+		}
+
+		if err := c.setMetadata(ctx, req); err != nil {
+			return err
+		}
+
+		if err := req.SetId(cfg.ID); err != nil {
+			return fmt.Errorf("set ID: %w", err)
+		}
+
+		if err := stringSliceToTextList(cfg.Command, req.NewCommand); err != nil {
+			return fmt.Errorf("convert command to text list: %w", err)
+		}
+
+		req.SetTty(cfg.Tty)
+		req.SetStdin(cfg.Stdin)
+		req.SetStdout(cfg.Stdout)
+		req.SetStderr(cfg.Stderr)
+
+		c.setCgroupManager(cfg.CgroupManager, req)
+
+		return nil
+	})
+	defer free()
+
+	result, err := future.Struct()
+	if err != nil {
+		return nil, fmt.Errorf("create result: %w", err)
+	}
+
+	resp, err := result.Response()
+	if err != nil {
+		return nil, fmt.Errorf("set response: %w", err)
+	}
+
+	url, err := resp.Url()
+	if err != nil {
+		return nil, fmt.Errorf("get url: %w", err)
+	}
+
+	return &ServeExecContainerResult{URL: url}, nil
+}
+
+// ServeAttachContainerConfig is the configuration for calling the ServeAttachContainer method.
+type ServeAttachContainerConfig struct {
+	// ID is the container identifier.
+	ID string
+
+	// Stdin indicates if stdin should be available or not.
+	Stdin bool
+
+	// Stdout indicates if stdout should be available or not.
+	Stdout bool
+
+	// Stderr indicates if stderr should be available or not.
+	Stderr bool
+
+	// CgroupManager can be use to select the cgroup manager.
+	//
+	// To use this option set `ConmonServerConfig.CgroupManager` to
+	// `CgroupManagerPerCommand`.
+	CgroupManager CgroupManager
+}
+
+// ServeAttachContainerResult is the result for calling the ServeAttachContainer method.
+type ServeAttachContainerResult struct {
+	// URL specifies the returned URL.
+	URL string
+}
+
+// ServeAttachContainer can be used to attach to a running container.
+func (c *ConmonClient) ServeAttachContainer(
+	ctx context.Context,
+	cfg *ServeAttachContainerConfig,
+) (*ServeAttachContainerResult, error) {
+	ctx, span := c.startSpan(ctx, "ServeAttachContainer")
+	if span != nil {
+		defer span.End()
+	}
+
+	conn, err := c.newRPCConn()
+	if err != nil {
+		return nil, fmt.Errorf("create RPC connection: %w", err)
+	}
+	defer conn.Close()
+
+	client := proto.Conmon(conn.Bootstrap(ctx))
+
+	future, free := client.ServeAttachContainer(ctx, func(p proto.Conmon_serveAttachContainer_Params) error {
+		req, err := p.NewRequest()
+		if err != nil {
+			return fmt.Errorf("create request: %w", err)
+		}
+
+		if err := c.setMetadata(ctx, req); err != nil {
+			return err
+		}
+
+		if err := req.SetId(cfg.ID); err != nil {
+			return fmt.Errorf("set ID: %w", err)
+		}
+
+		req.SetStdin(cfg.Stdin)
+		req.SetStdout(cfg.Stdout)
+		req.SetStderr(cfg.Stderr)
+
+		return nil
+	})
+	defer free()
+
+	result, err := future.Struct()
+	if err != nil {
+		return nil, fmt.Errorf("create result: %w", err)
+	}
+
+	resp, err := result.Response()
+	if err != nil {
+		return nil, fmt.Errorf("set response: %w", err)
+	}
+
+	url, err := resp.Url()
+	if err != nil {
+		return nil, fmt.Errorf("get url: %w", err)
+	}
+
+	return &ServeAttachContainerResult{URL: url}, nil
+}
+
+// ServePortForwardContainerConfig is the configuration for calling the ServePortForwardContainer method.
+type ServePortForwardContainerConfig struct {
+	// NetNsPath is the path to the network namespace of the container.
+	NetNsPath string
+}
+
+// ServePortForwardContainerResult is the result for calling the ServePortForwardContainer method.
+type ServePortForwardContainerResult struct {
+	// URL specifies the returned URL.
+	URL string
+}
+
+// ServePortForwardContainer can be used to forward ports to a running container.
+func (c *ConmonClient) ServePortForwardContainer(
+	ctx context.Context,
+	cfg *ServePortForwardContainerConfig,
+) (*ServePortForwardContainerResult, error) {
+	ctx, span := c.startSpan(ctx, "ServePortForwardContainer")
+	if span != nil {
+		defer span.End()
+	}
+
+	conn, err := c.newRPCConn()
+	if err != nil {
+		return nil, fmt.Errorf("create RPC connection: %w", err)
+	}
+	defer conn.Close()
+
+	client := proto.Conmon(conn.Bootstrap(ctx))
+
+	future, free := client.ServePortForwardContainer(ctx, func(p proto.Conmon_servePortForwardContainer_Params) error {
+		req, err := p.NewRequest()
+		if err != nil {
+			return fmt.Errorf("create request: %w", err)
+		}
+
+		if err := c.setMetadata(ctx, req); err != nil {
+			return err
+		}
+
+		if err := req.SetNetNsPath(cfg.NetNsPath); err != nil {
+			return fmt.Errorf("set ID: %w", err)
+		}
+
+		return nil
+	})
+	defer free()
+
+	result, err := future.Struct()
+	if err != nil {
+		return nil, fmt.Errorf("create result: %w", err)
+	}
+
+	resp, err := result.Response()
+	if err != nil {
+		return nil, fmt.Errorf("set response: %w", err)
+	}
+
+	url, err := resp.Url()
+	if err != nil {
+		return nil, fmt.Errorf("get url: %w", err)
+	}
+
+	return &ServePortForwardContainerResult{URL: url}, nil
+}
+
+func (c *ConmonClient) attachHeaptrack(config *ConmonServerConfig, pid uint32) {
+	c.logger.Infof("Attaching heaptrack to PID %d", pid)
+
+	args := []string{"--record-only"}
+
+	if config.Heaptrack.OutputPath != "" {
+		args = append(args, "-o", config.Heaptrack.OutputPath)
+	}
+
+	args = append(args, "-p", strconv.FormatUint(uint64(pid), 10))
+
+	entrypoint := config.Heaptrack.BinaryPath
+	if entrypoint == "" {
+		path, err := exec.LookPath(heaptrackBinaryName)
+		if err != nil {
+			c.logger.Errorf("Unable to find heaptrack path: %v", err)
+
+			return
+		}
+
+		entrypoint = path
+	}
+
+	c.logger.Debugf("Running heaptrack via: %s %s", entrypoint, strings.Join(args, " "))
+
+	cmd := exec.Command(entrypoint, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		c.logger.Errorf("Unable to run heaptrack: %v", err)
+	}
 }

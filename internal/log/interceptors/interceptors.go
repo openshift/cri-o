@@ -15,6 +15,7 @@ import (
 
 type ServerStream struct {
 	grpc.ServerStream
+
 	NewContext context.Context
 }
 
@@ -61,7 +62,7 @@ func UnaryInterceptor() grpc.UnaryServerInterceptor {
 		operationStart := time.Now()
 		operation := filepath.Base(info.FullMethod)
 		newCtx, span := opentelemetry.Tracer().Start(AddRequestNameAndID(ctx, info.FullMethod), info.FullMethod)
-		log.Debugf(newCtx, "Request: %+v", req)
+		log.Debugf(newCtx, "Request: %T: %+v", req, req)
 
 		resp, err := handler(newCtx, req)
 		// record the operation
@@ -73,7 +74,7 @@ func UnaryInterceptor() grpc.UnaryServerInterceptor {
 			log.Debugf(newCtx, "Response error: %+v", err)
 			metrics.Instance().MetricOperationsErrorsInc(operation)
 		} else {
-			log.Debugf(newCtx, "Response: %+v", resp)
+			log.Debugf(newCtx, "Response: %T: %+v", resp, resp)
 		}
 
 		span.End()

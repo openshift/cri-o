@@ -5,6 +5,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -32,6 +33,8 @@ var (
 		"runtimes",                    // printed as separate table
 		"workloads",                   // printed as separate table
 		"manage_network_ns_lifecycle", // deprecated
+		"default_validator",           // printed as a separate table
+		"namespaced_auth_dir",         // hidden
 	}
 
 	// Tags where it should not validate the values.
@@ -45,6 +48,8 @@ var (
 	// Tags where it should not validate the values.
 	excludedCLI = []string{
 		"workloads", // too complex an option for a CLI flag
+		"default_validator",
+		"namespaced_auth_dir", // hidden
 	}
 
 	// Mapping for inconsistencies between tags and CLI arguments.
@@ -233,13 +238,7 @@ func openFile(path string) []byte {
 }
 
 func stringInSlice(a string, list []string) bool {
-	for _, b := range list {
-		if b == a {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(list, a)
 }
 
 func allEntries(c *config.Config) []entry {
@@ -288,7 +287,7 @@ func recursiveEntries(
 
 			if !stringInSlice(tag, excludedTagsValue) {
 				switch {
-				case field.Type.Implements(reflect.TypeOf((*stringer)(nil)).Elem()):
+				case field.Type.Implements(reflect.TypeFor[stringer]()):
 					// We need a checked type assertion to make golangci-lint happy...
 					if str, ok := vv.MethodByName("String").Interface().(func() string); ok {
 						// if the field is a pointer and nil, skip validation

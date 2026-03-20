@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	storagetypes "github.com/containers/storage"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	storagetypes "go.podman.io/storage"
 	"go.uber.org/mock/gomock"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
@@ -44,7 +44,6 @@ var _ = t.Describe("ImageRemove", func() {
 					Return(&storage.ImageResult{ID: storageID}, nil),
 				imageServerMock.EXPECT().UntagImage(gomock.Any(),
 					resolvedImageName).Return(nil),
-				storeMock.EXPECT().GraphRoot().Return(""),
 			)
 			// When
 			_, err := sut.RemoveImage(context.Background(),

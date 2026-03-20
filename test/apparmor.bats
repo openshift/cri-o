@@ -7,10 +7,13 @@ function teardown() {
 }
 
 # AppArmor tests have to run in sequence since they modify the system state
-# shellcheck disable=SC2030
+# shellcheck disable=SC2030,SC2218
 @test "apparmor tests (in sequence)" {
 	if ! is_apparmor_enabled; then
 		skip "apparmor not enabled"
+	fi
+	if [[ "$ARCH" == "aarch64" ]]; then
+		skip "apparmor tests fail on arm64 with crun"
 	fi
 
 	load_default_apparmor_profile_and_run_a_container_with_it

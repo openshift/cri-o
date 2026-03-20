@@ -13,6 +13,7 @@ crio
 ```
 [--absent-mount-sources-to-reject]=[value]
 [--add-inheritable-capabilities]
+[--additional-artifact-stores]=[value]
 [--additional-devices]=[value]
 [--allowed-devices]=[value]
 [--apparmor-profile]=[value]
@@ -88,11 +89,19 @@ crio
 [--namespaces-dir]=[value]
 [--no-pivot]
 [--nri-disable-connections]
+[--nri-enable-default-validator]
 [--nri-listen]=[value]
 [--nri-plugin-config-dir]=[value]
 [--nri-plugin-dir]=[value]
 [--nri-plugin-registration-timeout]=[value]
 [--nri-plugin-request-timeout]=[value]
+[--nri-validator-reject-custom-seccomp-adjustment]
+[--nri-validator-reject-namespace-adjustment]
+[--nri-validator-reject-oci-hook-adjustment]
+[--nri-validator-reject-runtime-default-seccomp-adjustment]
+[--nri-validator-reject-unconfined-seccomp-adjustment]
+[--nri-validator-required-plugins]=[value]
+[--nri-validator-tolerate-missing-plugins-annotation]=[value]
 [--oci-artifact-mount-support]
 [--pause-command]=[value]
 [--pause-image-auth-file]=[value]
@@ -115,6 +124,7 @@ crio
 [--selinux]
 [--separate-pull-cgroup]=[value]
 [--shared-cpuset]=[value]
+[--short-name-mode]=[value]
 [--signature-policy-dir]=[value]
 [--signature-policy]=[value]
 [--stats-collection-period]=[value]
@@ -128,6 +138,8 @@ crio
 [--stream-tls-cert]=[value]
 [--stream-tls-key]=[value]
 [--timezone|--tz]=[value]
+[--tls-cipher-suites]=[value]
+[--tls-min-version]=[value]
 [--tracing-endpoint]=[value]
 [--tracing-sampling-rate-per-million]=[value]
 [--uid-mappings]=[value]
@@ -163,6 +175,8 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 **--absent-mount-sources-to-reject**="": A list of paths that, when absent from the host, will cause a container creation to fail (as opposed to the current behavior of creating a directory).
 
 **--add-inheritable-capabilities**: Add capabilities to the inheritable set, as well as the default group of permitted, bounding and effective.
+
+**--additional-artifact-stores**="": Additional read-only OCI artifact store paths.
 
 **--additional-devices**="": Devices to add to the containers.
 
@@ -299,6 +313,7 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 **--infra-ctr-cpuset**="": CPU set to run infra containers, if not specified CRI-O will use all online CPUs to run infra containers.
 
 **--insecure-registry**="": Enable insecure registry communication, i.e., enable un-encrypted and/or untrusted communication.
+    This option is deprecated. Please use "insecure" in registries.conf instead.
     1. List of insecure registries can contain an element with CIDR notation to
        specify a whole subnet.
     2. Insecure registries accept HTTP or accept HTTPS with certificates from
@@ -335,7 +350,7 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 
 **--metrics-cert**="": Certificate for the secure metrics endpoint.
 
-**--metrics-collectors**="": Enabled metrics collectors. (default: "image_pulls_layer_size", "containers_events_dropped_total", "containers_oom_total", "processes_defunct", "operations_total", "operations_latency_seconds", "operations_latency_seconds_total", "operations_errors_total", "image_pulls_bytes_total", "image_pulls_skipped_bytes_total", "image_pulls_failure_total", "image_pulls_success_total", "image_layer_reuse_total", "containers_oom_count_total", "containers_seccomp_notifier_count_total", "resources_stalled_at_stage")
+**--metrics-collectors**="": Enabled metrics collectors. (default: "image_pulls_layer_size", "containers_events_dropped_total", "containers_oom_total", "processes_defunct", "operations_total", "operations_latency_seconds", "operations_latency_seconds_total", "operations_errors_total", "image_pulls_bytes_total", "image_pulls_skipped_bytes_total", "image_pulls_failure_total", "image_pulls_success_total", "image_layer_reuse_total", "containers_oom_count_total", "containers_seccomp_notifier_count_total", "resources_stalled_at_stage", "containers_stopped_monitor_count")
 
 **--metrics-host**="": Host for the metrics endpoint. (default: "127.0.0.1")
 
@@ -355,6 +370,8 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 
 **--nri-disable-connections**: Disable connections from externally started NRI plugins.
 
+**--nri-enable-default-validator**: Enable the default NRI validator plugin.
+
 **--nri-listen**="": Socket to listen on for externally started NRI plugins to connect to. (default: "/var/run/nri/nri.sock")
 
 **--nri-plugin-config-dir**="": Directory to scan for configuration of pre-installed NRI plugins. (default: "/etc/nri/conf.d")
@@ -365,11 +382,25 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 
 **--nri-plugin-request-timeout**="": Timeout for a plugin to handle an NRI request. (default: 2s)
 
+**--nri-validator-reject-custom-seccomp-adjustment**: Reject NRI plugin adjustment of custom seccomp policy.
+
+**--nri-validator-reject-namespace-adjustment**: Reject NRI plugin adjustment of linux namespaces.
+
+**--nri-validator-reject-oci-hook-adjustment**: Reject NRI plugin adjustment of OCI Hooks.
+
+**--nri-validator-reject-runtime-default-seccomp-adjustment**: Reject NRI plugin adjustment of runtime default seccomp policy.
+
+**--nri-validator-reject-unconfined-seccomp-adjustment**: Reject NRI plugin adjustment of unconfined seccomp policy.
+
+**--nri-validator-required-plugins**="": List of required NRI plugins that must be present.
+
+**--nri-validator-tolerate-missing-plugins-annotation**="": Name of the annotation used to indicate toleration of missing required NRI plugins.
+
 **--oci-artifact-mount-support**: If true, CRI-O can mount OCI artifacts as volumes.
 
 **--pause-command**="": Path to the pause executable in the pause image. (default: "/pause")
 
-**--pause-image**="": Image which contains the pause executable. (default: "registry.k8s.io/pause:3.10")
+**--pause-image**="": Image which contains the pause executable. (default: "registry.k8s.io/pause:3.10.1")
 
 **--pause-image-auth-file**="": Path to a config file containing credentials for --pause-image.
 
@@ -409,6 +440,8 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 
 **--shared-cpuset**="": CPUs set that will be used for guaranteed containers that want access to shared cpus
 
+**--short-name-mode**="": Describes the mode of short name resolution. Allowed values are 'enforcing' and 'disabled'. (default: "enforcing")
+
 **--signature-policy**="": Path to signature policy JSON file.
 
 **--signature-policy-dir**="": Path to the root directory for namespaced signature policies. Must be an absolute path. (default: "/etc/crio/policies")
@@ -434,6 +467,10 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 **--stream-tls-key**="": Path to the key file used to serve the encrypted stream. This file can change and CRI-O will automatically pick up the changes.
 
 **--timezone, --tz**="": To set the timezone for a container in CRI-O. If an empty string is provided, CRI-O retains its default behavior. Use 'Local' to match the timezone of the host machine.
+
+**--tls-cipher-suites**="": Comma-separated list of cipher suites for TLS 1.2.
+
+**--tls-min-version**="": Minimum TLS version for streaming and metrics servers (VersionTLS12 or VersionTLS13). (default: "VersionTLS12")
 
 **--tracing-endpoint**="": Address on which the gRPC tracing collector will listen. (default: "127.0.0.1:4317")
 

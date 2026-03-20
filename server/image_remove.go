@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	storagetypes "github.com/containers/storage"
+	storagetypes "go.podman.io/storage"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	"github.com/cri-o/cri-o/internal/log"
@@ -19,10 +19,10 @@ func (s *Server) RemoveImage(ctx context.Context, req *types.RemoveImageRequest)
 	defer span.End()
 
 	imageRef := ""
-	img := req.Image
+	img := req.GetImage()
 
 	if img != nil {
-		imageRef = img.Image
+		imageRef = img.GetImage()
 	}
 
 	if imageRef == "" {

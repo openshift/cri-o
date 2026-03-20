@@ -17,14 +17,14 @@ import (
 	"time"
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
-	criu "github.com/checkpoint-restore/go-criu/v7/utils"
-	"github.com/containers/common/pkg/crutils"
+	criu "github.com/checkpoint-restore/go-criu/v8/utils"
 	conmonconfig "github.com/containers/conmon/runner/config"
-	"github.com/containers/storage/pkg/pools"
 	"github.com/fsnotify/fsnotify"
-	json "github.com/json-iterator/go"
+	json "github.com/goccy/go-json"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/pkg/crutils"
+	"go.podman.io/storage/pkg/pools"
 	"golang.org/x/sys/unix"
 	kwait "k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/remotecommand"
@@ -101,6 +101,19 @@ type exitCodeInfo struct {
 	Message  string `json:"message,omitempty"`
 }
 
+// execCmdWrapper wraps exec.Cmd to implement the ExecStarter interface.
+type execCmdWrapper struct {
+	cmd *exec.Cmd
+}
+
+func (w *execCmdWrapper) Start() error {
+	return w.cmd.Start()
+}
+
+func (w *execCmdWrapper) GetPid() int {
+	return w.cmd.Process.Pid
+}
+
 // CreateContainer creates a container.
 func (r *runtimeOCI) CreateContainer(ctx context.Context, c *Container, cgroupParent string, restore bool) (retErr error) {
 	ctx, span := log.StartSpan(ctx)
@@ -109,6 +122,9 @@ func (r *runtimeOCI) CreateContainer(ctx context.Context, c *Container, cgroupPa
 	if c.Spoofed() {
 		return nil
 	}
+
+	// Get the container create timeout for this runtime handler
+	timeout := time.Duration(r.handler.ContainerCreateTimeout) * time.Second
 
 	var stderrBuf bytes.Buffer
 
@@ -298,10 +314,12 @@ func (r *runtimeOCI) CreateContainer(ctx context.Context, c *Container, cgroupPa
 
 			return
 		}
+
 		ch <- syncStruct{si: si}
 	}()
 
 	var pid int
+
 	select {
 	case ss := <-ch:
 		if ss.err != nil {
@@ -328,8 +346,8 @@ func (r *runtimeOCI) CreateContainer(ctx context.Context, c *Container, cgroupPa
 
 			return errors.New("container create failed")
 		}
-	case <-time.After(ContainerCreateTimeout):
-		log.Errorf(ctx, "Container creation timeout (%v)", ContainerCreateTimeout)
+	case <-time.After(timeout):
+		log.Errorf(ctx, "Container creation timeout (%v)", timeout)
 
 		return errors.New("create container timeout")
 	}
@@ -339,13 +357,39 @@ func (r *runtimeOCI) CreateContainer(ctx context.Context, c *Container, cgroupPa
 		return err
 	}
 
+	c.state.ContainerMonitorProcess, err = r.getConmonProcess(c)
+	if err != nil {
+		return err
+	}
+
+	c.SetMonitorProcess(ctx)
+
 	return nil
+}
+
+// getConmonProcess returns the pid and the start time of conmon.
+func (r *runtimeOCI) getConmonProcess(c *Container) (*ContainerMonitorProcess, error) {
+	conmonPid, err := ReadConmonPidFile(c)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read conmon pid: %w", err)
+	}
+
+	startTime, err := getPidStartTime(conmonPid)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conmon pid start time: %w", err)
+	}
+
+	return &ContainerMonitorProcess{
+		Pid:       conmonPid,
+		StartTime: startTime,
+	}, nil
 }
 
 // StartContainer starts a container.
 func (r *runtimeOCI) StartContainer(ctx context.Context, c *Container) error {
 	_, span := log.StartSpan(ctx)
 	defer span.End()
+
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
 
@@ -450,7 +494,24 @@ func (r *runtimeOCI) ExecContainer(ctx context.Context, c *Container, cmd []stri
 	args := r.defaultRuntimeArgs()
 	args = append(args, "exec", "--process", processFile, c.ID())
 
-	execCmd := cmdrunner.CommandContext(ctx, c.RuntimePathForPlatform(r), args...) //nolint: gosec
+	var execCmd *exec.Cmd
+	// execCgroupPath is set only when ExecCPUAffinity is used.
+	if execCgroupPath := c.ExecCgroupPath(); execCgroupPath != "" {
+		// When execCgroupPath is used, we don't prepend the taskset command even if InfraCtrCPUSet is set.
+		// Otherwise, the taskset command may fail.
+		execCmd = exec.CommandContext(ctx, c.RuntimePathForPlatform(r), args...) //nolint: gosec
+
+		execCgroupFD, err := os.Open(execCgroupPath)
+		if err != nil {
+			return fmt.Errorf("failed to open exec cgroup %s: %w", execCgroupPath, err)
+		}
+		defer execCgroupFD.Close()
+
+		setSysProcAttr(execCmd, execCgroupFD.Fd())
+	} else {
+		execCmd = cmdrunner.CommandContext(ctx, c.RuntimePathForPlatform(r), args...) //nolint: gosec
+	}
+
 	if v, found := os.LookupEnv("XDG_RUNTIME_DIR"); found {
 		execCmd.Env = append(execCmd.Env, "XDG_RUNTIME_DIR="+v)
 	}
@@ -494,12 +555,8 @@ func (r *runtimeOCI) ExecContainer(ctx context.Context, c *Container, cmd []stri
 			execCmd.Stderr = stderr
 		}
 
-		if err := execCmd.Start(); err != nil {
-			return err
-		}
-
-		pid := execCmd.Process.Pid
-		if err := c.AddExecPID(pid, true); err != nil {
+		pid, err := c.StartExecCmd(&execCmdWrapper{cmd: execCmd}, true)
+		if err != nil {
 			return err
 		}
 		defer c.DeleteExecPID(pid)
@@ -574,6 +631,7 @@ func (r *runtimeOCI) ExecSyncContainer(ctx context.Context, c *Container, comman
 	logFile.Close()
 
 	logPath := logFile.Name()
+
 	defer func() {
 		os.RemoveAll(logPath)
 	}()
@@ -624,7 +682,23 @@ func (r *runtimeOCI) ExecSyncContainer(ctx context.Context, c *Container, comman
 
 	var cmd *exec.Cmd
 
-	if r.handler.MonitorExecCgroup == config.MonitorExecCgroupDefault || r.config.InfraCtrCPUSet == "" { //nolint: gocritic
+	// execCgroupPath is set only when ExecCPUAffinity is used.
+	if execCgroupPath := c.ExecCgroupPath(); execCgroupPath != "" {
+		// When execCgroupPath is used, we don't prepend the taskset command even if InfraCtrCPUSet is set.
+		// Otherwise, the taskset command may fail.
+		cmd = exec.Command(r.handler.MonitorPath, args...) //nolint: gosec
+
+		execCgroupFD, err := os.Open(execCgroupPath)
+		if err != nil {
+			return nil, &ExecSyncError{
+				ExitCode: -1,
+				Err:      fmt.Errorf("failed to open exec cgroup %s: %w", execCgroupPath, err),
+			}
+		}
+		defer execCgroupFD.Close()
+
+		setSysProcAttr(cmd, execCgroupFD.Fd())
+	} else if r.handler.MonitorExecCgroup == config.MonitorExecCgroupDefault || r.config.InfraCtrCPUSet == "" { //nolint: gocritic
 		cmd = cmdrunner.Command(r.handler.MonitorPath, args...) //nolint: gosec
 	} else if r.handler.MonitorExecCgroup == config.MonitorExecCgroupContainer {
 		cmd = exec.Command(r.handler.MonitorPath, args...) //nolint: gosec
@@ -638,13 +712,14 @@ func (r *runtimeOCI) ExecSyncContainer(ctx context.Context, c *Container, comman
 	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
+
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
 
 	cmd.ExtraFiles = append(cmd.ExtraFiles, childPipe, childStartPipe)
 	r.prepareEnv(cmd, true)
 
-	err = cmd.Start()
+	pid, err := c.StartExecCmd(&execCmdWrapper{cmd: cmd}, false)
 	if err != nil {
 		childPipe.Close()
 		childStartPipe.Close()
@@ -679,14 +754,10 @@ func (r *runtimeOCI) ExecSyncContainer(ctx context.Context, c *Container, comman
 				if !errors.As(waitErr, &exitErr) || exitErr.ExitCode() != -1 {
 					retErr = fmt.Errorf("failed to wait %w after failing with: %w", waitErr, retErr)
 				}
+				// Clean up the PID registration since the exec failed
+				c.DeleteExecPID(pid)
 			}
 		}()
-
-		// A neat trick we can do is register the exec PID before we send info down the start pipe.
-		// Doing so guarantees we can short circuit the exec process if the container is stopping already.
-		if err := c.AddExecPID(cmd.Process.Pid, false); err != nil {
-			return err
-		}
 
 		if r.handler.MonitorExecCgroup == config.MonitorExecCgroupContainer && r.config.InfraCtrCPUSet != "" {
 			// Update the exec's cgroup
@@ -695,7 +766,7 @@ func (r *runtimeOCI) ExecSyncContainer(ctx context.Context, c *Container, comman
 				return err
 			}
 
-			err = cgmgr.MoveProcessToContainerCgroup(containerPid, cmd.Process.Pid)
+			err = cgmgr.MoveProcessToContainerCgroup(containerPid, pid)
 			if err != nil {
 				return err
 			}
@@ -717,9 +788,6 @@ func (r *runtimeOCI) ExecSyncContainer(ctx context.Context, c *Container, comman
 			Err:      err,
 		}
 	}
-
-	// defer in case the Pid is changed after Wait()
-	pid := cmd.Process.Pid
 
 	// first, wait till the command is done
 	waitErr := cmd.Wait()
@@ -882,7 +950,7 @@ func (r *runtimeOCI) StopContainer(ctx context.Context, c *Container, timeout in
 	if c.SetAsStopping() {
 		// The API is due to be deprecated. However, the replacement is completely broken, see:
 		//   https://github.com/kubernetes/kubernetes/issues/118638
-		go r.StopLoopForContainer(c,
+		go r.StopLoopForContainer(context.WithoutCancel(ctx), c,
 			kwait.NewExponentialBackoffManager( //nolint:staticcheck // Ignore deprecated function warning.
 				stopInitialBackoff,
 				stopMaximumBackoff,
@@ -899,9 +967,7 @@ func (r *runtimeOCI) StopContainer(ctx context.Context, c *Container, timeout in
 	return nil
 }
 
-func (r *runtimeOCI) StopLoopForContainer(c *Container, bm kwait.BackoffManager) {
-	ctx := context.Background()
-
+func (r *runtimeOCI) StopLoopForContainer(ctx context.Context, c *Container, bm kwait.BackoffManager) {
 	ctx, span := log.StartSpan(ctx)
 	defer span.End()
 
@@ -912,6 +978,7 @@ func (r *runtimeOCI) StopLoopForContainer(c *Container, bm kwait.BackoffManager)
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 
 	c.opLock.Lock()
+
 	defer func() {
 		// Kill the exec PIDs after the main container to avoid pod lifecycle regressions:
 		// Ref: https://github.com/kubernetes/kubernetes/issues/124743
@@ -1002,6 +1069,7 @@ func (r *runtimeOCI) StopLoopForContainer(c *Container, bm kwait.BackoffManager)
 
 		case <-time.After(time.Until(targetTime)):
 			log.Warnf(ctx, "Stopping container %s with stop signal(%s) timed out. Killing...", c.ID(), c.GetStopSignal())
+			c.SetStopKillLoopBegun()
 
 			goto killContainer
 
@@ -1013,6 +1081,7 @@ func (r *runtimeOCI) StopLoopForContainer(c *Container, bm kwait.BackoffManager)
 			return
 		}
 	}
+
 killContainer:
 	// We cannot use ExponentialBackoff() here as its stop conditions are not flexible enough.
 	kwait.BackoffUntil(func() {
@@ -1025,10 +1094,13 @@ killContainer:
 		}
 
 		if err := c.Living(); err != nil {
+			log.Debugf(ctx, "Container is no longer alive")
 			stop()
 
 			return
 		}
+
+		log.Debugf(ctx, "Killing failed for some reasons, retrying...")
 		// Reschedule the timer so that the periodic reminder can continue.
 		blockedTimer.Reset(stopProcessBlockedInterval)
 	}, bm, true, ctx.Done())
@@ -1038,6 +1110,7 @@ killContainer:
 func (r *runtimeOCI) DeleteContainer(ctx context.Context, c *Container) error {
 	_, span := log.StartSpan(ctx)
 	defer span.End()
+
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
 
@@ -1090,6 +1163,7 @@ func updateContainerStatusFromExitFile(c *Container) error {
 func (r *runtimeOCI) UpdateContainerStatus(ctx context.Context, c *Container) error {
 	ctx, span := log.StartSpan(ctx)
 	defer span.End()
+
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
 
@@ -1106,19 +1180,13 @@ func (r *runtimeOCI) UpdateContainerStatus(ctx context.Context, c *Container) er
 	stateCmd := func() (*ContainerState, bool, error) {
 		out, err := r.runtimeCmd("state", c.ID())
 		if err != nil {
-			// there are many code paths that could lead to have a bad state in the
+			log.Errorf(ctx, "Failed to update container state for %s: %v", c.ID(), err)
+			// There are many code paths that could lead to have a bad state in the
 			// underlying runtime.
 			// On any error like a container went away or we rebooted and containers
 			// went away we do not error out stopping kubernetes to recover.
 			// We always populate the fields below so kube can restart/reschedule
 			// containers failing.
-			var exitErr *exec.ExitError
-			if errors.As(err, &exitErr) {
-				log.Errorf(ctx, "Failed to update container state for %s: stdout: %s, stderr: %s", c.ID(), out, string(exitErr.Stderr))
-			} else {
-				log.Errorf(ctx, "Failed to update container state for %s: %v", c.ID(), err)
-			}
-
 			c.state.Status = ContainerStateStopped
 			if err := updateContainerStatusFromExitFile(c); err != nil {
 				log.Errorf(ctx, "Failed to update container status from exit file for %s: %v", c.ID(), err)
@@ -1148,6 +1216,7 @@ func (r *runtimeOCI) UpdateContainerStatus(ctx context.Context, c *Container) er
 
 	if state.Status != ContainerStateStopped {
 		*c.state = *state
+		c.SetMonitorProcess(ctx)
 
 		return nil
 	}
@@ -1244,28 +1313,29 @@ func (r *runtimeOCI) UnpauseContainer(ctx context.Context, c *Container) error {
 func (r *runtimeOCI) ContainerStats(ctx context.Context, c *Container, cgroup string) (*cgmgr.CgroupStats, error) {
 	_, span := log.StartSpan(ctx)
 	defer span.End()
+
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
 
 	return r.config.CgroupManager().ContainerCgroupStats(cgroup, c.ID())
 }
 
-// SignalContainer sends a signal to a container process.
-func (r *runtimeOCI) SignalContainer(ctx context.Context, c *Container, sig syscall.Signal) error {
+// DiskStats provides disk usage statistics of a container.
+func (r *runtimeOCI) DiskStats(ctx context.Context, c *Container, cgroup string) (*DiskMetrics, error) {
 	_, span := log.StartSpan(ctx)
 	defer span.End()
+
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
 
-	if c.Spoofed() {
-		return nil
+	// Get disk usage from the container's mount point
+	mountPoint := c.MountPoint()
+	if mountPoint == "" {
+		return nil, fmt.Errorf("container %s has no mount point", c.ID())
 	}
 
-	if unix.SignalName(sig) == "" {
-		return fmt.Errorf("unable to find signal %s", sig.String())
-	}
-
-	return r.signalContainer(c, sig, false)
+	// Get disk usage statistics directly
+	return GetDiskUsageForPath(mountPoint)
 }
 
 func (r *runtimeOCI) signalContainer(c *Container, sig syscall.Signal, all bool) error {
@@ -1319,12 +1389,15 @@ func (r *runtimeOCI) AttachContainer(ctx context.Context, c *Container, inputStr
 	defer conn.Close()
 
 	receiveStdout := make(chan error)
+
 	go func() {
 		receiveStdout <- redirectResponseToOutputStreams(outputStream, errorStream, conn)
+
 		close(receiveStdout)
 	}()
 
 	stdinDone := make(chan error)
+
 	go func() {
 		var err, closeErr error
 		if inputStream != nil {
@@ -1406,6 +1479,7 @@ func (r *runtimeOCI) ReopenContainerLog(ctx context.Context, c *Container) error
 
 					if event.Name == c.LogPath() {
 						log.Debugf(ctx, "Expected log file created")
+
 						done <- struct{}{}
 
 						return
@@ -1413,6 +1487,7 @@ func (r *runtimeOCI) ReopenContainerLog(ctx context.Context, c *Container) error
 				}
 			case err := <-watcher.Errors:
 				errorCh <- fmt.Errorf("watch error for container log reopen %v: %w", c.ID(), err)
+
 				close(errorCh)
 
 				return
@@ -1724,4 +1799,37 @@ func (r *runtimeOCI) checkpointRestoreSupported(runtimePath string) error {
 
 func (r *runtimeOCI) IsContainerAlive(c *Container) bool {
 	return c.Living() == nil
+}
+
+func (r *runtimeOCI) ProbeMonitor(ctx context.Context, c *Container) error {
+	c.monitorProcessLock.Lock()
+	defer c.monitorProcessLock.Unlock()
+
+	if c.monitorProcess == nil {
+		// It's possible when the container has existed before crio was updated.
+		// Or it already doesn't exist.
+		log.Debugf(ctx, "Conmon for container %s doesn't exist", c.ID())
+
+		return nil
+	}
+
+	if err := c.monitorProcess.Signal(syscall.Signal(0)); !errors.Is(err, os.ErrProcessDone) {
+		return err
+	}
+
+	if r.IsContainerAlive(c) {
+		metrics.Instance().MetricContainersStoppedMonitorCountInc(c.Name())
+		log.Errorf(ctx, "Conmon for container %s is stopped, although the container is running", c.ID())
+		c.monitorProcess = nil
+	}
+
+	return nil
+}
+
+func (r *runtimeOCI) ServeExecContainer(context.Context, *Container, []string, bool, bool, bool, bool) (string, error) {
+	return "", nil
+}
+
+func (r *runtimeOCI) ServeAttachContainer(context.Context, *Container, bool, bool, bool) (string, error) {
+	return "", nil
 }

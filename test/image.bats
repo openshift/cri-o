@@ -104,7 +104,9 @@ function teardown() {
 	mkdir -p "$TESTDIR/imagestore"
 	CONTAINER_IMAGESTORE="$TESTDIR/imagestore" start_crio
 
-	FEDORA="registry.fedoraproject.org/fedora"
+	# registry.fedoraproject.org is pretty flaky
+	# Moving to the stable quay.io
+	FEDORA="quay.io/fedora/fedora"
 	crictl pull $FEDORA
 	imageid=$(crictl images --quiet "$FEDORA")
 	[ "$imageid" != "" ]
@@ -394,4 +396,30 @@ EOF
 	CONTAINER_PULL_PROGRESS_TIMEOUT=0 start_crio
 
 	crictl pull "$IMAGE_LIST_TAG"
+}
+
+@test "short name mode enabled should fail to pull ambiguous image" {
+	start_crio
+
+	# There should be many nginx images
+	run crictl pull nginx
+	[[ "$output" == *"short name mode is enforcing, but image name nginx returns ambiguous list"* ]]
+	[[ "$status" -ne 0 ]]
+}
+
+@test "short name mode disabled should succeed to pull ambiguous image" {
+	CONTAINER_SHORT_NAME_MODE="disabled" start_crio
+
+	# There should be many nginx images
+	crictl pull nginx
+}
+
+@test "image pull should not fall back to OCI artifact on network error" {
+	start_crio
+
+	# 192.0.2.1 is TEST-NET-1 (RFC 5737), guaranteed unreachable
+	run ! crictl pull 192.0.2.1/test/image:latest
+
+	# Network errors should not trigger the OCI artifact fallback
+	run ! grep -q "Falling back" "$CRIO_LOG"
 }

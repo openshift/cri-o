@@ -11,8 +11,8 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/cri-o/cri-o/internal/config/seccomp/seccompociartifact"
-	"github.com/cri-o/cri-o/internal/ociartifact"
-	"github.com/cri-o/cri-o/pkg/annotations"
+	"github.com/cri-o/cri-o/internal/ociartifact/datastore"
+	v2 "github.com/cri-o/cri-o/pkg/annotations/v2"
 	seccompociartifactmock "github.com/cri-o/cri-o/test/mocks/seccompociartifact"
 )
 
@@ -23,25 +23,30 @@ var _ = t.Describe("SeccompOCIArtifact", func() {
 
 		var (
 			sut           *seccompociartifact.SeccompOCIArtifact
-			testArtifacts []ociartifact.ArtifactData
+			testArtifacts []datastore.ArtifactData
 			implMock      *seccompociartifactmock.MockImpl
 			mockCtrl      *gomock.Controller
 			errTest       = errors.New("test")
+			tempDir       string
+			err           error
 		)
 
 		BeforeEach(func() {
 			logrus.SetOutput(io.Discard)
 
-			sut = seccompociartifact.New("", nil)
+			tempDir = t.MustTempDir("ociartifact")
+
+			sut, err = seccompociartifact.New(tempDir, nil)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(sut).NotTo(BeNil())
 
 			mockCtrl = gomock.NewController(GinkgoT())
 			implMock = seccompociartifactmock.NewMockImpl(mockCtrl)
 			sut.SetImpl(implMock)
 
-			testArtifact := ociartifact.ArtifactData{}
+			testArtifact := datastore.ArtifactData{}
 			testArtifact.SetData([]byte(testProfileContent))
-			testArtifacts = []ociartifact.ArtifactData{testArtifact}
+			testArtifacts = []datastore.ArtifactData{testArtifact}
 		})
 
 		AfterEach(func() {
@@ -84,7 +89,7 @@ var _ = t.Describe("SeccompOCIArtifact", func() {
 			// When
 			res, err := sut.TryPull(context.Background(), "container", nil,
 				map[string]string{
-					annotations.SeccompProfileAnnotation + "/container": "test",
+					v2.SeccompProfile + "/container": "test",
 				})
 
 			// Then
@@ -118,7 +123,7 @@ var _ = t.Describe("SeccompOCIArtifact", func() {
 			// When
 			res, err := sut.TryPull(context.Background(), "container",
 				map[string]string{
-					annotations.SeccompProfileAnnotation + "/container": "test",
+					v2.SeccompProfile + "/container": "test",
 				}, nil)
 
 			// Then
@@ -131,7 +136,7 @@ var _ = t.Describe("SeccompOCIArtifact", func() {
 			// When
 			res, err := sut.TryPull(context.Background(), "another-container",
 				map[string]string{
-					annotations.SeccompProfileAnnotation + "/container": "test",
+					v2.SeccompProfile + "/container": "test",
 				}, nil)
 
 			// Then

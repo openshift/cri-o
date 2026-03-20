@@ -7,8 +7,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/containers/storage/pkg/mount"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	"go.podman.io/storage/pkg/mount"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
@@ -60,7 +60,6 @@ func TestGetDecryptionKeys(t *testing.T) {
 	}
 
 	cc, err := getDecryptionKeys(keysDir)
-
 	if err != nil && cc != nil {
 		t.Fatalf("Unable to find the expected keys")
 	}

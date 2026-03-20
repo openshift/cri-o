@@ -7,11 +7,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/containers/storage/pkg/idtools"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
 	"github.com/opencontainers/selinux/go-selinux/label"
+	"go.podman.io/storage/pkg/idtools"
 	"golang.org/x/sys/unix"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
@@ -97,14 +97,14 @@ func (b *sandboxBuilder) createResolvConf(podContainer *storage.ContainerInfo, s
 	// set DNS options
 	b.sandboxRef.resolvPath = podContainer.RunDir + "/resolv.conf"
 
-	if b.config.DnsConfig == nil {
+	if b.config.GetDnsConfig() == nil {
 		// Ref https://github.com/kubernetes/kubernetes/issues/120748#issuecomment-1922220911
 		b.config.DnsConfig = &types.DNSConfig{}
 	}
 
-	dnsServers := b.config.DnsConfig.Servers
-	dnsSearches := b.config.DnsConfig.Searches
-	dnsOptions := b.config.DnsConfig.Options
+	dnsServers := b.config.GetDnsConfig().GetServers()
+	dnsSearches := b.config.GetDnsConfig().GetSearches()
+	dnsOptions := b.config.GetDnsConfig().GetOptions()
 	err := ParseDNSOptions(dnsServers, dnsSearches, dnsOptions, b.sandboxRef.resolvPath)
 
 	defer func() {

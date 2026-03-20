@@ -220,12 +220,6 @@ type runner struct {
 // newInternal returns a new Interface which will exec iptables, and allows the
 // caller to change the iptables-restore lockfile path.
 func newInternal(ctx context.Context, exec utilexec.Interface, protocol Protocol, lockfilePath14x, lockfilePath16x string) Interface {
-	version, err := getIPTablesVersion(exec, protocol)
-	if err != nil {
-		log.Warnf(ctx, "Error checking iptables version, assuming version at least: %s (version=%q)", err, MinCheckVersion)
-		version = MinCheckVersion
-	}
-
 	if lockfilePath16x == "" {
 		lockfilePath16x = LockfilePath16x
 	}
@@ -237,13 +231,24 @@ func newInternal(ctx context.Context, exec utilexec.Interface, protocol Protocol
 	runner := &runner{
 		exec:            exec,
 		protocol:        protocol,
-		hasCheck:        version.AtLeast(MinCheckVersion),
-		hasRandomFully:  version.AtLeast(RandomFullyMinVersion),
-		waitFlag:        getIPTablesWaitFlag(version),
-		restoreWaitFlag: getIPTablesRestoreWaitFlag(version, exec, protocol),
 		lockfilePath14x: lockfilePath14x,
 		lockfilePath16x: lockfilePath16x,
 	}
+
+	version, err := getIPTablesVersion(exec, protocol)
+	if err != nil {
+		// The only likely error is "no such file or directory", in which case any
+		// further commands will fail the same way, so we don't need to do
+		// anything special here.
+		log.Debugf(ctx, "Error checking iptables version: %v", err)
+
+		return runner
+	}
+
+	runner.hasCheck = version.AtLeast(MinCheckVersion)
+	runner.hasRandomFully = version.AtLeast(RandomFullyMinVersion)
+	runner.waitFlag = getIPTablesWaitFlag(version)
+	runner.restoreWaitFlag = getIPTablesRestoreWaitFlag(version, exec, protocol)
 
 	return runner
 }
@@ -547,7 +552,7 @@ func (runner *runner) checkRuleWithoutCheck(table Table, chain Chain, args ...st
 
 	argset := sets.NewString(argsCopy...)
 
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		fields := strings.Fields(line)
 
 		// Check that this is a rule for the correct chain, and that it has
@@ -580,7 +585,6 @@ func (runner *runner) checkRuleUsingCheck(args []string) (bool, error) {
 	defer cancel()
 
 	out, err := runner.runContext(ctx, opCheckRule, args)
-
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return false, errors.New("timed out while checking rules")
 	}

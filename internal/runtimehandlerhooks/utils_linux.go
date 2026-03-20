@@ -88,7 +88,7 @@ func invertByteArray(in []byte) (out []byte) {
 		out = append(out, byte(0xff)-b)
 	}
 
-	return
+	return out
 }
 
 // take a byte array and returns true when bits of every byte element
@@ -103,18 +103,13 @@ func isAllBitSet(in []byte) bool {
 	return true
 }
 
-// UpdateIRQSmpAffinityMask take input cpus that need to change irq affinity mask and
-// the current mask string, return an update mask string and inverted mask, with those cpus
-// enabled or disable in the mask.
-func UpdateIRQSmpAffinityMask(cpus, current string, set bool) (cpuMask, bannedCPUMask string, err error) {
-	podcpuset, err := cpuset.Parse(cpus)
-	if err != nil {
-		return cpus, "", err
-	}
-
+// calcIRQSMPAffinityMask takes cpuset containerCPUSet that needs to change irq affinity mask and
+// the current mask string, as well as bool set. It then returns an updated mask string and inverted mask, with those
+// CPUs enabled or disable in the mask.
+func calcIRQSMPAffinityMask(containerCPUSet cpuset.CPUSet, current string, set bool) (cpuMask, bannedCPUMask string, err error) {
 	// only ascii string supported
 	if !isASCII(current) {
-		return cpus, "", fmt.Errorf("non ascii character detected: %s", current)
+		return "", "", fmt.Errorf("non ascii character detected: %s", current)
 	}
 
 	// remove ","; now each element is "0-9,a-f"
@@ -125,12 +120,12 @@ func UpdateIRQSmpAffinityMask(cpus, current string, set bool) (cpuMask, bannedCP
 	// and the MSb (left-most bit) represents the highest cpu id from the byte
 	currentMaskArray, err := mapHexCharToByte(s)
 	if err != nil {
-		return cpus, "", err
+		return "", "", err
 	}
 
 	invertedMaskArray := invertByteArray(currentMaskArray)
 
-	for _, cpu := range podcpuset.List() {
+	for _, cpu := range containerCPUSet.List() {
 		if set {
 			// each byte represent 8 cpus
 			currentMaskArray[cpu/8] |= cpuMaskByte(cpu % 8)
@@ -155,8 +150,8 @@ func UpdateIRQSmpAffinityMask(cpus, current string, set bool) (cpuMask, bannedCP
 	return maskStringWithComma, invertedMaskStringWithComma, nil
 }
 
-func restartIrqBalanceService() error {
-	return cmdrunner.Command("systemctl", "restart", "irqbalance").Run()
+func restartService(serviceName string) error {
+	return cmdrunner.Command("systemctl", "restart", serviceName).Run()
 }
 
 func isServiceEnabled(serviceName string) bool {
@@ -210,8 +205,8 @@ func retrieveIrqBannedCPUMasks(irqBalanceConfigFile string) (string, error) {
 		return "", err
 	}
 
-	lines := strings.Split(string(input), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(string(input), "\n")
+	for line := range lines {
 		if strings.HasPrefix(line, irqBalanceBannedCpus+"=") {
 			return strings.Trim(strings.Split(line, "=")[1], "\""), nil
 		}

@@ -17,14 +17,13 @@ import (
 	"time"
 
 	"github.com/containers/kubensmnt"
-	"github.com/containers/storage/pkg/reexec"
-	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/soheilhy/cmux"
 	"github.com/uptrace/opentelemetry-go-extra/otellogrus"
 	"github.com/urfave/cli/v2"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.podman.io/storage/pkg/reexec"
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	v1 "k8s.io/cri-api/pkg/apis/runtime/v1"
@@ -250,6 +249,7 @@ func main() {
 
 				return fmt.Errorf("could not start CPU profiling: %w", err)
 			}
+
 			defer pprof.StopCPUProfile()
 		}
 
@@ -309,6 +309,11 @@ func main() {
 			logrus.Infof("FLAG: --%s=\"%v\"\n", flagName, flagValue)
 		}
 
+		// TODO: delete this check in future releases
+		if _, ok := os.LookupEnv("CONTAINER_INCLUDED_POD_METRCIS"); ok {
+			logrus.Warnf("CONTAINER_INCLUDED_POD_METRCIS (typo) will be ineffective in future releases. Use CONTAINER_INCLUDED_POD_METRICS instead.")
+		}
+
 		// Print the current configuration.
 		tomlConfig, err := config.ToString()
 		if err != nil {
@@ -343,12 +348,8 @@ func main() {
 		}
 
 		grpcServer := grpc.NewServer(
-			grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(
-				interceptors.UnaryInterceptor(),
-			)),
-			grpc.StreamInterceptor(grpc_middleware.ChainStreamServer(
-				interceptors.StreamInterceptor(),
-			)),
+			grpc.UnaryInterceptor(interceptors.UnaryInterceptor()),
+			grpc.StreamInterceptor(interceptors.StreamInterceptor()),
 			grpc.StatsHandler(otelgrpc.NewServerHandler(opts...)),
 			grpc.MaxSendMsgSize(config.GRPCMaxSendMsgSize),
 			grpc.MaxRecvMsgSize(config.GRPCMaxRecvMsgSize),
@@ -452,6 +453,7 @@ func main() {
 		}()
 
 		serverCloseCh := make(chan struct{})
+
 		go func() {
 			defer close(serverCloseCh)
 
@@ -463,6 +465,7 @@ func main() {
 		}()
 
 		streamServerCloseCh := crioServer.StreamingServerCloseChan()
+
 		serverMonitorsCh := crioServer.MonitorsCloseChan()
 		select {
 		case <-streamServerCloseCh:
@@ -501,6 +504,7 @@ func main() {
 			}
 
 			defer file.Close()
+
 			runtime.GC()
 
 			if err := pprof.WriteHeapProfile(file); err != nil {
@@ -510,7 +514,6 @@ func main() {
 
 		return nil
 	}
-
 	if err := app.Run(os.Args); err != nil {
 		logrus.Fatal(err)
 	}

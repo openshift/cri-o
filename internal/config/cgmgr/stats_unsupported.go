@@ -3,13 +3,15 @@
 package cgmgr
 
 import (
-	"github.com/containers/storage/pkg/system"
+	"go.podman.io/storage/pkg/system"
 )
 
 type CgroupStats struct {
 	Memory     *MemoryStats
 	CPU        *CPUStats
+	Hugetlb    map[string]HugetlbStats
 	Pid        *PidsStats
+	DiskIO     *DiskIOStats
 	SystemNano int64
 }
 
@@ -44,10 +46,22 @@ type CPUStats struct {
 	ThrottledTime uint64
 }
 
-type PidsStats struct {
-	Current uint64
-	Limit   uint64
+type HugetlbStats struct {
+	Usage uint64
+	Max   uint64
 }
+
+type PidsStats struct {
+	Current         uint64
+	Limit           uint64
+	FileDescriptors uint64
+	Sockets         uint64
+	Threads         uint64
+	ThreadsMax      uint64
+	UlimitsSoft     uint64
+}
+
+type DiskIOStats struct{}
 
 // MemLimitGivenSystem limit returns the memory limit for a given cgroup
 // If the configured memory limit is larger than the total memory on the sys, the

@@ -44,8 +44,12 @@ fi
 
 # The number of parallel jobs to execute tests
 export JOBS=${JOBS:-$(nproc --all)}
+# The maximum number of additional attempts that will be made on a failed test before it is finally considered failed.
+# https://bats-core.readthedocs.io/en/stable/writing-tests.html#special-variables
+export BATS_TEST_RETRIES=1
 
 bats --version
 
 # Run the tests.
-execute bats --jobs "$JOBS" --tap "${TESTS[@]}"
+execute bats --jobs "$JOBS" --tap "${TESTS[@]}" --filter-tags '!crio:serial'
+execute bats --tap "${TESTS[@]}" --filter-tags 'crio:serial'

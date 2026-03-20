@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/containers/image/v5/docker/reference"
-	istorage "github.com/containers/image/v5/storage"
-	"github.com/containers/image/v5/types"
-	cs "github.com/containers/storage"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	digest "github.com/opencontainers/go-digest"
+	"go.podman.io/image/v5/docker/reference"
+	istorage "go.podman.io/image/v5/storage"
+	"go.podman.io/image/v5/types"
+	cs "go.podman.io/storage"
 	"go.uber.org/mock/gomock"
 
 	"github.com/cri-o/cri-o/internal/mockutils"
@@ -29,7 +29,6 @@ var _ = t.Describe("Image", func() {
 		testDockerRegistry                  = "docker.io"
 		testQuayRegistry                    = "quay.io"
 		testRedHatRegistry                  = "registry.access.redhat.com"
-		testFedoraRegistry                  = "registry.fedoraproject.org"
 		testImageName                       = "image"
 		testImageAlias                      = "image-for-testing"
 		testImageAliasResolved              = "registry.crio.test.com/repo"
@@ -68,8 +67,7 @@ var _ = t.Describe("Image", func() {
 				SystemRegistriesConfPath: t.MustTempFile("registries"),
 			},
 			ImageConfig: config.ImageConfig{
-				DefaultTransport:   "docker://",
-				InsecureRegistries: []string{},
+				DefaultTransport: "docker://",
 			},
 		}
 
@@ -105,8 +103,7 @@ var _ = t.Describe("Image", func() {
 					SystemRegistriesConfPath: "../../test/registries.conf",
 				},
 				ImageConfig: config.ImageConfig{
-					DefaultTransport:   "",
-					InsecureRegistries: []string{},
+					DefaultTransport: "",
 				},
 			}
 			imageService, err := storage.GetImageService(
@@ -183,7 +180,8 @@ var _ = t.Describe("Image", func() {
 			// When
 			refs, err := sut.CandidatesForPotentiallyShortImageName(
 				&types.SystemContext{
-					SystemRegistriesConfPath: "../../test/registries.conf",
+					SystemRegistriesConfPath:    "../../test/registries.conf",
+					SystemRegistriesConfDirPath: t.MustTempDir("registries.conf.d"),
 				},
 				testImageName,
 			)
@@ -193,7 +191,6 @@ var _ = t.Describe("Image", func() {
 			Expect(refsToNames(refs)).To(Equal([]string{
 				testQuayRegistry + "/" + testImageName + ":latest",
 				testRedHatRegistry + "/" + testImageName + ":latest",
-				testFedoraRegistry + "/" + testImageName + ":latest",
 				testDockerRegistry + "/library/" + testImageName + ":latest",
 			}))
 		})
@@ -238,7 +235,8 @@ var _ = t.Describe("Image", func() {
 			// When
 			refs, err := sut.CandidatesForPotentiallyShortImageName(
 				&types.SystemContext{
-					SystemRegistriesConfPath: "../../test/registries.conf",
+					SystemRegistriesConfPath:    "../../test/registries.conf",
+					SystemRegistriesConfDirPath: t.MustTempDir("registries.conf.d"),
 				},
 				testImageWithTagAndDigest,
 			)
@@ -247,7 +245,6 @@ var _ = t.Describe("Image", func() {
 			Expect(refsToNames(refs)).To(Equal([]string{
 				testQuayRegistry + "/" + testImageName + "@sha256:" + testSHA256,
 				testRedHatRegistry + "/" + testImageName + "@sha256:" + testSHA256,
-				testFedoraRegistry + "/" + testImageName + "@sha256:" + testSHA256,
 				testDockerRegistry + "/library/" + testImageName + "@sha256:" + testSHA256,
 			}))
 		})
@@ -284,8 +281,7 @@ var _ = t.Describe("Image", func() {
 			config := &config.Config{
 				SystemContext: ctx,
 				ImageConfig: config.ImageConfig{
-					DefaultTransport:   "",
-					InsecureRegistries: []string{},
+					DefaultTransport: "",
 				},
 			}
 			// Create an empty file for the registries config path
@@ -296,7 +292,8 @@ var _ = t.Describe("Image", func() {
 			// When
 			refs, err := sut.CandidatesForPotentiallyShortImageName(
 				&types.SystemContext{
-					SystemRegistriesConfPath: "/dev/null",
+					SystemRegistriesConfPath:    "/dev/null",
+					SystemRegistriesConfDirPath: t.MustTempDir("registries.conf.d"),
 				},
 				testImageName,
 			)
@@ -589,9 +586,6 @@ var _ = t.Describe("Image", func() {
 
 		It("should fail on copy image", func() {
 			// Given
-			mockutils.InOrder(
-				storeMock.EXPECT().GraphRoot().Return(""),
-			)
 			imageRef, err := references.ParseRegistryImageReferenceFromOutOfProcessData("localhost/busybox:latest")
 			Expect(err).ToNot(HaveOccurred())
 
@@ -607,9 +601,6 @@ var _ = t.Describe("Image", func() {
 
 		It("should fail on canonical copy image", func() {
 			// Given
-			mockutils.InOrder(
-				storeMock.EXPECT().GraphRoot().Return(""),
-			)
 			imageRef, err := references.ParseRegistryImageReferenceFromOutOfProcessData("localhost/busybox@sha256:" + testSHA256)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -625,9 +616,6 @@ var _ = t.Describe("Image", func() {
 
 		It("should fail on cancelled context", func() {
 			// Given
-			mockutils.InOrder(
-				storeMock.EXPECT().GraphRoot().Return(""),
-			)
 			imageRef, err := references.ParseRegistryImageReferenceFromOutOfProcessData("localhost/busybox:latest")
 			Expect(err).ToNot(HaveOccurred())
 
@@ -646,9 +634,6 @@ var _ = t.Describe("Image", func() {
 
 		It("should fail on timed out context", func() {
 			// Given
-			mockutils.InOrder(
-				storeMock.EXPECT().GraphRoot().Return(""),
-			)
 			imageRef, err := references.ParseRegistryImageReferenceFromOutOfProcessData("localhost/busybox:latest")
 			Expect(err).ToNot(HaveOccurred())
 
@@ -668,12 +653,12 @@ var _ = t.Describe("Image", func() {
 
 	t.Describe("CompileRegexpsForPinnedImages", func() {
 		It("should return regexps for exact patterns", func() {
-			patterns := []string{"quay.io/crio/pause:latest", "docker.io/crio/sandbox:latest", "registry.k8s.io/pause:3.10"}
+			patterns := []string{"quay.io/crio/pause:latest", "docker.io/crio/sandbox:latest", "registry.k8s.io/pause:3.10.1"}
 			regexps := storage.CompileRegexpsForPinnedImages(patterns)
 			Expect(regexps).To(HaveLen(len(patterns)))
 			Expect(regexps[0].MatchString("quay.io/crio/pause:latest")).To(BeTrue())
 			Expect(regexps[1].MatchString("docker.io/crio/sandbox:latest")).To(BeTrue())
-			Expect(regexps[2].MatchString("registry.k8s.io/pause:3.10")).To(BeTrue())
+			Expect(regexps[2].MatchString("registry.k8s.io/pause:3.10.1")).To(BeTrue())
 		})
 
 		It("should return regexps for keyword patterns", func() {

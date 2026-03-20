@@ -6,22 +6,22 @@ import (
 	"io"
 	"os"
 
-	criu "github.com/checkpoint-restore/go-criu/v7/utils"
-	"github.com/containers/storage/pkg/archive"
-	"github.com/containers/storage/pkg/unshare"
+	criu "github.com/checkpoint-restore/go-criu/v8/utils"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"go.podman.io/storage/pkg/archive"
+	"go.podman.io/storage/pkg/unshare"
 	"go.uber.org/mock/gomock"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	kubetypes "k8s.io/kubelet/pkg/types"
 
+	crioann "github.com/cri-o/cri-o/internal/annotations"
 	"github.com/cri-o/cri-o/internal/mockutils"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/internal/storage"
 	"github.com/cri-o/cri-o/internal/storage/references"
-	crioann "github.com/cri-o/cri-o/pkg/annotations"
 )
 
 var _ = t.Describe("ContainerRestore", func() {
@@ -350,6 +350,10 @@ var _ = t.Describe("ContainerRestore", func() {
 			{`{"rootfsImageName": "image"}`, false},
 			{`{"rootfsImageRef": "8a788232037eaf17794408ff3df6b922a1aedf9ef8de36afdae3ed0b0381907b"}`, true},
 		}
+		var graphRoot string
+		BeforeEach(func() {
+			graphRoot = t.MustTempDir("ociartifact")
+		})
 		for _, image := range images {
 			It(fmt.Sprintf("should succeed (%s)", image.config), func() {
 				if unshare.IsRootless() {
@@ -476,7 +480,7 @@ var _ = t.Describe("ContainerRestore", func() {
 						),
 					runtimeServerMock.EXPECT().StartContainer(gomock.Any()).
 						Return(emptyDir, nil),
-					storeMock.EXPECT().GraphRoot().Return(""),
+					storeMock.EXPECT().GraphRoot().Return(graphRoot),
 				)
 
 				// When

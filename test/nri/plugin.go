@@ -16,6 +16,7 @@ type PluginOption func(*plugin)
 
 type plugin struct {
 	sync.Mutex
+
 	namespace string
 	options   []stub.Option
 	stub      stub.Stub
@@ -526,6 +527,7 @@ func (p *plugin) WaitEvent(evt *event, timeout time.Duration) *event {
 		if e != nil && (evt == nil || e.Matches(evt)) {
 			return e
 		}
+
 		select {
 		case <-deadline:
 			return nil

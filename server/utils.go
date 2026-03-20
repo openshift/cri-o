@@ -12,9 +12,9 @@ import (
 
 	encconfig "github.com/containers/ocicrypt/config"
 	cryptUtils "github.com/containers/ocicrypt/utils"
-	"github.com/containers/storage/pkg/mount"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/storage/pkg/mount"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	"github.com/cri-o/cri-o/internal/log"
@@ -48,11 +48,11 @@ func mergeEnvs(imageConfig *v1.Image, kubeEnvs []*types.KeyValue) []string {
 		envs = imageConfig.Config.Env
 	} else {
 		for _, item := range kubeEnvs {
-			if item.Key == "" {
+			if item.GetKey() == "" {
 				continue
 			}
 
-			envs = append(envs, item.Key+"="+item.Value)
+			envs = append(envs, item.GetKey()+"="+item.GetValue())
 		}
 
 		if imageConfig != nil {
@@ -101,6 +101,7 @@ func getDecryptionKeys(keysPath string) (*encconfig.DecryptConfig, error) {
 	}
 
 	base64Keys := []string{}
+
 	walkFn := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -125,7 +126,6 @@ func getDecryptionKeys(keysPath string) (*encconfig.DecryptConfig, error) {
 
 		return nil
 	}
-
 	if err := filepath.Walk(keysPath, walkFn); err != nil {
 		return nil, err
 	}
@@ -190,6 +190,7 @@ func (s *Server) getResourceOrWait(ctx context.Context, name, resourceType strin
 	metrics.Instance().MetricResourcesStalledAtStage(stage)
 
 	var err error
+
 	select {
 	// We should wait as long as we can (within reason), thus stalling the kubelet's sync loop.
 	// This will prevent "name is reserved" errors popping up every two seconds.

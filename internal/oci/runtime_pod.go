@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"syscall"
+	"strings"
 
-	"github.com/containers/common/pkg/resize"
 	conmonClient "github.com/containers/conmon-rs/pkg/client"
 	conmonconfig "github.com/containers/conmon/runner/config"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/pkg/resize"
 	"k8s.io/client-go/tools/remotecommand"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
@@ -59,10 +59,38 @@ func newRuntimePod(r *Runtime, handler *config.RuntimeHandler, c *Container) (Ru
 		cgroupManager = conmonClient.CgroupManagerCgroupfs
 	}
 
+	heaptrack := &conmonClient.Heaptrack{}
+	logDriver := conmonClient.LogDriverNone
+
+	for _, env := range handler.MonitorEnv {
+		keyVal := strings.SplitN(env, "=", 2)
+		if len(keyVal) != 2 {
+			logrus.Warnf("Skipping monitor env %q because it is not in key=value format", env)
+
+			continue
+		}
+
+		switch keyVal[0] {
+		case "LOG_DRIVER":
+			logDriver = conmonClient.LogDriver(keyVal[1])
+
+		case "HEAPTRACK_OUTPUT_PATH":
+			heaptrack.Enabled = true
+			heaptrack.OutputPath = filepath.Join(keyVal[1], "cri-o.conmon-rs."+c.ID())
+
+		case "HEAPTRACK_BINARY_PATH":
+			heaptrack.Enabled = true
+			heaptrack.BinaryPath = keyVal[1]
+
+		default:
+			logrus.Warnf("Unknown monitor env option %q", env)
+		}
+	}
+
 	client, err := conmonClient.New(&conmonClient.ConmonServerConfig{
 		ConmonServerPath: handler.MonitorPath,
 		LogLevel:         conmonClient.FromLogrusLevel(logrus.GetLevel()),
-		LogDriver:        conmonClient.LogDriverSystemd,
+		LogDriver:        logDriver,
 		Runtime:          handler.RuntimePath,
 		ServerRunDir:     c.dir,
 		RuntimeRoot:      runRoot,
@@ -72,6 +100,7 @@ func newRuntimePod(r *Runtime, handler *config.RuntimeHandler, c *Container) (Ru
 			Enabled:  r.config.EnableTracing,
 			Endpoint: "http://" + r.config.TracingEndpoint,
 		},
+		Heaptrack: heaptrack,
 	})
 	if err != nil {
 		return nil, err
@@ -151,7 +180,28 @@ func (r *runtimePod) CreateContainer(ctx context.Context, c *Container, cgroupPa
 		return fmt.Errorf("set init PID: %w", err)
 	}
 
+	c.state.ContainerMonitorProcess, err = r.getConmonrsProcess()
+	if err != nil {
+		return err
+	}
+
+	c.SetMonitorProcess(ctx)
+
 	return nil
+}
+
+func (r *runtimePod) getConmonrsProcess() (*ContainerMonitorProcess, error) {
+	conmonrsPid := int(r.client.PID())
+
+	startTime, err := getPidStartTime(conmonrsPid)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conmonrs pid start time: %w", err)
+	}
+
+	return &ContainerMonitorProcess{
+		Pid:       conmonrsPid,
+		StartTime: startTime,
+	}, nil
 }
 
 func (r *runtimePod) StartContainer(ctx context.Context, c *Container) error {
@@ -251,8 +301,8 @@ func (r *runtimePod) ContainerStats(ctx context.Context, c *Container, cgroup st
 	return r.oci.ContainerStats(ctx, c, cgroup)
 }
 
-func (r *runtimePod) SignalContainer(ctx context.Context, c *Container, sig syscall.Signal) error {
-	return r.oci.SignalContainer(ctx, c, sig)
+func (r *runtimePod) DiskStats(ctx context.Context, c *Container, cgroup string) (*DiskMetrics, error) {
+	return r.oci.DiskStats(ctx, c, cgroup)
 }
 
 func (r *runtimePod) AttachContainer(ctx context.Context, c *Container, inputStream io.Reader, outputStream, errorStream io.WriteCloser, tty bool, resizeChan <-chan remotecommand.TerminalSize) error {
@@ -261,7 +311,9 @@ func (r *runtimePod) AttachContainer(ctx context.Context, c *Container, inputStr
 
 	utils.HandleResizing(resizeChan, func(size remotecommand.TerminalSize) {
 		var libpodEvent resize.TerminalSize
+
 		libpodEvent.Height = size.Height
+
 		libpodEvent.Width = size.Width
 		libpodResize <- libpodEvent
 	})
@@ -310,4 +362,38 @@ func (r *runtimePod) ReopenContainerLog(ctx context.Context, c *Container) error
 
 func (r *runtimePod) IsContainerAlive(c *Container) bool {
 	return c.Living() == nil
+}
+
+func (r *runtimePod) ProbeMonitor(ctx context.Context, c *Container) error {
+	return r.oci.ProbeMonitor(ctx, c)
+}
+
+func (r *runtimePod) ServeExecContainer(ctx context.Context, c *Container, cmd []string, tty, stdin, stdout, stderr bool) (string, error) {
+	res, err := r.client.ServeExecContainer(ctx, &conmonClient.ServeExecContainerConfig{
+		ID:      c.ID(),
+		Command: cmd,
+		Tty:     tty,
+		Stdin:   stdin,
+		Stdout:  stdout,
+		Stderr:  stderr,
+	})
+	if err != nil {
+		return "", fmt.Errorf("call ServeExecContainer RPC: %w", err)
+	}
+
+	return res.URL, nil
+}
+
+func (r *runtimePod) ServeAttachContainer(ctx context.Context, c *Container, stdin, stdout, stderr bool) (string, error) {
+	res, err := r.client.ServeAttachContainer(ctx, &conmonClient.ServeAttachContainerConfig{
+		ID:     c.ID(),
+		Stdin:  stdin,
+		Stdout: stdout,
+		Stderr: stderr,
+	})
+	if err != nil {
+		return "", fmt.Errorf("call ServeAttachContainer RPC: %w", err)
+	}
+
+	return res.URL, nil
 }

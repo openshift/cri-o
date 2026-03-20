@@ -86,6 +86,7 @@ func setupLogging() {
 
 type nriTest struct {
 	*testing.T
+
 	namespace string
 	plugins   []*plugin
 	options   [][]PluginOption
@@ -244,6 +245,7 @@ func (t *nriTest) removeContainer(ctr string) {
 
 func (t *nriTest) execShellScript(ctr, cmd string) (stdout, stderr []byte, exitCode int32) {
 	var err error
+
 	stdout, stderr, exitCode, err = crio.ExecSync(ctr, []string{"sh", "-c", cmd})
 	require.NoError(t, err, "exec in container %s", ctr)
 

@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"math"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/acarl005/stripansi"
@@ -26,7 +26,7 @@ type Bar struct {
 	cancel       func()
 }
 
-type syncTable [2][]chan int
+type decorSyncTable [2][]*decor.Sync
 type extenderFunc func(decor.Statistics, ...io.Reader) ([]io.Reader, error)
 
 // bState is actual bar's state.
@@ -145,15 +145,14 @@ func (b *Bar) Current() int64 {
 // operation for example.
 func (b *Bar) SetRefill(amount int64) {
 	select {
-	case b.operateState <- func(s *bState) {
-		if amount < s.current {
-			s.refill = amount
-		} else {
-			s.refill = s.current
-		}
-	}:
+	case b.operateState <- func(s *bState) { s.refill = min(amount, s.current) }:
 	case <-b.ctx.Done():
 	}
+}
+
+// SetRefillCurrent sets refill to the current amount.
+func (b *Bar) SetRefillCurrent() {
+	b.SetRefill(math.MaxInt64)
 }
 
 // TraverseDecorators traverses available decorators and calls `cb`
@@ -272,21 +271,14 @@ func (b *Bar) EwmaIncrBy(n int, iterDur time.Duration) {
 func (b *Bar) EwmaIncrInt64(n int64, iterDur time.Duration) {
 	select {
 	case b.operateState <- func(s *bState) {
-		var wg sync.WaitGroup
-		wg.Add(len(s.ewmaDecorators))
 		for _, d := range s.ewmaDecorators {
-			d := d
-			go func() {
-				d.EwmaUpdate(n, iterDur)
-				wg.Done()
-			}()
+			d.EwmaUpdate(n, iterDur)
 		}
 		s.current += n
 		if s.triggerComplete && s.current >= s.total {
 			s.current = s.total
 			s.triggerCompletion(b)
 		}
-		wg.Wait()
 	}:
 	case <-b.ctx.Done():
 	}
@@ -301,21 +293,14 @@ func (b *Bar) EwmaSetCurrent(current int64, iterDur time.Duration) {
 	select {
 	case b.operateState <- func(s *bState) {
 		n := current - s.current
-		var wg sync.WaitGroup
-		wg.Add(len(s.ewmaDecorators))
 		for _, d := range s.ewmaDecorators {
-			d := d
-			go func() {
-				d.EwmaUpdate(n, iterDur)
-				wg.Done()
-			}()
+			d.EwmaUpdate(n, iterDur)
 		}
 		s.current = current
 		if s.triggerComplete && s.current >= s.total {
 			s.current = s.total
 			s.triggerCompletion(b)
 		}
-		wg.Wait()
 	}:
 	case <-b.ctx.Done():
 	}
@@ -394,13 +379,14 @@ func (b *Bar) Wait() {
 }
 
 func (b *Bar) serve(bs *bState) {
+	defer b.container.bwg.Done()
 	decoratorsOnShutdown := func(group []decor.Decorator) {
 		for _, d := range group {
 			if d, ok := unwrap(d).(decor.ShutdownListener); ok {
 				b.container.bwg.Add(1)
 				go func() {
+					defer b.container.bwg.Done()
 					d.OnShutdown()
-					b.container.bwg.Done()
 				}()
 			}
 		}
@@ -416,7 +402,6 @@ func (b *Bar) serve(bs *bState) {
 			bs.aborted = !bs.completed()
 			b.bs = bs
 			close(b.bsOk)
-			b.container.bwg.Done()
 			return
 		}
 	}
@@ -472,8 +457,8 @@ func (b *Bar) tryEarlyRefresh(renderReq chan<- time.Time) {
 	}
 }
 
-func (b *Bar) wSyncTable() syncTable {
-	result := make(chan syncTable)
+func (b *Bar) wSyncTable() decorSyncTable {
+	result := make(chan decorSyncTable)
 	select {
 	case b.operateState <- func(s *bState) { result <- s.wSyncTable() }:
 		return <-result
@@ -536,14 +521,14 @@ func (s *bState) draw(stat decor.Statistics) (_ io.Reader, err error) {
 	), nil
 }
 
-func (s *bState) wSyncTable() (table syncTable) {
+func (s *bState) wSyncTable() (table decorSyncTable) {
 	var start int
-	var row []chan int
+	var row []*decor.Sync
 
 	for i, group := range s.decorGroups {
 		for _, d := range group {
-			if ch, ok := d.Sync(); ok {
-				row = append(row, ch)
+			if s, ok := d.Sync(); ok {
+				row = append(row, s)
 			}
 		}
 		table[i], start = row[start:], len(row)

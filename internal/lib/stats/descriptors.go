@@ -36,6 +36,74 @@ var (
 	}
 )
 
+// Disk metrics.
+// TODO: Add remaining container filesystem metrics.
+var (
+	containerFsInodesFree = &types.MetricDescriptor{
+		Name:      "container_fs_inodes_free",
+		Help:      "Number of free inodes.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerFsInodesTotal = &types.MetricDescriptor{
+		Name:      "container_fs_inodes_total",
+		Help:      "Total number of inodes.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerFsLimitBytes = &types.MetricDescriptor{
+		Name:      "container_fs_limit_bytes",
+		Help:      "Filesystem limit in bytes.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerFsUsageBytes = &types.MetricDescriptor{
+		Name:      "container_fs_usage_bytes",
+		Help:      "Current filesystem usage in bytes.",
+		LabelKeys: baseLabelKeys,
+	}
+)
+
+// Disk IO metrics.
+var (
+	containerFsReadsBytesTotal = &types.MetricDescriptor{
+		Name:      "container_fs_reads_bytes_total",
+		Help:      "Cumulative count of bytes read",
+		LabelKeys: append(baseLabelKeys, "device"),
+	}
+	containerFsReadsTotal = &types.MetricDescriptor{
+		Name:      "container_fs_reads_total",
+		Help:      "Cumulative count of reads completed",
+		LabelKeys: append(baseLabelKeys, "device"),
+	}
+	containerFsWritesBytesTotal = &types.MetricDescriptor{
+		Name:      "container_fs_writes_bytes_total",
+		Help:      "Cumulative count of bytes written",
+		LabelKeys: append(baseLabelKeys, "device"),
+	}
+	containerFsWritesTotal = &types.MetricDescriptor{
+		Name:      "container_fs_writes_total",
+		Help:      "Cumulative count of writes completed",
+		LabelKeys: append(baseLabelKeys, "device"),
+	}
+	containerBlkioDeviceUsageTotal = &types.MetricDescriptor{
+		Name:      "container_blkio_device_usage_total",
+		Help:      "Blkio Device bytes usage",
+		LabelKeys: append(baseLabelKeys, "device", "major", "minor", "operation"),
+	}
+)
+
+// HugeTLB metrics.
+var (
+	containerHugetlbUsageBytes = &types.MetricDescriptor{
+		Name:      "container_hugetlb_usage_bytes",
+		Help:      "Current hugepage usage",
+		LabelKeys: append(baseLabelKeys, "pagesize"),
+	}
+	containerHugetlbMaxUsageBytes = &types.MetricDescriptor{
+		Name:      "container_hugetlb_max_usage_bytes",
+		Help:      "Maximum hugepage usages recorded",
+		LabelKeys: append(baseLabelKeys, "pagesize"),
+	}
+)
+
 // Memory metrics.
 var (
 	containerMemoryCache = &types.MetricDescriptor{
@@ -61,11 +129,6 @@ var (
 	containerMemorySwap = &types.MetricDescriptor{
 		Name:      "container_memory_swap",
 		Help:      "Container swap usage in bytes.",
-		LabelKeys: baseLabelKeys,
-	}
-	containerSpecMemoryLimitBytes = &types.MetricDescriptor{
-		Name:      "container_spec_memory_limit_bytes",
-		Help:      "Memory limit for the container in bytes.",
 		LabelKeys: baseLabelKeys,
 	}
 	containerMemoryFailcnt = &types.MetricDescriptor{
@@ -146,6 +209,122 @@ var (
 	containerOomEventsTotal = &types.MetricDescriptor{
 		Name:      "container_oom_events_total",
 		Help:      "Count of out of memory events observed for the container",
+		LabelKeys: baseLabelKeys,
+	}
+)
+
+// Process metrics.
+var (
+	containerFileDescriptors = &types.MetricDescriptor{
+		Name:      "container_file_descriptors",
+		Help:      "Number of open file descriptors for the container.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerProcesses = &types.MetricDescriptor{
+		Name:      "container_processes",
+		Help:      "Number of processes running inside the container.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerSockets = &types.MetricDescriptor{
+		Name:      "container_sockets",
+		Help:      "Number of open sockets for the container.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerThreads = &types.MetricDescriptor{
+		Name:      "container_threads",
+		Help:      "Number of threads running inside the container",
+		LabelKeys: baseLabelKeys,
+	}
+	containerThreadsMax = &types.MetricDescriptor{
+		Name:      "container_threads_max",
+		Help:      "Maximum number of threads allowed inside the container, infinity if value is zero",
+		LabelKeys: baseLabelKeys,
+	}
+	containerUlimitsSoft = &types.MetricDescriptor{
+		Name:      "container_ulimits_soft",
+		Help:      "Soft ulimit values for the container root process. Unlimited if -1, except priority and nice",
+		LabelKeys: append(baseLabelKeys, "ulimit"),
+	}
+)
+
+// Miscellaneous metrics.
+var (
+	containerLastSeen = &types.MetricDescriptor{
+		Name:      "container_last_seen",
+		Help:      "Last time a container was seen by the exporter",
+		LabelKeys: baseLabelKeys,
+	}
+)
+
+// Spec metrics.
+var (
+	containerSpecMemoryLimitBytes = &types.MetricDescriptor{
+		Name:      "container_spec_memory_limit_bytes",
+		Help:      "Memory limit for the container in bytes.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerSpecCpuPeriod = &types.MetricDescriptor{
+		Name:      "container_spec_cpu_period",
+		Help:      "CPU period of the container.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerSpecCpuShares = &types.MetricDescriptor{
+		Name:      "container_spec_cpu_shares",
+		Help:      "CPU share of the container.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerSpecCpuQuota = &types.MetricDescriptor{
+		Name:      "container_spec_cpu_quota",
+		Help:      "CPU quota of the container.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerSpecMemoryReservationLimitBytes = &types.MetricDescriptor{
+		Name:      "container_spec_memory_reservation_limit_bytes",
+		Help:      "Memory reservation limit for the container.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerSpecMemorySwapLimitBytes = &types.MetricDescriptor{
+		Name:      "container_spec_memory_swap_limit_bytes",
+		Help:      "Memory swap limit for the container.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerStartTimeSeconds = &types.MetricDescriptor{
+		Name:      "container_start_time_seconds",
+		Help:      "Start time of the container since unix epoch in seconds.",
+		LabelKeys: baseLabelKeys,
+	}
+)
+
+// Pressure metrics.
+var (
+	containerPressureCPUStalledSecondsTotal = &types.MetricDescriptor{
+		Name:      "container_pressure_cpu_stalled_seconds_total",
+		Help:      "Total time duration no tasks in the container could make progress due to CPU congestion.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerPressureCPUWaitingSecondsTotal = &types.MetricDescriptor{
+		Name:      "container_pressure_cpu_waiting_seconds_total",
+		Help:      "Total time duration tasks in the container have waited due to CPU congestion.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerPressureMemoryStalledSecondsTotal = &types.MetricDescriptor{
+		Name:      "container_pressure_memory_stalled_seconds_total",
+		Help:      "Total time duration no tasks in the container could make progress due to memory congestion.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerPressureMemoryWaitingSecondsTotal = &types.MetricDescriptor{
+		Name:      "container_pressure_memory_waiting_seconds_total",
+		Help:      "Total time duration tasks in the container have waited due to memory congestion.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerPressureIOStalledSecondsTotal = &types.MetricDescriptor{
+		Name:      "container_pressure_io_stalled_seconds_total",
+		Help:      "Total time duration no tasks in the container could make progress due to IO congestion.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerPressureIOWaitingSecondsTotal = &types.MetricDescriptor{
+		Name:      "container_pressure_io_waiting_seconds_total",
+		Help:      "Total time duration tasks in the container have waited due to IO congestion.",
 		LabelKeys: baseLabelKeys,
 	}
 )

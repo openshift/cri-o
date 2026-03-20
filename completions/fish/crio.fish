@@ -11,6 +11,7 @@ end
 
 complete -c crio -n '__fish_crio_no_subcommand' -f -l absent-mount-sources-to-reject -r -d 'A list of paths that, when absent from the host, will cause a container creation to fail (as opposed to the current behavior of creating a directory).'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l add-inheritable-capabilities -d 'Add capabilities to the inheritable set, as well as the default group of permitted, bounding and effective.'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l additional-artifact-stores -r -d 'Additional read-only OCI artifact store paths.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l additional-devices -r -d 'Devices to add to the containers.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l allowed-devices -r -d 'Devices a user is allowed to specify with the "io.kubernetes.cri-o.Devices" allowed annotation.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l apparmor-profile -r -d 'Name of the apparmor profile to be used as the runtime\'s default. This only takes effect if the user does not specify a profile via the Kubernetes Pod\'s metadata annotation.'
@@ -94,6 +95,7 @@ complete -c crio -n '__fish_crio_no_subcommand' -l imagestore -r -d 'Store newly
 complete -c crio -n '__fish_crio_no_subcommand' -f -l included-pod-metrics -r -d 'A list of pod metrics to include. Specify the names of the metrics to include in this list.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l infra-ctr-cpuset -r -d 'CPU set to run infra containers, if not specified CRI-O will use all online CPUs to run infra containers.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l insecure-registry -r -d 'Enable insecure registry communication, i.e., enable un-encrypted and/or untrusted communication.
+    This option is deprecated. Please use "insecure" in registries.conf instead.
     1. List of insecure registries can contain an element with CIDR notation to
        specify a whole subnet.
     2. Insecure registries accept HTTP or accept HTTPS with certificates from
@@ -126,11 +128,19 @@ complete -c crio -n '__fish_crio_no_subcommand' -f -l minimum-mappable-uid -r -d
 complete -c crio -n '__fish_crio_no_subcommand' -f -l namespaces-dir -r -d 'The directory where the state of the managed namespaces gets tracked. Only used when manage-ns-lifecycle is true.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l no-pivot -d 'If true, the runtime will not use \'pivot_root\', but instead use \'MS_MOVE\'.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-disable-connections -d 'Disable connections from externally started NRI plugins.'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-enable-default-validator -d 'Enable the default NRI validator plugin.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-listen -r -d 'Socket to listen on for externally started NRI plugins to connect to.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-plugin-config-dir -r -d 'Directory to scan for configuration of pre-installed NRI plugins.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-plugin-dir -r -d 'Directory to scan for pre-installed NRI plugins to start automatically.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-plugin-registration-timeout -r -d 'Timeout for a plugin to register itself with NRI.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-plugin-request-timeout -r -d 'Timeout for a plugin to handle an NRI request.'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-validator-reject-custom-seccomp-adjustment -d 'Reject NRI plugin adjustment of custom seccomp policy.'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-validator-reject-namespace-adjustment -d 'Reject NRI plugin adjustment of linux namespaces.'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-validator-reject-oci-hook-adjustment -d 'Reject NRI plugin adjustment of OCI Hooks.'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-validator-reject-runtime-default-seccomp-adjustment -d 'Reject NRI plugin adjustment of runtime default seccomp policy.'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-validator-reject-unconfined-seccomp-adjustment -d 'Reject NRI plugin adjustment of unconfined seccomp policy.'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-validator-required-plugins -r -d 'List of required NRI plugins that must be present.'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-validator-tolerate-missing-plugins-annotation -r -d 'Name of the annotation used to indicate toleration of missing required NRI plugins.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l oci-artifact-mount-support -d 'If true, CRI-O can mount OCI artifacts as volumes.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l pause-command -r -d 'Path to the pause executable in the pause image.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l pause-image -r -d 'Image which contains the pause executable.'
@@ -153,6 +163,7 @@ complete -c crio -n '__fish_crio_no_subcommand' -l seccomp-profile -r -d 'Path t
 complete -c crio -n '__fish_crio_no_subcommand' -f -l selinux -d 'Enable selinux support. This option is deprecated, and be interpreted from whether SELinux is enabled on the host in the future.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l separate-pull-cgroup -r -d '[EXPERIMENTAL] Pull in new cgroup.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l shared-cpuset -r -d 'CPUs set that will be used for guaranteed containers that want access to shared cpus'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l short-name-mode -r -d 'Describes the mode of short name resolution. Allowed values are \'enforcing\' and \'disabled\'.'
 complete -c crio -n '__fish_crio_no_subcommand' -l signature-policy -r -d 'Path to signature policy JSON file.'
 complete -c crio -n '__fish_crio_no_subcommand' -l signature-policy-dir -r -d 'Path to the root directory for namespaced signature policies. Must be an absolute path.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l stats-collection-period -r -d 'The number of seconds between collecting pod and container stats. If set to 0, the stats are collected on-demand instead. DEPRECATED: This option will be removed in the future.'
@@ -166,6 +177,8 @@ complete -c crio -n '__fish_crio_no_subcommand' -l stream-tls-ca -r -d 'Path to 
 complete -c crio -n '__fish_crio_no_subcommand' -l stream-tls-cert -r -d 'Path to the x509 certificate file used to serve the encrypted stream. This file can change and CRI-O will automatically pick up the changes.'
 complete -c crio -n '__fish_crio_no_subcommand' -l stream-tls-key -r -d 'Path to the key file used to serve the encrypted stream. This file can change and CRI-O will automatically pick up the changes.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l timezone -s tz -r -d 'To set the timezone for a container in CRI-O. If an empty string is provided, CRI-O retains its default behavior. Use \'Local\' to match the timezone of the host machine.'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l tls-cipher-suites -r -d 'Comma-separated list of cipher suites for TLS 1.2.'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l tls-min-version -r -d 'Minimum TLS version for streaming and metrics servers (VersionTLS12 or VersionTLS13).'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l tracing-endpoint -r -d 'Address on which the gRPC tracing collector will listen.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l tracing-sampling-rate-per-million -r -d 'Number of samples to collect per million OpenTelemetry spans. Set to 1000000 to always sample.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l uid-mappings -r -d 'Specify the UID mappings to use for the user namespace. This option is deprecated, and will be replaced with Kubernetes user namespace support (KEP-127) in the future.'

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/containers/common/pkg/apparmor"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/pkg/apparmor"
 	v1 "k8s.io/api/core/v1"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
@@ -51,8 +51,8 @@ func (c *Config) LoadProfile(profile string) error {
 
 		if err := apparmor.InstallDefault(DefaultProfile); err != nil {
 			return fmt.Errorf(
-				"installing default AppArmor profile %q failed",
-				DefaultProfile,
+				"installing default AppArmor profile %q failed: %w",
+				DefaultProfile, err,
 			)
 		}
 
@@ -60,8 +60,8 @@ func (c *Config) LoadProfile(profile string) error {
 			c, err := apparmor.DefaultContent(DefaultProfile)
 			if err != nil {
 				return fmt.Errorf(
-					"retrieving default AppArmor profile %q content failed",
-					DefaultProfile,
+					"retrieving default AppArmor profile %q content failed: %w",
+					DefaultProfile, err,
 				)
 			}
 
@@ -110,28 +110,31 @@ func (c *Config) IsEnabled() bool {
 // TODO: Clean off deprecated AppArmorProfile usage.
 func (c *Config) Apply(p *runtimeapi.LinuxContainerSecurityContext) (string, error) {
 	// Runtime default profile
-	if p.Apparmor != nil && p.Apparmor.ProfileType == runtimeapi.SecurityProfile_RuntimeDefault {
+	if p.GetApparmor() != nil && p.GetApparmor().GetProfileType() == runtimeapi.SecurityProfile_RuntimeDefault {
 		return c.defaultProfile, nil
 	}
 
-	if p.Apparmor == nil && p.ApparmorProfile == "" || p.ApparmorProfile == v1.DeprecatedAppArmorBetaProfileRuntimeDefault {
+	//nolint:staticcheck // see deprecation TODO above
+	if p.GetApparmor() == nil && p.GetApparmorProfile() == "" || p.GetApparmorProfile() == v1.DeprecatedAppArmorBetaProfileRuntimeDefault {
 		return c.defaultProfile, nil
 	}
 
 	securityProfile := ""
-	if p.Apparmor == nil && p.ApparmorProfile != "" {
-		securityProfile = p.ApparmorProfile
+	//nolint:staticcheck // see deprecation TODO above
+	if p.GetApparmor() == nil && p.GetApparmorProfile() != "" {
+		securityProfile = p.GetApparmorProfile()
 	}
 
-	if p.Apparmor != nil && p.Apparmor.LocalhostRef != "" {
-		securityProfile = p.Apparmor.LocalhostRef
+	if p.GetApparmor() != nil && p.GetApparmor().GetLocalhostRef() != "" {
+		securityProfile = p.GetApparmor().GetLocalhostRef()
 	}
 
-	if p.Apparmor == nil && strings.EqualFold(p.ApparmorProfile, v1.DeprecatedAppArmorBetaProfileNameUnconfined) {
+	//nolint:staticcheck // see deprecation TODO above
+	if p.GetApparmor() == nil && strings.EqualFold(p.GetApparmorProfile(), v1.DeprecatedAppArmorBetaProfileNameUnconfined) {
 		securityProfile = v1.DeprecatedAppArmorBetaProfileNameUnconfined
 	}
 
-	if p.Apparmor != nil && strings.EqualFold(p.Apparmor.ProfileType.String(), v1.DeprecatedAppArmorBetaProfileNameUnconfined) {
+	if p.GetApparmor() != nil && strings.EqualFold(p.GetApparmor().GetProfileType().String(), v1.DeprecatedAppArmorBetaProfileNameUnconfined) {
 		securityProfile = v1.DeprecatedAppArmorBetaProfileNameUnconfined
 	}
 

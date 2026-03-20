@@ -1,3 +1,5 @@
+//go:build linux
+
 package oci
 
 import (
@@ -5,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os/exec"
+	"syscall"
 	"time"
 
 	"github.com/containernetworking/plugins/pkg/ns"
@@ -16,6 +20,7 @@ import (
 func (r *runtimeOCI) PortForwardContainer(ctx context.Context, c *Container, netNsPath string, port int32, stream io.ReadWriteCloser) error {
 	ctx, span := log.StartSpan(ctx)
 	defer span.End()
+
 	log.Infof(ctx,
 		"Starting port forward for %s in network namespace %s", c.ID(), netNsPath,
 	)
@@ -105,4 +110,14 @@ func (r *runtimeOCI) PortForwardContainer(ctx context.Context, c *Container, net
 	log.Infof(ctx, "Finished port forwarding for %q on port %d", c.ID(), port)
 
 	return nil
+}
+
+// setSysProcAttr sets Linux-specific SysProcAttr for exec commands
+// when an exec cgroup file descriptor is provided. It configures the command
+// to use the cgroup FD for cgroup placement.
+func setSysProcAttr(cmd *exec.Cmd, fd uintptr) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		UseCgroupFD: true,
+		CgroupFD:    int(fd),
+	}
 }

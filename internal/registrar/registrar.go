@@ -3,6 +3,7 @@ package registrar
 
 import (
 	"errors"
+	"maps"
 	"sync"
 )
 
@@ -86,6 +87,7 @@ func (r *Registrar) Release(name string) {
 // All names reserved to this key are released.
 func (r *Registrar) Delete(key string) {
 	r.mu.Lock()
+
 	for _, name := range r.idx[key] {
 		delete(r.names, name)
 	}
@@ -126,9 +128,8 @@ func (r *Registrar) GetAll() map[string][]string {
 
 	r.mu.Lock()
 	// copy index into out
-	for id, names := range r.idx {
-		out[id] = names
-	}
+	maps.Copy(out, r.idx)
+
 	r.mu.Unlock()
 
 	return out

@@ -6,9 +6,9 @@ import (
 	"os"
 	"sync"
 
-	"github.com/containers/storage/pkg/parsers/kernel"
 	selinux "github.com/opencontainers/selinux/go-selinux"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/storage/pkg/parsers/kernel"
 	"golang.org/x/sys/unix"
 )
 
@@ -21,7 +21,7 @@ const (
 	// ImageVolumesBind option is for using bind mounted volumes.
 	ImageVolumesBind ImageVolumesType = "bind"
 	// DefaultPauseImage is default pause image.
-	DefaultPauseImage string = "registry.k8s.io/pause:3.10"
+	DefaultPauseImage string = "registry.k8s.io/pause:3.10.1"
 )
 
 var (
@@ -35,6 +35,7 @@ func selinuxEnabled() bool {
 
 func (c *RuntimeConfig) ValidatePinnsPath(executable string) error {
 	var err error
+
 	c.PinnsPath, err = validateExecutablePath(executable, c.PinnsPath)
 
 	return err

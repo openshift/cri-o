@@ -7,6 +7,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/utils/cpuset"
 )
 
 var _ = Describe("Utils", func() {
@@ -27,7 +28,7 @@ var _ = Describe("Utils", func() {
 
 		DescribeTable("testing cpu mask",
 			func(c TestData) {
-				mask, invMask, err := UpdateIRQSmpAffinityMask(c.input.cpus, c.input.mask, c.input.set)
+				mask, invMask, err := calcIRQSMPAffinityMask(cpuSetOrDie(c.input.cpus), c.input.mask, c.input.set)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(mask).To(Equal(c.expected.mask))
 				Expect(invMask).To(Equal(c.expected.invMask))
@@ -95,6 +96,7 @@ func countLines(fileName string) (int, error) {
 	}
 
 	defer file.Close()
+
 	fileScanner := bufio.NewScanner(file)
 	lineCount := 0
 
@@ -120,6 +122,15 @@ func writeTempFile(content string) (string, error) {
 	}
 
 	return f.Name(), nil
+}
+
+func cpuSetOrDie(cpus string) cpuset.CPUSet {
+	set, err := cpuset.Parse(cpus)
+	if err != nil {
+		panic(err)
+	}
+
+	return set
 }
 
 const confTemplate = `# irqbalance is a daemon process that distributes interrupts across

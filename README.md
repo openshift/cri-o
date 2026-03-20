@@ -44,6 +44,7 @@
 - [Adopters](#adopters)
 - [Weekly Meeting](#weekly-meeting)
 - [Governance](#governance)
+- [AI Assistants](#ai-assistants)
 - [License Scan](#license-scan)
 <!-- /toc -->
 
@@ -113,8 +114,8 @@ The plan is to use OCI projects and best of breed libraries for different aspect
 
 - Runtime: [runc](https://github.com/opencontainers/runc)
   (or any OCI runtime-spec implementation) and [oci runtime tools](https://github.com/opencontainers/runtime-tools)
-- Images: Image management using [containers/image](https://github.com/containers/image)
-- Storage: Storage and management of image layers using [containers/storage](https://github.com/containers/storage)
+- Images: Image management using [container-libs/image](https://github.com/containers/container-libs/tree/main/image)
+- Storage: Storage and management of image layers using [container-libs/storage](https://github.com/containers/container-libs/tree/main/storage)
 - Networking: Networking support through the use of [CNI](https://github.com/containernetworking/cni)
 
 It is currently in active development in the Kubernetes community through the
@@ -158,14 +159,17 @@ and [Podman](https://github.com/containers/podman).
 
 <!-- markdownlint-disable MD013 -->
 
-| File                                                                                                     | Description                           |
-| -------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| [crio.conf(5)](/docs/crio.conf.5.md)                                                                     | CRI-O Configuration file              |
-| [policy.json(5)](https://github.com/containers/image/blob/main/docs/containers-policy.json.5.md)         | Signature Verification Policy File(s) |
-| [registries.conf(5)](https://github.com/containers/image/blob/main/docs/containers-registries.conf.5.md) | Registries Configuration file         |
-| [storage.conf(5)](https://github.com/containers/storage/blob/main/docs/containers-storage.conf.5.md)     | Storage Configuration file            |
+| File                                                                                                                    | Description                           |
+| ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| [crio.conf(5)](/docs/crio.conf.5.md)                                                                                    | CRI-O Configuration file              |
+| [policy.json(5)](https://github.com/containers/container-libs/blob/main/image/docs/containers-policy.json.5.md)         | Signature Verification Policy File(s) |
+| [registries.conf(5)](https://github.com/containers/container-libs/blob/main/image/docs/containers-registries.conf.5.md) | Registries Configuration file         |
+| [storage.conf(5)](https://github.com/containers/container-libs/blob/main/storage/docs/containers-storage.conf.5.md)     | Storage Configuration file            |
 
 <!-- markdownlint-enable MD013 -->
+
+For information about CRI-O annotations and their migration to Kubernetes-recommended naming conventions,
+see the [Annotation Migration Guide](ANNOTATION_MIGRATION.md).
 
 ## Security
 
@@ -183,7 +187,7 @@ as it relates to infrastructure that utilizes CRI-O.
 
 ## Communication
 
-For async communication and long running discussions please use [issues](https://github.com/cri-o/cri-o/issues)
+For async communication and long-running discussions please use [issues](https://github.com/cri-o/cri-o/issues)
 and [pull requests](https://github.com/cri-o/cri-o/pulls) on the [GitHub repo](https://github.com/cri-o/cri-o).
 This will be the best place to discuss design and implementation.
 
@@ -307,7 +311,11 @@ The details to join the meeting are on the [wiki](https://github.com/cri-o/cri-o
 
 ## Governance
 
-For more information on how CRI-O is goverened, take a look at the [governance file](GOVERNANCE.md)
+For more information on how CRI-O is governed, take a look at the [governance file](GOVERNANCE.md)
+
+## AI Assistants
+
+For AI coding assistants working with this codebase, see [AGENTS.md](AGENTS.md) for project context, workflow patterns, and development guidelines.
 
 ## License Scan
 

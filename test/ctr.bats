@@ -137,6 +137,9 @@ function assert_log_linking() {
 }
 
 @test "ulimits" {
+	if [[ $RUNTIME_TYPE == pod ]]; then
+		skip "not yet supported by conmonrs"
+	fi
 	OVERRIDE_OPTIONS="--default-ulimits nofile=42:42 --default-ulimits nproc=1024:2048" start_crio
 
 	jq '	  .command = ["/bin/sh", "-c", "sleep 600"]' \
@@ -166,6 +169,9 @@ function assert_log_linking() {
 	[[ "$output" == "$pod_id" ]]
 
 	ctr_id=$(crictl create "$pod_id" "$TESTDATA"/container_redis.json "$TESTDATA"/sandbox_config.json)
+	# Make sure the GRPC debug log includes the container config.
+	# https://github.com/cri-o/cri-o/pull/9501.
+	wait_for_log "v1\\.CreateContainerRequest.*podsandbox1-redis"
 	output=$(crictl ps --quiet --state created)
 	[[ "$output" == "$ctr_id" ]]
 
@@ -869,8 +875,10 @@ function assert_log_linking() {
 		[[ "$output" == *"20000 10000"* ]]
 
 		output=$(crictl exec --sync "$ctr_id" sh -c "cat /sys/fs/cgroup/cpu.weight")
-		# 512 shares are converted to cpu.weight 20
-		[[ "$output" == *"20"* ]]
+		# CPU shares of 512 is converted to cpu.weight of either 20 or 59,
+		# depending on crun/runc version (see https://github.com/kubernetes/kubernetes/issues/131216).
+		echo "got cpu.weight $output, want 20 or 59"
+		[ "$output" = "20" ] || [ "$output" = "59" ]
 	else
 		output=$(crictl exec --sync "$ctr_id" sh -c "cat /sys/fs/cgroup/cpu/cpu.shares")
 		[[ "$output" == *"512"* ]]
@@ -897,8 +905,10 @@ function assert_log_linking() {
 		[[ "$output" == *"10000 20000"* ]]
 
 		output=$(crictl exec --sync "$ctr_id" sh -c "cat /sys/fs/cgroup/cpu.weight")
-		# 256 shares are converted to cpu.weight 10
-		[[ "$output" == *"10"* ]]
+		# CPU shares of 256 is converted to cpu.weight of either 10 or 35,
+		# depending on crun/runc version (see https://github.com/kubernetes/kubernetes/issues/131216).
+		echo "got cpu.weight $output, want 10 or 35"
+		[ "$output" = "10" ] || [ "$output" = "35" ]
 	else
 		output=$(crictl exec --sync "$ctr_id" sh -c "cat /sys/fs/cgroup/cpu/cpu.shares")
 		[[ "$output" == *"256"* ]]
@@ -1125,6 +1135,9 @@ function assert_log_linking() {
 	# Note: This is not a problem on a systems without SELinux.
 	if is_selinux_enforcing; then
 		skip "SELinux is set to Enforcing"
+	fi
+	if [[ "$TEST_USERNS" == "1" ]]; then
+		skip "test fails in a user namespace"
 	fi
 
 	# See https://www.shellcheck.net/wiki/SC2154 for more details.
@@ -1558,7 +1571,20 @@ EOF
 	start_crio
 	ctr_id=$(crictl run "$TESTDATA"/container_redis.json "$TESTDATA"/sandbox_config.json)
 
-	# verify that at least a default masked path exists
+	# verify that no default masked path exist
+	INSPECT=$(crictl inspect "$ctr_id")
+	run ! jq "$INSPECT" -e '.info.runtimeSpec.linux.maskedPaths | index("/proc/acpi")'
+}
+
+@test "ctr masked defaults set if any are set" {
+	start_crio
+	# Start a container that traps SIGTERM and writes to a file when received
+	jq '.linux.security_context.masked_paths = ["/proc/asound"]' \
+		"$TESTDATA"/container_redis.json > "$TESTDIR/container_config.json"
+
+	ctr_id=$(crictl run "$TESTDIR"/container_config.json "$TESTDATA"/sandbox_config.json)
+
+	# verify that if client passes any masked paths, we append the defaults
 	crictl inspect "$ctr_id" | jq -e '.info.runtimeSpec.linux.maskedPaths | index("/proc/acpi")'
 }
 
@@ -1601,4 +1627,54 @@ EOF
 	[[ "$output" == "CONTAINER_EXITED" ]]
 	output=$(run crictl inspect "$ctr_id" | jq -r '.status.exitCode')
 	[[ "$output" == "0" ]]
+}
+
+@test "memory limit decrease below usage should be blocked" {
+	start_crio
+
+	# Create a container config with initial memory limit of 128MB
+	jq '.command = ["/bin/sh", "-c", "dd if=/dev/zero of=/dev/shm/memtest bs=1M count=64 && echo '\''Memory allocated: 64MB'\'' && sleep 300"] | .linux.resources.memory_limit_in_bytes = 134217728' \
+		"$TESTDATA"/container_config.json > "$TESTDIR"/container_memory.json
+
+	# Run the container
+	ctr_id=$(crictl run "$TESTDIR"/container_memory.json "$TESTDATA"/sandbox_config.json)
+
+	# Wait a moment for memory allocation
+	sleep 3
+
+	# Check current memory usage to ensure it's above our target limit (32MB = 33554432 bytes).
+	run crictl stats --output json "$ctr_id"
+	[[ "$status" -eq 0 ]]
+	current_usage=$(echo "$output" | jq -r '.stats[0].memory.usageBytes.value')
+
+	[[ "$current_usage" -gt 33554432 ]]
+
+	# Attempt to update memory limit to 32MB (below current usage) - should fail
+	run crictl update --memory 33554432 "$ctr_id"
+	echo "Update attempt output: $output"
+	[[ "$status" -ne 0 ]]
+	[[ "$output" =~ "cannot decrease memory limit" ]]
+
+	# Verify the container is still running with original memory limit.
+	run crictl inspect "$ctr_id"
+	[[ "$status" -eq 0 ]]
+	[[ "$output" == *"CONTAINER_RUNNING"* ]]
+
+	# Check that memory limit is still the original 128MB (134217728 bytes)
+	memory_limit=$(echo "$output" | jq -r '.info.runtimeSpec.linux.resources.memory.limit')
+	[[ "$memory_limit" == "134217728" ]]
+
+	# Test that memory limit increase still works (256MB = 268435456 bytes)
+	run crictl update --memory 268435456 "$ctr_id"
+	echo "Increase attempt output: $output"
+	[[ "$status" -eq 0 ]]
+
+	# Verify the memory limit was actually updated to 256MB
+	run crictl inspect "$ctr_id"
+	[[ "$status" -eq 0 ]]
+	memory_limit_after_increase=$(echo "$output" | jq -r '.info.runtimeSpec.linux.resources.memory.limit')
+	[[ "$memory_limit_after_increase" == "268435456" ]]
+
+	crictl stop "$ctr_id"
+	crictl rm "$ctr_id"
 }

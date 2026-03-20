@@ -75,7 +75,7 @@ var _ = BeforeSuite(func() {
 			"io.kubernetes.cri-o.PortMappings": "[]",
 			"io.kubernetes.cri-o.Labels": "{}",
 			"io.kubernetes.cri-o.LogPath": "{}",
-			"io.kubernetes.cri-o.Metadata": "{}",
+			"io.kubernetes.cri-o.Metadata": "{\"name\":\"testpod\",\"namespace\":\"default\",\"uid\":\"test-uid-123\",\"attempt\":0}",
 			"io.kubernetes.cri-o.Name": "name",
 			"io.kubernetes.cri-o.Namespace": "default",
 			"io.kubernetes.cri-o.PrivilegedRuntime": "{}",
@@ -137,6 +137,7 @@ func beforeEach() {
 
 	// Set the config
 	var err error
+
 	config, err = libconfig.DefaultConfig()
 	Expect(err).ToNot(HaveOccurred())
 
@@ -144,6 +145,11 @@ func beforeEach() {
 	config.HooksDir = []string{}
 	// so we have permission to make a directory within it
 	config.ContainerAttachSocketDir = t.MustTempDir("crio")
+	// Simulate a clean shutdown. Otherwise, when running tests as root on
+	// a system where cri-o is already installed, we hit non-mocked functions
+	// in lib.New internal/lib/container_server.go in if condition
+	// `if config.InternalRepair && ShutdownWasUnclean(config)`.
+	config.CleanShutdownFile = t.MustTempFile("clean.shutdown")
 
 	gomock.InOrder(
 		libMock.EXPECT().GetStore().Return(storeMock, nil),

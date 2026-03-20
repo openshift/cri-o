@@ -13,9 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/opencontainers/runc/libcontainer/cgroups"
-	libCtrMgr "github.com/opencontainers/runc/libcontainer/cgroups/manager"
-	"github.com/opencontainers/runc/libcontainer/configs"
+	"github.com/opencontainers/cgroups"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -27,7 +25,8 @@ import (
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/oci"
-	crioannotations "github.com/cri-o/cri-o/pkg/annotations"
+	crioannotations "github.com/cri-o/cri-o/pkg/annotations/v2"
+	"github.com/cri-o/cri-o/pkg/config"
 	"github.com/cri-o/cri-o/utils/cmdrunner"
 )
 
@@ -39,66 +38,191 @@ const (
 )
 
 const (
-	annotationTrue       = "true"
-	annotationDisable    = "disable"
-	annotationEnable     = "enable"
-	schedDomainDir       = "/proc/sys/kernel/sched_domain"
-	cgroupMountPoint     = "/sys/fs/cgroup"
-	irqBalanceBannedCpus = "IRQBALANCE_BANNED_CPUS"
-	irqBalancedName      = "irqbalance"
-	sysCPUDir            = "/sys/devices/system/cpu"
-	sysCPUSaveDir        = "/var/run/crio/cpu"
-	milliCPUToCPU        = 1000
+	annotationTrue         = "true"
+	annotationDisable      = "disable"
+	annotationEnable       = "enable"
+	annotationHousekeeping = "housekeeping"
+	schedDomainDir         = "/proc/sys/kernel/sched_domain"
+	cgroupMountPoint       = "/sys/fs/cgroup"
+	irqBalanceBannedCpus   = "IRQBALANCE_BANNED_CPUS"
+	irqBalancedName        = "irqbalance"
+	sysCPUDir              = "/sys/devices/system/cpu"
+	sysCPUSaveDir          = "/var/run/crio/cpu"
+	milliCPUToCPU          = 1000
 )
 
 const (
-	cgroupSubTreeControl = "cgroup.subtree_control"
-	cgroupV1QuotaFile    = "cpu.cfs_quota_us"
-	cgroupV2QuotaFile    = "cpu.max"
-	cpusetCpus           = "cpuset.cpus"
-	cpusetCpusExclusive  = "cpuset.cpus.exclusive"
-	IsolatedCPUsEnvVar   = "OPENSHIFT_ISOLATED_CPUS"
-	SharedCPUsEnvVar     = "OPENSHIFT_SHARED_CPUS"
+	cgroupSubTreeControl   = "cgroup.subtree_control"
+	cgroupV1QuotaFile      = "cpu.cfs_quota_us"
+	cgroupV2QuotaFile      = "cpu.max"
+	cpusetCpus             = "cpuset.cpus"
+	cpusetCpusExclusive    = "cpuset.cpus.exclusive"
+	IsolatedCPUsEnvVar     = "OPENSHIFT_ISOLATED_CPUS"
+	SharedCPUsEnvVar       = "OPENSHIFT_SHARED_CPUS"
+	HousekeepingCPUsEnvVar = "OPENSHIFT_HOUSEKEEPING_CPUS"
+)
+
+// ServiceManager interface for managing system services.
+type ServiceManager interface {
+	IsServiceEnabled(serviceName string) bool
+	RestartService(serviceName string) error
+}
+
+// CommandRunner interface for running external commands.
+type CommandRunner interface {
+	LookPath(file string) (string, error)
+	RunCommand(name string, env []string, arg ...string) error
+}
+
+// Default implementations.
+type defaultServiceManager struct{}
+
+func (d *defaultServiceManager) IsServiceEnabled(serviceName string) bool {
+	return isServiceEnabled(serviceName)
+}
+
+func (d *defaultServiceManager) RestartService(serviceName string) error {
+	return restartService(serviceName)
+}
+
+type defaultCommandRunner struct{}
+
+func (d *defaultCommandRunner) LookPath(file string) (string, error) {
+	return exec.LookPath(file)
+}
+
+func (d *defaultCommandRunner) RunCommand(name string, env []string, arg ...string) error {
+	cmd := cmdrunner.Command(name, arg...)
+	if len(env) > 0 {
+		cmd.Env = env
+	}
+
+	return cmd.Run()
+}
+
+var (
+	serviceManager ServiceManager = &defaultServiceManager{}
+	commandRunner  CommandRunner  = &defaultCommandRunner{}
 )
 
 // HighPerformanceHooks used to run additional hooks that will configure a system for the latency sensitive workloads.
 type HighPerformanceHooks struct {
-	irqBalanceConfigFile string
-	cpusetLock           sync.Mutex
-	sharedCPUs           string
+	cgmgr.CgroupManager
+
+	irqBalanceConfigFile      string
+	cpusetLock                sync.Mutex
+	updateIRQSMPAffinityLock  sync.Mutex
+	irqSMPAffinityDisabledSet map[string]struct{}
+	sharedCPUs                string
+	execCPUAffinity           config.ExecCPUAffinityType
+	irqSMPAffinityFile        string
+	sysCPUDir                 string
 }
 
 func (h *HighPerformanceHooks) PreCreate(ctx context.Context, specgen *generate.Generator, s *sandbox.Sandbox, c *oci.Container) error {
 	log.Infof(ctx, "Run %q runtime handler pre-create hook for the container %q", HighPerformance, c.ID())
 
+	// Catch any nil pointer issues here. Neither c nor specgen should ever be empty.
+	if c == nil {
+		return errors.New("PreCreate received empty container")
+	}
+
+	if specgen == nil {
+		return errors.New("PreCreate received empty specgen")
+	}
+
 	if !shouldRunHooks(ctx, c.ID(), specgen.Config, s) {
 		return nil
 	}
 
-	if requestedSharedCPUs(s.Annotations(), c.CRIContainer().GetMetadata().GetName()) {
-		if isContainerCPUsSpecEmpty(specgen.Config) {
-			return fmt.Errorf("no cpus found for container %q", c.Name())
-		}
+	var (
+		exclusiveCPUSet cpuset.CPUSet
+		sharedCPUSet    cpuset.CPUSet
+		err             error
+	)
 
-		cpusString := specgen.Config.Linux.Resources.CPU.Cpus
-
-		exclusiveCPUs, err := cpuset.Parse(cpusString)
+	if cpusString := getContainerCPUsFromSpec(specgen.Config); cpusString != "" {
+		exclusiveCPUSet, err = cpuset.Parse(cpusString)
 		if err != nil {
 			return fmt.Errorf("failed to parse container %q cpus: %w", c.Name(), err)
 		}
+	}
 
-		if h.sharedCPUs == "" {
-			return fmt.Errorf("shared CPUs were requested for container %q but none are defined", c.Name())
+	if requestedSharedCPUs(s.Annotations(), c.CRIContainer().GetMetadata().GetName()) {
+		if exclusiveCPUSet.IsEmpty() {
+			return fmt.Errorf("no cpus found for container %q", c.Name())
 		}
 
-		sharedCPUSet, err := cpuset.Parse(h.sharedCPUs)
+		sharedCPUSet, err = cpuset.Parse(h.sharedCPUs)
 		if err != nil {
 			return fmt.Errorf("failed to parse shared cpus: %w", err)
 		}
+
+		if sharedCPUSet.IsEmpty() {
+			return fmt.Errorf("shared CPUs were requested for container %q but none are defined", c.Name())
+		}
+
 		// We must inject the environment variables in the PreCreate stage,
 		// because in the PreStart stage the process is already constructed.
 		// by the low-level runtime and the environment variables are already finalized.
-		injectCpusetEnv(specgen, &exclusiveCPUs, &sharedCPUSet)
+		injectCpusetEnv(specgen, &exclusiveCPUSet, &sharedCPUSet)
+
+		// Cpus in oci spec only includes the exclusive CPUs.
+		// If shared CPUs are requested, then we must set the CPUSet for the container additionally.
+		//
+		// specgen.Config.Linux.Resources.CPU.Cpus is guaranteed non-nil
+		// because we check exclusiveCPUSet.IsEmpty() above.
+		specgen.Config.Linux.Resources.CPU.Cpus = exclusiveCPUSet.Union(sharedCPUSet).String()
+	}
+
+	housekeepingSiblings, err := h.getHousekeepingCPUs(specgen.Config, s.Annotations())
+	if err != nil {
+		return err
+	}
+
+	if !housekeepingSiblings.IsEmpty() {
+		if err := injectHousekeepingEnv(specgen, housekeepingSiblings); err != nil {
+			return err
+		}
+	}
+
+	return h.setExecCPUAffinity(ctx, specgen, &exclusiveCPUSet, &sharedCPUSet)
+}
+
+// setExecCPUAffinity sets ExecCPUAffinity in the container spec.
+func (h *HighPerformanceHooks) setExecCPUAffinity(ctx context.Context, specgen *generate.Generator, exclusiveCPUSet, sharedCPUSet *cpuset.CPUSet) error {
+	var execCPUSet cpuset.CPUSet
+
+	switch h.execCPUAffinity {
+	case config.ExecCPUAffinityTypeFirst:
+		switch {
+		case sharedCPUSet != nil && !sharedCPUSet.IsEmpty():
+			// List() is sorted, so [0] should be the least CPU.
+			execCPUSet = cpuset.New(sharedCPUSet.List()[0])
+		case exclusiveCPUSet != nil && !exclusiveCPUSet.IsEmpty():
+			execCPUSet = cpuset.New(exclusiveCPUSet.List()[0])
+		default:
+			log.Errorf(ctx, "ExecCPUAffinityType %s is set, but no CPUSet is available. Falling back to default.", h.execCPUAffinity)
+		}
+	case config.ExecCPUAffinityTypeDefault:
+		// Don't set ExecCPUAffinity, which means using runtime default.
+	default:
+		// This shouldn't happen because there's config validation.
+		return fmt.Errorf("unknown ExecCPUAffinityType %s is used", h.execCPUAffinity)
+	}
+
+	log.Debugf(ctx, "Set ExecCPUAffinity to %q", execCPUSet.String())
+
+	if !execCPUSet.IsEmpty() {
+		if specgen.Config == nil {
+			specgen.Config = &specs.Spec{}
+		}
+
+		if specgen.Config.Process == nil {
+			specgen.Config.Process = &specs.Process{}
+		}
+
+		specgen.Config.Process.ExecCPUAffinity = &specs.CPUAffinity{Initial: execCPUSet.String()}
 	}
 
 	return nil
@@ -112,16 +236,13 @@ func (h *HighPerformanceHooks) PreStart(ctx context.Context, c *oci.Container, s
 		return nil
 	}
 
-	// creating libctr managers is expensive on v1. Reuse between CPU load balancing and CPU quota
-	podManager, containerManagers, err := libctrManagersForPodAndContainerCgroup(c, s.CgroupParent())
+	podManager, containerManagers, err := h.PodAndContainerCgroupManagers(s.CgroupParent(), c.ID())
 	if err != nil {
 		return err
 	}
 
-	var sharedCPUsRequested bool
-	if requestedSharedCPUs(s.Annotations(), c.CRIContainer().GetMetadata().GetName()) {
-		sharedCPUsRequested = true
-
+	sharedCPUsRequested := requestedSharedCPUs(s.Annotations(), c.CRIContainer().GetMetadata().GetName())
+	if sharedCPUsRequested {
 		if containerManagers, err = setSharedCPUs(c, containerManagers, h.sharedCPUs); err != nil {
 			return fmt.Errorf("setSharedCPUs: failed to set shared CPUs for container %q; %w", c.Name(), err)
 		}
@@ -142,7 +263,12 @@ func (h *HighPerformanceHooks) PreStart(ctx context.Context, c *oci.Container, s
 	if shouldIRQLoadBalancingBeDisabled(ctx, s.Annotations()) {
 		log.Infof(ctx, "Disable irq smp balancing for container %q", c.ID())
 
-		if err := setIRQLoadBalancing(ctx, c, false, IrqSmpAffinityProcFile, h.irqBalanceConfigFile); err != nil {
+		housekeepingSiblings, err := h.getHousekeepingCPUs(&cSpec, s.Annotations())
+		if err != nil {
+			return err
+		}
+
+		if err := h.setIRQLoadBalancing(ctx, c, housekeepingSiblings, false); err != nil {
 			return fmt.Errorf("set IRQ load balancing: %w", err)
 		}
 	}
@@ -181,12 +307,74 @@ func (h *HighPerformanceHooks) PreStart(ctx context.Context, c *oci.Container, s
 		}
 	}
 
+	// Pre-create exec cgroup for this container (only on cgroup v2).
+	// This allows exec operations to use this pre-created cgroup with CPU affinity already configured.
+	//
+	// This exec cgroup is required because when the specified cpuset is exclusive, the exec process needs running
+	// in the child of the container cgroup. When sharedCPUs are requested, the exec process can run in any cgroup
+	// and we don't have to create a new cgroup for it.
+	if h.execCPUAffinity != config.ExecCPUAffinityTypeDefault && !sharedCPUsRequested {
+		if err := h.createExecCgroup(ctx, c); err != nil {
+			return fmt.Errorf("failed to pre-create exec cgroup for container %q: %w", c.ID(), err)
+		}
+	}
+
+	return nil
+}
+
+// createExecCgroup pre-creates an exec cgroup for the container during PreStart.
+// This allows exec operations to use a pre-created cgroup with CPU affinity already configured,
+// avoiding the overhead of creating a new cgroup for each exec operation.
+// This is only supported on cgroup v2.
+func (h *HighPerformanceHooks) createExecCgroup(ctx context.Context, c *oci.Container) error {
+	// Only supported on cgroup v2
+	if !node.CgroupIsV2() {
+		return nil
+	}
+
+	cSpec := c.Spec()
+	if cSpec.Linux == nil || cSpec.Linux.CgroupsPath == "" {
+		return errors.New("container spec does not have a cgroup path")
+	}
+
+	execCgroupMgr, err := h.ExecCgroupManager(cSpec.Linux.CgroupsPath)
+	if err != nil {
+		return fmt.Errorf("failed to create exec cgroup manager: %w", err)
+	}
+
+	// Apply the cgroup (create it without attaching any process)
+	if err = execCgroupMgr.Apply(-1); err != nil {
+		return fmt.Errorf("failed to apply exec cgroup: %w", err)
+	}
+
+	// Set cpuset for exec cgroup based on the container's ExecCPUAffinity
+	// This ExecCPUAffinity is supposed to be set in PreCreate.
+	if cSpec.Process == nil || cSpec.Process.ExecCPUAffinity == nil || cSpec.Process.ExecCPUAffinity.Initial == "" {
+		return errors.New("ExecCPUAffinity not set in container spec, but exec cgroup creation was requested")
+	}
+
+	if err := execCgroupMgr.Set(&cgroups.Resources{
+		SkipDevices: true,
+		CpusetCpus:  cSpec.Process.ExecCPUAffinity.Initial,
+	}); err != nil {
+		return fmt.Errorf("failed to set cpuset.cpus for exec cgroup: %w", err)
+	}
+
+	log.Debugf(ctx, "Set exec cgroup cpuset.cpus to %s for container %q", cSpec.Process.ExecCPUAffinity.Initial, c.ID())
+
+	execCgroupPath := execCgroupMgr.Path("")
+	log.Debugf(ctx, "Pre-created exec cgroup at %s for container %q", execCgroupPath, c.ID())
+
+	// Store the exec cgroup path in the container for later use by exec operations
+	c.SetExecCgroupPath(execCgroupPath)
+
 	return nil
 }
 
 func (h *HighPerformanceHooks) PreStop(ctx context.Context, c *oci.Container, s *sandbox.Sandbox) error {
 	ctx, span := log.StartSpan(ctx)
 	defer span.End()
+
 	log.Infof(ctx, "Run %q runtime handler pre-stop hook for the container %q", HighPerformance, c.ID())
 
 	cSpec := c.Spec()
@@ -194,21 +382,31 @@ func (h *HighPerformanceHooks) PreStop(ctx context.Context, c *oci.Container, s 
 		return nil
 	}
 
-	// enable the IRQ smp balancing for the container CPUs
-	if shouldIRQLoadBalancingBeDisabled(ctx, s.Annotations()) {
-		if err := setIRQLoadBalancing(ctx, c, true, IrqSmpAffinityProcFile, h.irqBalanceConfigFile); err != nil {
-			return fmt.Errorf("set IRQ load balancing: %w", err)
-		}
-	}
-
 	// disable the CPU load balancing for the container CPUs
 	if shouldCPULoadBalancingBeDisabled(ctx, s.Annotations()) {
-		podManager, containerManagers, err := libctrManagersForPodAndContainerCgroup(c, s.CgroupParent())
+		podManager, containerManagers, err := h.PodAndContainerCgroupManagers(s.CgroupParent(), c.ID())
 		if err != nil {
 			return err
 		}
 
-		if err := h.setCPULoadBalancing(ctx, c, podManager, containerManagers, true, requestedSharedCPUs(s.Annotations(), c.CRIContainer().GetMetadata().GetName())); err != nil {
+		sharedCPUsRequested := requestedSharedCPUs(s.Annotations(), c.CRIContainer().GetMetadata().GetName())
+		if sharedCPUsRequested && node.CgroupIsV2() {
+			// Add the cgroup-child so that we can safely remove the isolated cpuset cgroup
+			// Otherwise cpuset may be kept isolated even after the cgroup is deleted.
+			actualContainerManager, err := getManagerByIndex(len(containerManagers)-1, containerManagers)
+			if err != nil {
+				return err
+			}
+
+			childCgroup, err := createChildCgroupManager(actualContainerManager.Path(""))
+			if err != nil {
+				return err
+			}
+
+			containerManagers = append(containerManagers, childCgroup)
+		}
+
+		if err := h.setCPULoadBalancing(ctx, c, podManager, containerManagers, true, sharedCPUsRequested); err != nil {
 			return fmt.Errorf("set CPU load balancing: %w", err)
 		}
 	}
@@ -237,52 +435,65 @@ func (h *HighPerformanceHooks) PreStop(ctx context.Context, c *oci.Container, s 
 }
 
 // If CPU load balancing is enabled, then *all* containers must run this PostStop hook.
-func (*HighPerformanceHooks) PostStop(ctx context.Context, c *oci.Container, s *sandbox.Sandbox) error {
+func (h *HighPerformanceHooks) PostStop(ctx context.Context, c *oci.Container, s *sandbox.Sandbox) error {
+	cSpec := c.Spec()
+	if shouldRunHooks(ctx, c.ID(), &cSpec, s) {
+		// enable the IRQ smp balancing for the container CPUs
+		if shouldIRQLoadBalancingBeDisabled(ctx, s.Annotations()) {
+			if err := h.setIRQLoadBalancing(ctx, c, cpuset.CPUSet{}, true); err != nil {
+				return fmt.Errorf("set IRQ load balancing: %w", err)
+			}
+		}
+	}
+
 	// We could check if `!cpuLoadBalancingAllowed()` here, but it requires access to the config, which would be
 	// odd to plumb. Instead, always assume if they're using a HighPerformanceHook, they have CPULoadBalanceDisabled
 	// annotation allowed.
-	h := &DefaultCPULoadBalanceHooks{}
+	dh := &DefaultCPULoadBalanceHooks{
+		h.CgroupManager,
+	}
 
-	return h.PostStop(ctx, c, s)
+	return dh.PostStop(ctx, c, s)
 }
 
 func shouldCPULoadBalancingBeDisabled(ctx context.Context, annotations fields.Set) bool {
-	if annotations[crioannotations.CPULoadBalancingAnnotation] == annotationTrue {
-		log.Warnf(ctx, "%s", annotationValueDeprecationWarning(crioannotations.CPULoadBalancingAnnotation))
+	if annotations[crioannotations.CPULoadBalancing] == annotationTrue {
+		log.Warnf(ctx, "%s", annotationValueDeprecationWarning(crioannotations.CPULoadBalancing))
 	}
 
-	return annotations[crioannotations.CPULoadBalancingAnnotation] == annotationTrue ||
-		annotations[crioannotations.CPULoadBalancingAnnotation] == annotationDisable
+	return annotations[crioannotations.CPULoadBalancing] == annotationTrue ||
+		annotations[crioannotations.CPULoadBalancing] == annotationDisable
 }
 
 func shouldCPUQuotaBeDisabled(ctx context.Context, annotations fields.Set) bool {
-	if annotations[crioannotations.CPUQuotaAnnotation] == annotationTrue {
-		log.Warnf(ctx, "%s", annotationValueDeprecationWarning(crioannotations.CPUQuotaAnnotation))
+	if annotations[crioannotations.CPUQuota] == annotationTrue {
+		log.Warnf(ctx, "%s", annotationValueDeprecationWarning(crioannotations.CPUQuota))
 	}
 
-	return annotations[crioannotations.CPUQuotaAnnotation] == annotationTrue ||
-		annotations[crioannotations.CPUQuotaAnnotation] == annotationDisable
+	return annotations[crioannotations.CPUQuota] == annotationTrue ||
+		annotations[crioannotations.CPUQuota] == annotationDisable
 }
 
 func shouldIRQLoadBalancingBeDisabled(ctx context.Context, annotations fields.Set) bool {
-	if annotations[crioannotations.IRQLoadBalancingAnnotation] == annotationTrue {
-		log.Warnf(ctx, "%s", annotationValueDeprecationWarning(crioannotations.IRQLoadBalancingAnnotation))
+	if annotations[crioannotations.IRQLoadBalancing] == annotationTrue {
+		log.Warnf(ctx, "%s", annotationValueDeprecationWarning(crioannotations.IRQLoadBalancing))
 	}
 
-	return annotations[crioannotations.IRQLoadBalancingAnnotation] == annotationTrue ||
-		annotations[crioannotations.IRQLoadBalancingAnnotation] == annotationDisable
+	return annotations[crioannotations.IRQLoadBalancing] == annotationTrue ||
+		annotations[crioannotations.IRQLoadBalancing] == annotationDisable ||
+		annotations[crioannotations.IRQLoadBalancing] == annotationHousekeeping
 }
 
 func shouldCStatesBeConfigured(annotations fields.Set) (present bool, value string) {
-	value, present = annotations[crioannotations.CPUCStatesAnnotation]
+	value, present = annotations[crioannotations.CPUCStates]
 
-	return
+	return present, value
 }
 
 func shouldFreqGovernorBeConfigured(annotations fields.Set) (present bool, value string) {
-	value, present = annotations[crioannotations.CPUFreqGovernorAnnotation]
+	value, present = annotations[crioannotations.CPUFreqGovernor]
 
-	return
+	return present, value
 }
 
 func annotationValueDeprecationWarning(annotation string) string {
@@ -290,18 +501,13 @@ func annotationValueDeprecationWarning(annotation string) string {
 }
 
 func requestedSharedCPUs(annotations fields.Set, cName string) bool {
-	key := crioannotations.CPUSharedAnnotation + "/" + cName
+	key := crioannotations.CPUShared + "/" + cName
 	v, ok := annotations[key]
 
 	return ok && v == annotationEnable
 }
 
 // setCPULoadBalancing relies on the cpuset cgroup to disable load balancing for containers.
-// The requisite condition to allow this is `cpuset.sched_load_balance` field must be set to 0 for all cgroups
-// that intersect with `cpuset.cpus` of the container that desires load balancing.
-// Since CRI-O is the owner of the container cgroup, it must set this value for
-// the container. Some other entity (kubelet, external service) must ensure this is the case for all
-// other cgroups that intersect (at minimum: all parent cgroups of this cgroup).
 func (h *HighPerformanceHooks) setCPULoadBalancing(ctx context.Context, c *oci.Container, podManager cgroups.Manager, containerManagers []cgroups.Manager, enable, sharedCPUsRequested bool) error {
 	if node.CgroupIsV2() {
 		return h.setCPULoadBalancingV2(ctx, c, podManager, containerManagers, enable, sharedCPUsRequested)
@@ -342,10 +548,25 @@ type desiredManagerCPUSetState struct {
 func (h *HighPerformanceHooks) setCPULoadBalancingV2(ctx context.Context, c *oci.Container, podManager cgroups.Manager, containerManagers []cgroups.Manager, enable, sharedCPUsRequested bool) (retErr error) {
 	cpusString := c.Spec().Linux.Resources.CPU.Cpus
 
-	exclusiveCPUs, err := cpuset.Parse(cpusString)
+	specCPUSet, err := cpuset.Parse(cpusString)
 	if err != nil {
 		return err
 	}
+
+	var exclusiveCPUs cpuset.CPUSet
+
+	// If sharedCPUs is requested, then the exclusive set is the difference between the spec and the shared set.
+	if sharedCPUsRequested {
+		sharedCPUSet, err := cpuset.Parse(h.sharedCPUs)
+		if err != nil {
+			return fmt.Errorf("failed to parse shared cpus: %w", err)
+		}
+
+		exclusiveCPUs = specCPUSet.Difference(sharedCPUSet)
+	} else {
+		exclusiveCPUs = specCPUSet
+	}
+
 	// We need to construct a slice of managers from top to bottom. We already have the container's manager,
 	// potentially the parent manager, and pod manager.
 	// So we can begin by constructing all the parents of the pod manager
@@ -372,7 +593,7 @@ func (h *HighPerformanceHooks) setCPULoadBalancingV2(ctx context.Context, c *oci
 			continue
 		}
 
-		mgr, err := libctrManager(dir, parent, systemd)
+		mgr, err := cgmgr.LibctrManager(dir, parent, systemd)
 		if err != nil {
 			return err
 		}
@@ -524,7 +745,7 @@ func (h *HighPerformanceHooks) addOrRemoveCpusetFromManager(mgr cgroups.Manager,
 		return cgroups.WriteFile(mgr.Path(""), file, toWrite)
 	}
 	// otherwise, we should use the mgr directly, as it will go through systemd if necessary
-	return mgr.Set(&configs.Resources{
+	return mgr.Set(&cgroups.Resources{
 		SkipDevices: true,
 		CpusetCpus:  targetCpus.String(),
 	})
@@ -569,7 +790,20 @@ func disableCPULoadBalancingV1(containerManagers []cgroups.Manager) error {
 	return nil
 }
 
-func setIRQLoadBalancing(ctx context.Context, c *oci.Container, enable bool, irqSmpAffinityFile, irqBalanceConfigFile string) error {
+// setIRQLoadBalancing configures interrupt load balancing for container CPUs by updating
+// the IRQ SMP affinity mask and IRQ balance service configuration. It then handles IRQ balance restart.
+// When enable is false (= container added), removes container CPUs from interrupt handling to reduce latency;
+// when true (= container removed), restores them. If cpuset housekeepingSiblings is not empty then it will be excluded
+// from the list of container CPUs before taking any action.
+// The entire function after reading IRQ SMP affinity must be wrapped inside a single lock to avoid race conditions.
+// The reason for this is that once we read from the SMP IRQ affinity file, we have to calculate new masks and
+// write those masks to /proc/irq/default_smp_affinity and /etc/sysconfig/irqbalance.
+// We also must restart irqbalance or run irqbalance --oneshot within the same lock.
+// Without this lock, 2 threads could read from the file and calculate the new mask but overwrite the
+// results of each other, or start irbalance --oneshot with different values.
+func (h *HighPerformanceHooks) setIRQLoadBalancing(ctx context.Context, c *oci.Container,
+	housekeepingSiblings cpuset.CPUSet, enable bool,
+) error {
 	lspec := c.Spec().Linux
 	if lspec == nil ||
 		lspec.Resources == nil ||
@@ -578,50 +812,129 @@ func setIRQLoadBalancing(ctx context.Context, c *oci.Container, enable bool, irq
 		return fmt.Errorf("find container %s CPUs", c.ID())
 	}
 
-	content, err := os.ReadFile(irqSmpAffinityFile)
+	cpuSet, err := excludeHousekeepingCPUs(lspec.Resources.CPU.Cpus, housekeepingSiblings)
 	if err != nil {
 		return err
 	}
 
-	currentIRQSMPSetting := strings.TrimSpace(string(content))
+	h.updateIRQSMPAffinityLock.Lock()
+	defer h.updateIRQSMPAffinityLock.Unlock()
 
-	newIRQSMPSetting, newIRQBalanceSetting, err := UpdateIRQSmpAffinityMask(lspec.Resources.CPU.Cpus, currentIRQSMPSetting, enable)
+	if !enable {
+		// If we're disabling IRQ SMP Affinity, save the container ID
+		h.irqSMPAffinityDisabledSet[c.ID()] = struct{}{}
+	} else if _, ok := h.irqSMPAffinityDisabledSet[c.ID()]; ok {
+		// If we're reenabling, and we haven't already reenabled, delete from the set
+		delete(h.irqSMPAffinityDisabledSet, c.ID())
+	} else {
+		// Otherwise, skip the operation to not redo the cleanup
+		return nil
+	}
+
+	newIRQBalanceSetting, err := h.updateNewIRQSMPAffinityMask(ctx, c.ID(), c.Name(), cpuSet, enable)
 	if err != nil {
 		return err
 	}
-
-	if err := os.WriteFile(irqSmpAffinityFile, []byte(newIRQSMPSetting), 0o644); err != nil {
-		return err
-	}
-
-	isIrqConfigExists := fileExists(irqBalanceConfigFile)
-
-	if isIrqConfigExists {
-		if err := updateIrqBalanceConfigFile(irqBalanceConfigFile, newIRQBalanceSetting); err != nil {
-			return err
-		}
-	}
-
-	if !isServiceEnabled(irqBalancedName) || !isIrqConfigExists {
-		if _, err := exec.LookPath(irqBalancedName); err != nil {
-			// irqbalance is not installed, skip the rest; pod should still start, so return nil instead
-			log.Warnf(ctx, "Irqbalance binary not found: %v", err)
-
-			return nil
-		}
-		// run irqbalance in daemon mode, so this won't cause delay
-		cmd := cmdrunner.Command(irqBalancedName, "--oneshot")
-		additionalEnv := irqBalanceBannedCpus + "=" + newIRQBalanceSetting
-		cmd.Env = append(os.Environ(), additionalEnv)
-
-		return cmd.Run()
-	}
-
-	if err := restartIrqBalanceService(); err != nil {
-		log.Warnf(ctx, "Irqbalance service restart failed: %v", err)
+	// Now, restart the irqbalance service or run irqbalance --oneshot command.
+	// On failure, this will log errors but will not return them, as it is not critical for the pod to start.
+	if !h.handleIRQBalanceRestart(ctx, c.Name()) {
+		h.handleIRQBalanceOneShot(ctx, c.Name(), newIRQBalanceSetting)
 	}
 
 	return nil
+}
+
+// handleIRQBalanceRestart handles the restart of the irqbalance service.
+func (h *HighPerformanceHooks) handleIRQBalanceRestart(ctx context.Context, cName string) bool {
+	// If the irqbalance service is enabled, restart it and return.
+	// systemd's StartLimitBurst might cause issues here when container restarts occur in very
+	// quick succession and the parameter must be reconfigured for this to work correctly.
+	// See:
+	// https://github.com/cri-o/cri-o/pull/8834/commits/b96928dcbb7956e0ebde42238e88955831411216
+	if !serviceManager.IsServiceEnabled(irqBalancedName) || !fileExists(h.irqBalanceConfigFile) {
+		return false
+	}
+
+	log.Debugf(ctx, "Container %q restarting irqbalance service", cName)
+
+	if err := serviceManager.RestartService(irqBalancedName); err != nil {
+		log.Warnf(ctx, "Irqbalance service restart failed: %v", err)
+
+		return false
+	}
+
+	return true
+}
+
+// handleIRQBalanceOneShot runs irqbalance --oneshot command.
+func (h *HighPerformanceHooks) handleIRQBalanceOneShot(ctx context.Context, cName, newIRQBalanceSetting string) {
+	irqBalanceFullPath, err := commandRunner.LookPath(irqBalancedName)
+	if err != nil {
+		// irqbalance is not installed, skip the rest; pod should still start, so return nil instead.
+		log.Warnf(ctx, "Irqbalance binary not found: %v", err)
+
+		return
+	}
+
+	env := fmt.Sprintf("%s=%s", irqBalanceBannedCpus, newIRQBalanceSetting)
+	log.Debugf(ctx, "Container %q running '%s %s %s'", cName, env, irqBalanceFullPath, "--oneshot")
+
+	if err := commandRunner.RunCommand(
+		irqBalanceFullPath,
+		[]string{env},
+		"--oneshot",
+	); err != nil {
+		log.Warnf(ctx, "Container %q failed to run '%s %s %s', err: %q",
+			cName, env, irqBalanceFullPath, "--oneshot", err)
+	}
+}
+
+// updateNewIRQSMPAffinityMask updates SMP IRQ affinity and IRQ balance configuration files.
+func (h *HighPerformanceHooks) updateNewIRQSMPAffinityMask(ctx context.Context, cID, cName string,
+	cpus cpuset.CPUSet, enable bool,
+) (newIRQBalanceSetting string, err error) {
+	content, err := os.ReadFile(h.irqSMPAffinityFile)
+	if err != nil {
+		return "", err
+	}
+
+	originalIRQSMPSetting := strings.TrimSpace(string(content))
+
+	newIRQSMPSetting, newIRQBalanceSetting, err := calcIRQSMPAffinityMask(cpus, originalIRQSMPSetting, enable)
+	if err != nil {
+		return "", err
+	}
+
+	log.Debugf(ctx, "Container %q (%q) enable %t cpus %q set %q: %q -> %q; %q: %q",
+		cID, cName, enable, cpus,
+		h.irqSMPAffinityFile, originalIRQSMPSetting, newIRQSMPSetting,
+		h.irqBalanceConfigFile, newIRQBalanceSetting,
+	)
+
+	if err := os.WriteFile(h.irqSMPAffinityFile, []byte(newIRQSMPSetting), 0o644); err != nil {
+		return "", err
+	}
+
+	// Rollback IRQ SMP affinity file to maintain consistency if something goes wrong.
+	defer func() {
+		if err != nil {
+			if rollbackErr := os.WriteFile(h.irqSMPAffinityFile, []byte(originalIRQSMPSetting), 0o644); rollbackErr != nil {
+				log.Errorf(ctx, "Failed to rollback IRQ SMP affinity file after config update failure: err: %q, rollback err: %q",
+					err, rollbackErr)
+			}
+		}
+	}()
+
+	// Nothing else to do if irq balance config file does not exist.
+	if !fileExists(h.irqBalanceConfigFile) {
+		return newIRQBalanceSetting, nil
+	}
+
+	if err := updateIrqBalanceConfigFile(h.irqBalanceConfigFile, newIRQBalanceSetting); err != nil {
+		return "", err
+	}
+
+	return newIRQBalanceSetting, nil
 }
 
 func setCPUQuota(podManager cgroups.Manager, containerManagers []cgroups.Manager) error {
@@ -638,112 +951,11 @@ func setCPUQuota(podManager cgroups.Manager, containerManagers []cgroups.Manager
 	return nil
 }
 
-func libctrManagersForPodAndContainerCgroup(c *oci.Container, parentDir string) (podManager cgroups.Manager, containerManagers []cgroups.Manager, _ error) {
-	var (
-		cgroupManager cgmgr.CgroupManager
-		err           error
-	)
-
-	if strings.HasSuffix(parentDir, ".slice") {
-		if cgroupManager, err = cgmgr.SetCgroupManager("systemd"); err != nil {
-			// Programming error, this is only possible if the manager string is invalid.
-			panic(err)
-		}
-	} else if cgroupManager, err = cgmgr.SetCgroupManager("cgroupfs"); err != nil {
-		// Programming error, this is only possible if the manager string is invalid.
-		panic(err)
-	}
-
-	containerCgroupFullPath, err := cgroupManager.ContainerCgroupAbsolutePath(parentDir, c.ID())
-	if err != nil {
-		return nil, nil, err
-	}
-
-	podCgroupFullPath := filepath.Dir(containerCgroupFullPath)
-
-	podManager, err = libctrManager(filepath.Base(podCgroupFullPath), filepath.Dir(podCgroupFullPath), cgroupManager.IsSystemd())
-	if err != nil {
-		return nil, nil, err
-	}
-
-	containerCgroup := filepath.Base(containerCgroupFullPath)
-	// A quirk of libcontainer's cgroup driver.
-	if cgroupManager.IsSystemd() {
-		containerCgroup = c.ID()
-	}
-
-	containerManager, err := libctrManager(containerCgroup, filepath.Dir(containerCgroupFullPath), cgroupManager.IsSystemd())
-	if err != nil {
-		return nil, nil, err
-	}
-
-	containerManagers = []cgroups.Manager{containerManager}
-
-	// crun actually does the cgroup configuration in a child of the cgroup CRI-O expects to be the container's
-	extraManager, err := trueContainerCgroupManager(containerCgroupFullPath)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if extraManager != nil {
-		containerManagers = append(containerManagers, extraManager)
-	}
-
-	return podManager, containerManagers, nil
-}
-
-func trueContainerCgroupManager(expectedContainerCgroup string) (cgroups.Manager, error) {
-	// HACK: There isn't really a better way to check if the actual container cgroup is in a child cgroup of the expected.
-	// We could check /proc/$pid/cgroup, but we need to be able to query this after the container exits and the process is gone.
-	// We know the source of this: crun creates a sub cgroup of the container to do the actual management, to enforce systemd's single
-	// owner rule. Thus, we need to hardcode this check.
-	actualContainerCgroup := filepath.Join(expectedContainerCgroup, "container")
-	// Choose cpuset as the cgroup to check, with little reason.
-	cgroupRoot := cgroupMountPoint
-	if !node.CgroupIsV2() {
-		cgroupRoot += "/cpuset"
-	}
-
-	if _, err := os.Stat(filepath.Join(cgroupRoot, actualContainerCgroup)); err != nil {
-		return nil, nil
-	}
-	// must be crun, make another libctrManager. Regardless of cgroup driver, it will be treated as cgroupfs
-	return libctrManager(filepath.Base(actualContainerCgroup), filepath.Dir(actualContainerCgroup), false)
-}
-
 func disableCPUQuotaForCgroup(mgr cgroups.Manager) error {
-	return mgr.Set(&configs.Resources{
+	return mgr.Set(&cgroups.Resources{
 		SkipDevices: true,
 		CpuQuota:    -1,
 	})
-}
-
-func libctrManager(cgroup, parent string, systemd bool) (cgroups.Manager, error) {
-	if systemd {
-		parent = filepath.Base(parent)
-		if parent == "." {
-			// libcontainer shorthand for root
-			// see https://github.com/opencontainers/runc/blob/9fffadae8/libcontainer/cgroups/systemd/common.go#L71
-			parent = "-.slice"
-		}
-	}
-
-	cg := &configs.Cgroup{
-		Name:   cgroup,
-		Parent: parent,
-		Resources: &configs.Resources{
-			SkipDevices: true,
-		},
-		Systemd: systemd,
-		// If the cgroup manager is systemd, then libcontainer
-		// will construct the cgroup path (for scopes) as:
-		// ScopePrefix-Name.scope. For slices, and for cgroupfs manager,
-		// this will be ignored.
-		// See: https://github.com/opencontainers/runc/tree/main/libcontainer/cgroups/systemd/common.go:getUnitName
-		ScopePrefix: cgmgr.CrioPrefix,
-	}
-
-	return libCtrMgr.New(cg)
 }
 
 // safe fetch of cgroup manager from managers slice.
@@ -856,10 +1068,8 @@ func isCPUGovernorSupported(governor, cpuDir string, cpu int) error {
 	}
 
 	// Is the scaling governor supported?
-	for _, availableGovernor := range strings.Fields(string(availGovernors)) {
-		if availableGovernor == governor {
-			return nil
-		}
+	if slices.Contains(strings.Fields(string(availGovernors)), governor) {
+		return nil
 	}
 
 	return fmt.Errorf("governor %s not available for cpu %d", governor, cpu)
@@ -1025,26 +1235,13 @@ func RestoreIrqBalanceConfig(ctx context.Context, irqBalanceConfigFile, irqBanne
 		return err
 	}
 
-	if isServiceEnabled(irqBalancedName) {
-		if err := restartIrqBalanceService(); err != nil {
+	if serviceManager.IsServiceEnabled(irqBalancedName) {
+		if err := serviceManager.RestartService(irqBalancedName); err != nil {
 			log.Warnf(ctx, "Irqbalance service restart failed: %v", err)
 		}
 	}
 
 	return nil
-}
-
-func ShouldCPUQuotaBeDisabled(ctx context.Context, cid string, cSpec *specs.Spec, s *sandbox.Sandbox, annotations fields.Set) bool {
-	if !shouldRunHooks(ctx, cid, cSpec, s) {
-		return false
-	}
-
-	if annotations[crioannotations.CPUQuotaAnnotation] == annotationTrue {
-		log.Warnf(ctx, "%s", annotationValueDeprecationWarning(crioannotations.CPUQuotaAnnotation))
-	}
-
-	return annotations[crioannotations.CPUQuotaAnnotation] == annotationTrue ||
-		annotations[crioannotations.CPUQuotaAnnotation] == annotationDisable
 }
 
 func shouldRunHooks(ctx context.Context, id string, cSpec *specs.Spec, s *sandbox.Sandbox) bool {
@@ -1078,6 +1275,10 @@ func isCgroupParentBestEffort(s *sandbox.Sandbox) bool {
 }
 
 func isContainerRequestWholeCPU(cSpec *specs.Spec) bool {
+	if isContainerCPUEmpty(cSpec) || cSpec.Linux.Resources.CPU.Shares == nil {
+		return false
+	}
+
 	return *(cSpec.Linux.Resources.CPU.Shares)%1024 == 0
 }
 
@@ -1097,16 +1298,15 @@ func isContainerRequestWholeCPU(cSpec *specs.Spec) bool {
 // cpu-c-states.crio.io: "enable" (enable all c-states)
 // cpu-c-states.crio.io: "max_latency:10" (use a max latency of 10us).
 func convertAnnotationToLatency(annotation string) (maxLatency string, err error) {
-	//nolint:gocritic // this would not be better as a switch statement
 	if annotation == annotationEnable {
 		// Enable all c-states.
 		return "0", nil
 	} else if annotation == annotationDisable {
 		// Disable all c-states.
 		return "n/a", nil
-	} else if strings.HasPrefix(annotation, "max_latency:") {
+	} else if after, ok := strings.CutPrefix(annotation, "max_latency:"); ok {
 		// Use the latency provided
-		latency, err := strconv.Atoi(strings.TrimPrefix(annotation, "max_latency:"))
+		latency, err := strconv.Atoi(after)
 		if err != nil {
 			return "", err
 		}
@@ -1122,13 +1322,13 @@ func convertAnnotationToLatency(annotation string) (maxLatency string, err error
 
 func setSharedCPUs(c *oci.Container, containerManagers []cgroups.Manager, sharedCPUs string) ([]cgroups.Manager, error) {
 	cSpec := c.Spec()
-	if isContainerCPUsSpecEmpty(&cSpec) {
+
+	cpusString := getContainerCPUsFromSpec(&cSpec)
+	if cpusString == "" {
 		return nil, fmt.Errorf("no cpus found for container %q", c.Name())
 	}
 
-	cpusString := cSpec.Linux.Resources.CPU.Cpus
-
-	exclusiveCPUs, err := cpuset.Parse(cpusString)
+	allCPUs, err := cpuset.Parse(cpusString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse container %q cpus: %w", c.Name(), err)
 	}
@@ -1147,11 +1347,11 @@ func setSharedCPUs(c *oci.Container, containerManagers []cgroups.Manager, shared
 		return nil, err
 	}
 
-	if err := ctrManager.Set(&configs.Resources{
-		SkipDevices: true,
-		CpusetCpus:  exclusiveCPUs.Union(sharedCPUSet).String(),
-	}); err != nil {
-		return nil, err
+	exclusiveCPUs := allCPUs.Difference(sharedCPUSet)
+	if exclusiveCPUs.IsEmpty() {
+		// This shouldn't happen because the cpuSpec should have been correctly configured
+		// in PreCreate hook.
+		return nil, fmt.Errorf("no exclusive CPUs found, all CPUs: %q, shared CPUs: %q", cpusString, sharedCPUs)
 	}
 
 	if node.CgroupIsV2() {
@@ -1162,7 +1362,7 @@ func setSharedCPUs(c *oci.Container, containerManagers []cgroups.Manager, shared
 			return nil, err
 		}
 		// create a new cgroupfs manager
-		childCgroup, err := libctrManager("cgroup-child", strings.TrimPrefix(ctrCgroup, cgroupMountPoint), false)
+		childCgroup, err := createChildCgroupManager(ctrCgroup)
 		if err != nil {
 			return nil, err
 		}
@@ -1172,7 +1372,7 @@ func setSharedCPUs(c *oci.Container, containerManagers []cgroups.Manager, shared
 		}
 		// add the exclusive cpus under the child cgroup in case
 		// this makes the handling of load-balancing disablement simpler in case it required
-		if err := childCgroup.Set(&configs.Resources{
+		if err := childCgroup.Set(&cgroups.Resources{
 			SkipDevices: true,
 			CpusetCpus:  exclusiveCPUs.String(),
 		}); err != nil {
@@ -1186,11 +1386,23 @@ func setSharedCPUs(c *oci.Container, containerManagers []cgroups.Manager, shared
 	return containerManagers, nil
 }
 
-func isContainerCPUsSpecEmpty(spec *specs.Spec) bool {
-	return spec.Linux == nil ||
+// createChildCgroupManager creates a new manager for the exclusive CPUs when shared CPUs are set.
+func createChildCgroupManager(cgroupPath string) (cgroups.Manager, error) {
+	return cgmgr.LibctrManager("cgroup-child", strings.TrimPrefix(cgroupPath, cgroupMountPoint), false)
+}
+
+func isContainerCPUEmpty(spec *specs.Spec) bool {
+	return spec == nil || spec.Linux == nil ||
 		spec.Linux.Resources == nil ||
-		spec.Linux.Resources.CPU == nil ||
-		spec.Linux.Resources.CPU.Cpus == ""
+		spec.Linux.Resources.CPU == nil
+}
+
+func getContainerCPUsFromSpec(spec *specs.Spec) string {
+	if isContainerCPUEmpty(spec) {
+		return ""
+	}
+
+	return spec.Linux.Resources.CPU.Cpus
 }
 
 func injectQuotaGivenSharedCPUs(c *oci.Container, podManager cgroups.Manager, containerManagers []cgroups.Manager, sharedCPUs string) error {
@@ -1216,7 +1428,7 @@ func injectQuotaGivenSharedCPUs(c *oci.Container, podManager cgroups.Manager, co
 		return fmt.Errorf("failed to calculate pod quota: %w", err)
 	}
 	// the Set function knows to handle -1 value for both v1 and v2
-	err = podManager.Set(&configs.Resources{
+	err = podManager.Set(&cgroups.Resources{
 		SkipDevices: true,
 		CpuQuota:    newPodQuota,
 	})
@@ -1231,12 +1443,12 @@ func injectQuotaGivenSharedCPUs(c *oci.Container, podManager cgroups.Manager, co
 		return fmt.Errorf("failed to calculate container %s quota: %w", c.ID(), err)
 	}
 
-	manager, err := getManagerByIndex(len(containerManagers)-1, containerManagers)
+	mgr, err := getManagerByIndex(len(containerManagers)-1, containerManagers)
 	if err != nil {
 		return err
 	}
 
-	return manager.Set(&configs.Resources{
+	return mgr.Set(&cgroups.Resources{
 		SkipDevices: true,
 		CpuQuota:    ctrQuota,
 	})
@@ -1245,12 +1457,12 @@ func injectQuotaGivenSharedCPUs(c *oci.Container, podManager cgroups.Manager, co
 func calculateMaximalQuota(cpus *cpuset.CPUSet, period uint64) (quota int64, err error) {
 	quan, err := resource.ParseQuantity(strconv.Itoa(cpus.Size()))
 	if err != nil {
-		return
+		return quota, err
 	}
 	// after we divide in milliCPUToCPU, it's safe to convert into int64
 	quota = int64((uint64(quan.MilliValue()) * period) / milliCPUToCPU)
 
-	return
+	return quota, err
 }
 
 func calculatePodQuota(sharedCpus *cpuset.CPUSet, podManager cgroups.Manager, period uint64) (int64, error) {
@@ -1312,8 +1524,92 @@ func getPodQuotaV2(mng cgroups.Manager) (string, error) {
 }
 
 func injectCpusetEnv(specgen *generate.Generator, isolated, shared *cpuset.CPUSet) {
-	spec := specgen.Config
-	spec.Process.Env = append(spec.Process.Env,
-		fmt.Sprintf("%s=%s", IsolatedCPUsEnvVar, isolated.String()),
-		fmt.Sprintf("%s=%s", SharedCPUsEnvVar, shared.String()))
+	specgen.AddProcessEnv(IsolatedCPUsEnvVar, isolated.String())
+	specgen.AddProcessEnv(SharedCPUsEnvVar, shared.String())
+}
+
+// isRequestedHousekeepingCPUs checks if sandbox annotation "irq-load-balancing.crio.io" equals "housekeeping".
+func isRequestedHousekeepingCPUs(annotations fields.Set) bool {
+	return annotations[crioannotations.IRQLoadBalancing] == annotationHousekeeping
+}
+
+// getHousekeepingCPUs determines which CPUs should be preserved for housekeeping tasks.
+// When housekeeping mode is enabled, it returns the thread siblings of the first container CPU.
+// These CPUs will continue to handle interrupts while other container CPUs are isolated.
+func (h *HighPerformanceHooks) getHousekeepingCPUs(containerSpec *specs.Spec, annotations map[string]string) (cpuset.CPUSet, error) {
+	if !isRequestedHousekeepingCPUs(annotations) {
+		return cpuset.CPUSet{}, nil
+	}
+
+	cpus := getContainerCPUsFromSpec(containerSpec)
+
+	set, err := cpuset.Parse(cpus)
+	if err != nil {
+		return cpuset.CPUSet{}, err
+	}
+
+	if set.IsEmpty() {
+		return cpuset.CPUSet{}, nil
+	}
+
+	housekeepingSiblings, err := getThreadSiblings(set.List()[0], h.sysCPUDir)
+	if err != nil {
+		return cpuset.CPUSet{}, fmt.Errorf("could not get thread siblings for first core, err: %w", err)
+	}
+
+	// By using the intersection, we make sure that we only return thread siblings that actually live inside the
+	// container.
+	return set.Intersection(housekeepingSiblings), nil
+}
+
+// excludeHousekeepingCPUs parses a CPU string and removes housekeeping CPUs from the set.
+// This returns the CPUs that should be isolated from interrupt handling.
+func excludeHousekeepingCPUs(cpus string, housekeepingSiblings cpuset.CPUSet) (cpuset.CPUSet, error) {
+	set, err := cpuset.Parse(cpus)
+	if err != nil {
+		return cpuset.CPUSet{}, err
+	}
+
+	return set.Difference(housekeepingSiblings), nil
+}
+
+// injectHousekeepingEnv adds the OPENSHIFT_HOUSEKEEPING_CPUS environment variable to the container.
+// This allows the container to be aware of which CPUs are designated for housekeeping tasks.
+func injectHousekeepingEnv(specgen *generate.Generator, housekeeping cpuset.CPUSet) error {
+	if specgen == nil {
+		return errors.New("specgen is nil, specgen")
+	}
+
+	specgen.AddProcessEnv(HousekeepingCPUsEnvVar, housekeeping.String())
+
+	return nil
+}
+
+// getThreadSiblings returns thread siblings for the given CPU by reading
+// currentSysCPUDir/cpuX/topology/thread_siblings_list. The returned set includes the original input CPU.
+func getThreadSiblings(cpu int, sysCPUDir string) (cpuset.CPUSet, error) {
+	originalCPUSet := cpuset.New(cpu)
+
+	siblingsFile := filepath.Join(sysCPUDir, fmt.Sprintf("cpu%d", cpu), "topology", "thread_siblings_list")
+
+	content, err := os.ReadFile(siblingsFile)
+	if err != nil {
+		// If the file doesn't exist, this CPU has no siblings (or is not hyperthreaded),
+		// so return the original CPU.
+		return originalCPUSet, nil
+	}
+
+	siblingsStr := strings.TrimSpace(string(content))
+
+	cpuSiblings, err := cpuset.Parse(siblingsStr)
+	if err != nil {
+		return cpuset.New(), fmt.Errorf("failed to parse thread siblings %q for CPU %d: %w", siblingsStr, cpu, err)
+	}
+
+	// If the content of the siblings file yields an empty CPU set, we return the original CPU's set.
+	if cpuSiblings.IsEmpty() {
+		return originalCPUSet, nil
+	}
+
+	return cpuSiblings, nil
 }

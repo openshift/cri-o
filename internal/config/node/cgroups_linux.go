@@ -6,10 +6,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 
-	"github.com/containers/common/pkg/cgroups"
-	libctrcgroups "github.com/opencontainers/runc/libcontainer/cgroups"
+	libctrcgroups "github.com/opencontainers/cgroups"
+	"go.podman.io/common/pkg/cgroups"
 )
 
 var (
@@ -27,6 +28,7 @@ var (
 
 func CgroupIsV2() bool {
 	var cgroupIsV2 bool
+
 	cgroupIsV2, cgroupIsV2Err = cgroups.IsCgroup2UnifiedMode()
 
 	return cgroupIsV2
@@ -108,12 +110,8 @@ func checkRelevantControllers() {
 		}
 
 		for _, toCheck := range relevantControllers {
-			for _, ctrl := range ctrls {
-				if ctrl == toCheck.name {
-					*toCheck.enabled = true
-
-					break
-				}
+			if slices.Contains(ctrls, toCheck.name) {
+				*toCheck.enabled = true
 			}
 		}
 	})

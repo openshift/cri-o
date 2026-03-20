@@ -581,6 +581,24 @@ allowed_annotations = ["$ANNOTATION"]
 EOF
 }
 
+function create_runtime_with_seccomp_profile() {
+    local NAME="$1"
+    local RUNTIME_PROFILE="$2"
+    local HANDLER_PROFILE="$3"
+    unset CONTAINER_DEFAULT_RUNTIME
+    unset CONTAINER_RUNTIMES
+    cat <<EOF >"$CRIO_CONFIG_DIR/01-$NAME.conf"
+[crio.runtime]
+default_runtime = "$NAME"
+seccomp_profile = "$RUNTIME_PROFILE"
+[crio.runtime.runtimes.$NAME]
+runtime_path = "$RUNTIME_BINARY_PATH"
+runtime_root = "$RUNTIME_ROOT"
+runtime_type = "$RUNTIME_TYPE"
+seccomp_profile = "$HANDLER_PROFILE"
+EOF
+}
+
 function create_workload_with_allowed_annotation() {
     local act="$2"
     # Fallback on the specified allowed annotation if
@@ -799,4 +817,22 @@ function remove_random_storage_layer() {
 
 function is_using_crun() {
     runtime --version | grep -q crun
+}
+
+function start_crio_with_websocket_stream_server() {
+    setup_crio
+
+    cat <<EOF >"$CRIO_CONFIG_DIR/99-websocket.conf"
+[crio.runtime]
+default_runtime = "websocket"
+[crio.runtime.runtimes.websocket]
+runtime_path = "$RUNTIME_BINARY_PATH"
+runtime_type = "pod"
+monitor_path = ""
+stream_websockets = true
+EOF
+    unset CONTAINER_DEFAULT_RUNTIME
+    unset CONTAINER_RUNTIMES
+
+    start_crio_no_setup
 }

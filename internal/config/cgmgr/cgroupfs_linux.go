@@ -3,20 +3,17 @@
 package cgmgr
 
 import (
+	"errors"
 	"fmt"
 	"path"
 	"path/filepath"
 	"strings"
 	"sync"
 
-	"github.com/containers/common/pkg/cgroups"
-	"github.com/containers/storage/pkg/unshare"
-	openctrCg "github.com/opencontainers/cgroups"
-	libctrCg "github.com/opencontainers/runc/libcontainer/cgroups"
-	libctrCgMgr "github.com/opencontainers/runc/libcontainer/cgroups/manager"
-	cgcfgs "github.com/opencontainers/runc/libcontainer/configs"
+	"github.com/opencontainers/cgroups"
+	"github.com/opencontainers/cgroups/manager"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/sirupsen/logrus"
+	"go.podman.io/storage/pkg/unshare"
 
 	"github.com/cri-o/cri-o/internal/config/node"
 	"github.com/cri-o/cri-o/utils"
@@ -28,9 +25,9 @@ type CgroupfsManager struct {
 	// a map of container ID to cgroup manager for cgroup v1
 	// the reason we need this for v1 only is because the cost of creating a cgroup manager for v2 is very low
 	// and we don't need to cache it
-	v1CtrCgMgr map[string]libctrCg.Manager
+	v1CtrCgMgr map[string]cgroups.Manager
 	// a map of sandbox ID to cgroup manager for cgroup v1
-	v1SbCgMgr map[string]libctrCg.Manager
+	v1SbCgMgr map[string]cgroups.Manager
 	mutex     sync.Mutex
 }
 
@@ -68,7 +65,7 @@ func (m *CgroupfsManager) ContainerCgroupAbsolutePath(sbParent, containerID stri
 
 // ContainerCgroupManager takes the cgroup parent, and container ID.
 // It returns the raw libcontainer cgroup manager for that container.
-func (m *CgroupfsManager) ContainerCgroupManager(sbParent, containerID string) (libctrCg.Manager, error) {
+func (m *CgroupfsManager) ContainerCgroupManager(sbParent, containerID string) (cgroups.Manager, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -83,7 +80,7 @@ func (m *CgroupfsManager) ContainerCgroupManager(sbParent, containerID string) (
 		return nil, err
 	}
 
-	cgMgr, err := libctrManager(filepath.Base(cgPath), filepath.Dir(cgPath), false)
+	cgMgr, err := LibctrManager(filepath.Base(cgPath), filepath.Dir(cgPath), false)
 	if err != nil {
 		return nil, err
 	}
@@ -105,12 +102,7 @@ func (m *CgroupfsManager) ContainerCgroupStats(sbParent, containerID string) (*C
 		return nil, err
 	}
 
-	stats, err := cgMgr.GetStats()
-	if err != nil {
-		return nil, err
-	}
-
-	return libctrStatsToCgroupStats(stats), nil
+	return statsFromLibctrMgr(cgMgr)
 }
 
 // RemoveContainerCgManager removes the cgroup manager for the container.
@@ -118,6 +110,7 @@ func (m *CgroupfsManager) RemoveContainerCgManager(containerID string) {
 	if !node.CgroupIsV2() {
 		m.mutex.Lock()
 		defer m.mutex.Unlock()
+
 		delete(m.v1CtrCgMgr, containerID)
 	}
 }
@@ -139,7 +132,7 @@ func (m *CgroupfsManager) SandboxCgroupPath(sbParent, sbID string, containerMinM
 
 // SandboxCgroupManager takes the cgroup parent, and sandbox ID.
 // It returns the raw libcontainer cgroup manager for that sandbox.
-func (m *CgroupfsManager) SandboxCgroupManager(sbParent, sbID string) (libctrCg.Manager, error) {
+func (m *CgroupfsManager) SandboxCgroupManager(sbParent, sbID string) (cgroups.Manager, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -154,7 +147,7 @@ func (m *CgroupfsManager) SandboxCgroupManager(sbParent, sbID string) (libctrCg.
 		return nil, err
 	}
 
-	cgMgr, err := libctrManager(filepath.Base(cgPath), filepath.Dir(cgPath), false)
+	cgMgr, err := LibctrManager(filepath.Base(cgPath), filepath.Dir(cgPath), false)
 	if err != nil {
 		return nil, err
 	}
@@ -176,12 +169,7 @@ func (m *CgroupfsManager) SandboxCgroupStats(sbParent, sbID string) (*CgroupStat
 		return nil, err
 	}
 
-	stats, err := cgMgr.GetStats()
-	if err != nil {
-		return nil, err
-	}
-
-	return libctrStatsToCgroupStats(stats), nil
+	return statsFromLibctrMgr(cgMgr)
 }
 
 // RemoveSandboxCgroupManager removes the cgroup manager for the sandbox.
@@ -189,6 +177,7 @@ func (m *CgroupfsManager) RemoveSandboxCgManager(sbID string) {
 	if !node.CgroupIsV2() {
 		m.mutex.Lock()
 		defer m.mutex.Unlock()
+
 		delete(m.v1SbCgMgr, sbID)
 	}
 }
@@ -207,43 +196,19 @@ func (*CgroupfsManager) MoveConmonToCgroup(cid, cgroupParent, conmonCgroup strin
 	}
 
 	cgroupPath := fmt.Sprintf("%s/crio-conmon-%s", cgroupParent, cid)
+	err := applyWorkloadSettings(cgroupPath, resources, pid)
 
-	control, err := cgroups.New(cgroupPath, &openctrCg.Resources{})
-	if err != nil {
-		logrus.Warnf("Failed to add conmon to cgroupfs sandbox cgroup: %v", err)
-	}
-
-	if control == nil {
-		return cgroupPath, nil
-	}
-
-	if err := setWorkloadSettings(cgroupPath, resources); err != nil {
-		return cgroupPath, err
-	}
-
-	// Record conmon's cgroup path in the container, so we can properly
-	// clean it up when removing the container.
-	// Here we should defer a crio-connmon- cgroup hierarchy deletion, but it will
-	// always fail as conmon's pid is still there.
-	// Fortunately, kubelet takes care of deleting this for us, so the leak will
-	// only happens in corner case where one does a manual deletion of the container
-	// through e.g. runc. This should be handled by implementing a conmon monitoring
-	// routine that does the cgroup cleanup once conmon is terminated.
-	if err := control.AddPid(pid); err != nil {
-		return "", fmt.Errorf("failed to add conmon to cgroupfs sandbox cgroup: %w", err)
-	}
-
-	return cgroupPath, nil
+	return cgroupPath, err
 }
 
-func setWorkloadSettings(cgPath string, resources *rspec.LinuxResources) (err error) {
+func applyWorkloadSettings(cgPath string, resources *rspec.LinuxResources, pid int) (err error) {
 	if resources.CPU == nil {
 		return nil
 	}
 
-	cg := &cgcfgs.Cgroup{
+	cg := &cgroups.Cgroup{
 		Path: "/" + cgPath,
-		Resources: &cgcfgs.Resources{
+		Resources: &cgroups.Resources{
 			SkipDevices: true,
 			CpusetCpus:  resources.CPU.Cpus,
 		},
@@ -261,12 +226,20 @@ func setWorkloadSettings(cgPath string, resources *rspec.LinuxResources) (err er
 		cg.CpuPeriod = *resources.CPU.Period
 	}
 
-	mgr, err := libctrCgMgr.New(cg)
+	mgr, err := manager.New(cg)
 	if err != nil {
 		return err
 	}
 
-	return mgr.Set(cg.Resources)
+	if err := mgr.Set(cg.Resources); err != nil {
+		return err
+	}
+
+	if err := mgr.Apply(pid); err != nil {
+		return fmt.Errorf("failed to add conmon to cgroupfs sandbox cgroup: %w", err)
+	}
+
+	return nil
 }
 
 // CreateSandboxCgroup calls the helper function createSandboxCgroup for this manager.
@@ -283,4 +256,54 @@ func (m *CgroupfsManager) RemoveSandboxCgroup(sbParent, containerID string) erro
 	// and the cgroup isn't created as a relative path to the cgroups of the CRI-O process.
 	// https://github.com/opencontainers/runc/blob/fd5debf3aa/libcontainer/cgroups/fs/paths.go#L156
 	return removeSandboxCgroup(filepath.Join("/", sbParent), containerCgroupPath(containerID))
+}
+
+// PodAndContainerCgroupManagers returns the libcontainer cgroup managers for both the pod and container cgroups.
+// The sbParent is the sandbox parent cgroup, and containerID is the container's ID.
+func (m *CgroupfsManager) PodAndContainerCgroupManagers(sbParent, containerID string) (podManager cgroups.Manager, containerManagers []cgroups.Manager, _ error) {
+	containerCgroupFullPath, err := m.ContainerCgroupAbsolutePath(sbParent, containerID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	podCgroupFullPath := filepath.Dir(containerCgroupFullPath)
+
+	podManager, err = LibctrManager(filepath.Base(podCgroupFullPath), filepath.Dir(podCgroupFullPath), false)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	containerManager, err := LibctrManager(filepath.Base(containerCgroupFullPath), filepath.Dir(containerCgroupFullPath), false)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	containerManagers = []cgroups.Manager{containerManager}
+
+	// crun actually does the cgroup configuration in a child of the cgroup CRI-O expects to be the container's
+	extraManager, err := crunContainerCgroupManager(containerCgroupFullPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if extraManager != nil {
+		containerManagers = append(containerManagers, extraManager)
+	}
+
+	return podManager, containerManagers, nil
+}
+
+// ExecCgroupManager returns the cgroup manager for the exec cgroup used to place exec processes.
+// For cgroupfs, the cgroupPath is a direct filesystem path.
+// This is only supported on cgroup v2.
+func (m *CgroupfsManager) ExecCgroupManager(cgroupPath string) (cgroups.Manager, error) {
+	if cgroupPath == "" {
+		return nil, errors.New("container cgroup path is empty")
+	}
+
+	if !node.CgroupIsV2() {
+		return nil, errors.New("exec cgroup with CgroupFD is only supported on cgroup v2")
+	}
+
+	return execCgroupManager(cgroupPath)
 }

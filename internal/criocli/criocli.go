@@ -46,6 +46,29 @@ func GetAndMergeConfigFromContext(c *cli.Context) (*libconfig.Config, error) {
 }
 
 func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
+	if err := mergeConfigFiles(config, ctx); err != nil {
+		return err
+	}
+
+	mergeRootConfig(config, ctx)
+	mergeImageConfig(config, ctx)
+
+	if err := mergeRuntimeConfig(config, ctx); err != nil {
+		return err
+	}
+
+	mergeNetworkConfig(config, ctx)
+	mergeAPIConfig(config, ctx)
+	mergeMetricsConfig(config, ctx)
+	mergeTracingConfig(config, ctx)
+	mergeNRIConfig(config, ctx)
+
+	return nil
+}
+
+// mergeConfigFiles loads and merges configuration from the config file and config directory
+// specified in the CLI context into the provided config object.
+func mergeConfigFiles(config *libconfig.Config, ctx *cli.Context) error {
 	// Don't parse the config if the user explicitly set it to "".
 	path := ctx.String("config")
 	if path != "" {
@@ -72,11 +95,60 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 		config.SetSingleConfigPath(path)
 	}
 
-	// Override options set with the CLI.
-	if ctx.IsSet("conmon") {
-		config.Conmon = ctx.String("conmon")
+	return nil
+}
+
+// mergeRootConfig merges RootConfig-related CLI flags into the config, including storage paths,
+// version files, and internal maintenance settings.
+func mergeRootConfig(config *libconfig.Config, ctx *cli.Context) {
+	if ctx.IsSet("root") {
+		config.Root = ctx.String("root")
 	}
 
+	if ctx.IsSet("runroot") {
+		config.RunRoot = ctx.String("runroot")
+	}
+
+	if ctx.IsSet("imagestore") {
+		config.ImageStore = ctx.String("imagestore")
+	}
+
+	if ctx.IsSet("storage-driver") {
+		config.Storage = ctx.String("storage-driver")
+	}
+
+	if ctx.IsSet("storage-opt") {
+		config.StorageOptions = StringSliceTrySplit(ctx, "storage-opt")
+	}
+
+	if ctx.IsSet("log-dir") {
+		config.LogDir = ctx.String("log-dir")
+	}
+
+	if ctx.IsSet("version-file") {
+		config.VersionFile = ctx.String("version-file")
+	}
+
+	if ctx.IsSet("version-file-persist") {
+		config.VersionFilePersist = ctx.String("version-file-persist")
+	}
+
+	if ctx.IsSet("clean-shutdown-file") {
+		config.CleanShutdownFile = ctx.String("clean-shutdown-file")
+	}
+
+	if ctx.IsSet("internal-wipe") {
+		config.InternalWipe = ctx.Bool("internal-wipe")
+	}
+
+	if ctx.IsSet("internal-repair") {
+		config.InternalRepair = ctx.Bool("internal-repair")
+	}
+}
+
+// mergeImageConfig merges ImageConfig-related CLI flags into the config, including pause image,
+// image pull settings, registries configuration, and signature verification settings.
+func mergeImageConfig(config *libconfig.Config, ctx *cli.Context) {
 	if ctx.IsSet("pause-command") {
 		config.PauseCommand = ctx.String("pause-command")
 	}
@@ -93,6 +165,10 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 		config.GlobalAuthFile = ctx.String("global-auth-file")
 	}
 
+	if ctx.IsSet("namespaced-auth-dir") {
+		config.NamespacedAuthDir = ctx.String("namespaced-auth-dir")
+	}
+
 	if ctx.IsSet("signature-policy") {
 		config.SignaturePolicyPath = ctx.String("signature-policy")
 	}
@@ -101,23 +177,8 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 		config.SignaturePolicyDir = ctx.String("signature-policy-dir")
 	}
 
-	if ctx.IsSet("root") {
-		config.Root = ctx.String("root")
-	}
-
-	if ctx.IsSet("runroot") {
-		config.RunRoot = ctx.String("runroot")
-	}
-
-	if ctx.IsSet("storage-driver") {
-		config.Storage = ctx.String("storage-driver")
-	}
-
-	if ctx.IsSet("storage-opt") {
-		config.StorageOptions = StringSliceTrySplit(ctx, "storage-opt")
-	}
-
 	if ctx.IsSet("insecure-registry") {
+		//nolint:staticcheck // SA1019: InsecureRegistries is deprecated but still supported for backward compatibility
 		config.InsecureRegistries = StringSliceTrySplit(ctx, "insecure-registry")
 	}
 
@@ -125,80 +186,77 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 		config.DefaultTransport = ctx.String("default-transport")
 	}
 
-	if ctx.IsSet("listen") {
-		config.Listen = ctx.String("listen")
+	if ctx.IsSet("image-volumes") {
+		config.ImageVolumes = libconfig.ImageVolumesType(ctx.String("image-volumes"))
 	}
 
-	if ctx.IsSet("stream-address") {
-		config.StreamAddress = ctx.String("stream-address")
+	if ctx.IsSet("big-files-temporary-dir") {
+		config.BigFilesTemporaryDir = ctx.String("big-files-temporary-dir")
 	}
 
-	if ctx.IsSet("stream-port") {
-		config.StreamPort = ctx.String("stream-port")
+	if ctx.IsSet("auto-reload-registries") {
+		config.AutoReloadRegistries = ctx.Bool("auto-reload-registries")
+	}
+
+	if ctx.IsSet("pull-progress-timeout") {
+		config.PullProgressTimeout = ctx.Duration("pull-progress-timeout")
+	}
+
+	if ctx.IsSet("pinned-images") {
+		config.PinnedImages = StringSliceTrySplit(ctx, "pinned-images")
+	}
+
+	if ctx.IsSet("short-name-mode") {
+		config.ShortNameMode = ctx.String("short-name-mode")
+	}
+
+	if ctx.IsSet("oci-artifact-mount-support") {
+		config.OCIArtifactMountSupport = ctx.Bool("oci-artifact-mount-support")
+	}
+}
+
+// mergeRuntimeConfig merges RuntimeConfig-related CLI flags into the config, including runtime paths,
+// capabilities, devices, user namespaces, logging, cgroups, and resource limits.
+func mergeRuntimeConfig(config *libconfig.Config, ctx *cli.Context) error {
+	// Runtime and monitor paths
+	if ctx.IsSet("conmon") {
+		config.Conmon = ctx.String("conmon")
+	}
+
+	if ctx.IsSet("conmon-cgroup") {
+		config.ConmonCgroup = ctx.String("conmon-cgroup")
+	}
+
+	if ctx.IsSet("conmon-env") {
+		config.ConmonEnv = StringSliceTrySplit(ctx, "conmon-env")
 	}
 
 	if ctx.IsSet("default-runtime") {
 		config.DefaultRuntime = ctx.String("default-runtime")
 	}
 
-	if ctx.IsSet("decryption-keys-path") {
-		config.DecryptionKeysPath = ctx.String("decryption-keys-path")
-	}
-
 	if ctx.IsSet("runtimes") {
-		runtimes := StringSliceTrySplit(ctx, "runtimes")
-		for _, r := range runtimes {
-			fields := strings.Split(r, ":")
-
-			runtimeType := libconfig.DefaultRuntimeType
-			privilegedWithoutHostDevices := false
-			runtimeConfigPath := ""
-			containerMinMemory := ""
-
-			switch len(fields) {
-			case 7:
-				containerMinMemory = fields[6]
-
-				if _, err := units.RAMInBytes(containerMinMemory); err != nil {
-					return fmt.Errorf("invalid value %q for --runtimes:container_min_memory: %w", containerMinMemory, err)
-				}
-
-				fallthrough
-			case 6:
-				runtimeConfigPath = fields[5]
-
-				fallthrough
-			case 5:
-				if fields[4] == "true" {
-					privilegedWithoutHostDevices = true
-				}
-
-				fallthrough
-			case 4:
-				runtimeType = fields[3]
-
-				fallthrough
-			case 3:
-				config.Runtimes[fields[0]] = &libconfig.RuntimeHandler{
-					RuntimePath:                  fields[1],
-					RuntimeRoot:                  fields[2],
-					RuntimeType:                  runtimeType,
-					PrivilegedWithoutHostDevices: privilegedWithoutHostDevices,
-					RuntimeConfigPath:            runtimeConfigPath,
-					ContainerMinMemory:           containerMinMemory,
-				}
-			default:
-				return fmt.Errorf("invalid format for --runtimes: %q", r)
-			}
+		if err := mergeRuntimesConfig(config, ctx); err != nil {
+			return err
 		}
 	}
 
-	if ctx.IsSet("selinux") {
-		config.SELinux = ctx.Bool("selinux")
+	if ctx.IsSet("no-pivot") {
+		config.NoPivot = ctx.Bool("no-pivot")
 	}
 
-	if ctx.IsSet("imagestore") {
-		config.ImageStore = ctx.String("imagestore")
+	// Hooks and mounts
+	if ctx.IsSet("hooks-dir") {
+		config.HooksDir = StringSliceTrySplit(ctx, "hooks-dir")
+	}
+
+	if ctx.IsSet("default-mounts-file") {
+		config.DefaultMountsFile = ctx.String("default-mounts-file")
+	}
+
+	// Security
+	if ctx.IsSet("selinux") {
+		config.SELinux = ctx.Bool("selinux")
 	}
 
 	if ctx.IsSet("seccomp-profile") {
@@ -213,6 +271,59 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 		config.ApparmorProfile = ctx.String("apparmor-profile")
 	}
 
+	// Capabilities
+	if ctx.IsSet("default-capabilities") {
+		config.DefaultCapabilities = StringSliceTrySplit(ctx, "default-capabilities")
+	}
+
+	if ctx.IsSet("add-inheritable-capabilities") {
+		config.AddInheritableCapabilities = ctx.Bool("add-inheritable-capabilities")
+	}
+
+	// Environment and sysctls
+	if ctx.IsSet("default-env") {
+		config.DefaultEnv = StringSliceTrySplit(ctx, "default-env")
+	}
+
+	if ctx.IsSet("default-sysctls") {
+		config.DefaultSysctls = StringSliceTrySplit(ctx, "default-sysctls")
+	}
+
+	if ctx.IsSet("default-ulimits") {
+		config.DefaultUlimits = StringSliceTrySplit(ctx, "default-ulimits")
+	}
+
+	// Devices
+	if ctx.IsSet("allowed-devices") {
+		config.AllowedDevices = StringSliceTrySplit(ctx, "allowed-devices")
+	}
+
+	if ctx.IsSet("additional-devices") {
+		config.AdditionalDevices = StringSliceTrySplit(ctx, "additional-devices")
+	}
+
+	if ctx.IsSet("cdi-spec-dirs") {
+		config.CDISpecDirs = StringSliceTrySplit(ctx, "cdi-spec-dirs")
+	}
+
+	if ctx.IsSet("device-ownership-from-security-context") {
+		config.DeviceOwnershipFromSecurityContext = ctx.Bool("device-ownership-from-security-context")
+	}
+
+	// Decryption
+	if ctx.IsSet("decryption-keys-path") {
+		config.DecryptionKeysPath = ctx.String("decryption-keys-path")
+	}
+
+	if ctx.IsSet("additional-artifact-stores") {
+		config.AdditionalArtifactStores = StringSliceTrySplit(ctx, "additional-artifact-stores")
+	}
+
+	// Cgroup configuration
+	if ctx.IsSet("cgroup-manager") {
+		config.CgroupManagerName = ctx.String("cgroup-manager")
+	}
+
 	if ctx.IsSet("blockio-config-file") {
 		config.BlockIOConfigFile = ctx.String("blockio-config-file")
 	}
@@ -225,78 +336,44 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 		config.IrqBalanceConfigFile = ctx.String("irqbalance-config-file")
 	}
 
+	if ctx.IsSet("irqbalance-config-restore-file") {
+		config.IrqBalanceConfigRestoreFile = ctx.String("irqbalance-config-restore-file")
+	}
+
 	if ctx.IsSet("rdt-config-file") {
 		config.RdtConfigFile = ctx.String("rdt-config-file")
 	}
 
-	if ctx.IsSet("cgroup-manager") {
-		config.CgroupManagerName = ctx.String("cgroup-manager")
+	if ctx.IsSet("separate-pull-cgroup") {
+		config.SeparatePullCgroup = ctx.String("separate-pull-cgroup")
 	}
 
-	if ctx.IsSet("conmon-cgroup") {
-		config.ConmonCgroup = ctx.String("conmon-cgroup")
+	if ctx.IsSet("infra-ctr-cpuset") {
+		config.InfraCtrCPUSet = ctx.String("infra-ctr-cpuset")
 	}
 
-	if ctx.IsSet("hooks-dir") {
-		config.HooksDir = StringSliceTrySplit(ctx, "hooks-dir")
+	if ctx.IsSet("shared-cpuset") {
+		config.SharedCPUSet = ctx.String("shared-cpuset")
 	}
 
-	if ctx.IsSet("default-mounts-file") {
-		config.DefaultMountsFile = ctx.String("default-mounts-file")
+	// Container configuration
+	if ctx.IsSet("container-exits-dir") {
+		config.ContainerExitsDir = ctx.String("container-exits-dir")
 	}
 
-	if ctx.IsSet("default-capabilities") {
-		config.DefaultCapabilities = StringSliceTrySplit(ctx, "default-capabilities")
-	}
-
-	if ctx.IsSet("add-inheritable-capabilities") {
-		config.AddInheritableCapabilities = ctx.Bool("add-inheritable-capabilities")
-	}
-
-	if ctx.IsSet("default-sysctls") {
-		config.DefaultSysctls = StringSliceTrySplit(ctx, "default-sysctls")
-	}
-
-	if ctx.IsSet("default-ulimits") {
-		config.DefaultUlimits = StringSliceTrySplit(ctx, "default-ulimits")
-	}
-
-	if ctx.IsSet("pids-limit") {
-		config.PidsLimit = ctx.Int64("pids-limit")
-	}
-
-	if ctx.IsSet("log-size-max") {
-		config.LogSizeMax = ctx.Int64("log-size-max")
-	}
-
-	if ctx.IsSet("log-journald") {
-		config.LogToJournald = ctx.Bool("log-journald")
-	}
-
-	if ctx.IsSet("cni-default-network") {
-		config.CNIDefaultNetwork = ctx.String("cni-default-network")
-	}
-
-	if ctx.IsSet("cni-config-dir") {
-		config.NetworkDir = ctx.String("cni-config-dir")
-	}
-
-	if ctx.IsSet("cni-plugin-dir") {
-		config.PluginDirs = StringSliceTrySplit(ctx, "cni-plugin-dir")
-	}
-
-	if ctx.IsSet("image-volumes") {
-		config.ImageVolumes = libconfig.ImageVolumesType(ctx.String("image-volumes"))
-	}
-
-	if ctx.IsSet("read-only") {
-		config.ReadOnly = ctx.Bool("read-only")
+	if ctx.IsSet("container-attach-socket-dir") {
+		config.ContainerAttachSocketDir = ctx.String("container-attach-socket-dir")
 	}
 
 	if ctx.IsSet("bind-mount-prefix") {
 		config.BindMountPrefix = ctx.String("bind-mount-prefix")
 	}
 
+	if ctx.IsSet("absent-mount-sources-to-reject") {
+		config.AbsentMountSourcesToReject = StringSliceTrySplit(ctx, "absent-mount-sources-to-reject")
+	}
+
+	// User namespaces
 	if ctx.IsSet("uid-mappings") {
 		config.UIDMappings = ctx.String("uid-mappings")
 	}
@@ -313,6 +390,7 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 		config.MinimumMappableGID = ctx.Int64("minimum-mappable-gid")
 	}
 
+	// Logging
 	if ctx.IsSet("log-level") {
 		config.LogLevel = ctx.String("log-level")
 	}
@@ -321,62 +399,15 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 		config.LogFilter = ctx.String("log-filter")
 	}
 
-	if ctx.IsSet("log-dir") {
-		config.LogDir = ctx.String("log-dir")
+	if ctx.IsSet("log-size-max") {
+		config.LogSizeMax = ctx.Int64("log-size-max")
 	}
 
-	if ctx.IsSet("additional-devices") {
-		config.AdditionalDevices = StringSliceTrySplit(ctx, "additional-devices")
+	if ctx.IsSet("log-journald") {
+		config.LogToJournald = ctx.Bool("log-journald")
 	}
 
-	if ctx.IsSet("allowed-devices") {
-		config.AllowedDevices = StringSliceTrySplit(ctx, "allowed-devices")
-	}
-
-	if ctx.IsSet("cdi-spec-dirs") {
-		config.CDISpecDirs = StringSliceTrySplit(ctx, "cdi-spec-dirs")
-	}
-
-	if ctx.IsSet("device-ownership-from-security-context") {
-		config.DeviceOwnershipFromSecurityContext = ctx.Bool("device-ownership-from-security-context")
-	}
-
-	if ctx.IsSet("conmon-env") {
-		config.ConmonEnv = StringSliceTrySplit(ctx, "conmon-env")
-	}
-
-	if ctx.IsSet("default-env") {
-		config.DefaultEnv = StringSliceTrySplit(ctx, "default-env")
-	}
-
-	if ctx.IsSet("container-attach-socket-dir") {
-		config.ContainerAttachSocketDir = ctx.String("container-attach-socket-dir")
-	}
-
-	if ctx.IsSet("container-exits-dir") {
-		config.ContainerExitsDir = ctx.String("container-exits-dir")
-	}
-
-	if ctx.IsSet("enable-criu-support") {
-		config.EnableCriuSupport = ctx.Bool("enable-criu-support")
-	}
-
-	if ctx.IsSet("ctr-stop-timeout") {
-		config.CtrStopTimeout = ctx.Int64("ctr-stop-timeout")
-	}
-
-	if ctx.IsSet("grpc-max-recv-msg-size") {
-		config.GRPCMaxRecvMsgSize = ctx.Int("grpc-max-recv-msg-size")
-	}
-
-	if ctx.IsSet("grpc-max-send-msg-size") {
-		config.GRPCMaxSendMsgSize = ctx.Int("grpc-max-send-msg-size")
-	}
-
-	if ctx.IsSet("drop-infra-ctr") {
-		config.DropInfraCtr = ctx.Bool("drop-infra-ctr")
-	}
-
+	// Namespace management
 	if ctx.IsSet("namespaces-dir") {
 		config.NamespacesDir = ctx.String("namespaces-dir")
 	}
@@ -385,8 +416,135 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 		config.PinnsPath = ctx.String("pinns-path")
 	}
 
-	if ctx.IsSet("no-pivot") {
-		config.NoPivot = ctx.Bool("no-pivot")
+	// CRIU support
+	if ctx.IsSet("enable-criu-support") {
+		config.EnableCriuSupport = ctx.Bool("enable-criu-support")
+	}
+
+	// Resource limits
+	if ctx.IsSet("pids-limit") {
+		config.PidsLimit = ctx.Int64("pids-limit")
+	}
+
+	if ctx.IsSet("ctr-stop-timeout") {
+		config.CtrStopTimeout = ctx.Int64("ctr-stop-timeout")
+	}
+
+	// Container behavior
+	if ctx.IsSet("drop-infra-ctr") {
+		config.DropInfraCtr = ctx.Bool("drop-infra-ctr")
+	}
+
+	if ctx.IsSet("read-only") {
+		config.ReadOnly = ctx.Bool("read-only")
+	}
+
+	if ctx.IsSet("enable-pod-events") {
+		config.EnablePodEvents = ctx.Bool("enable-pod-events")
+	}
+
+	// Network behavior in RuntimeConfig
+	if ctx.IsSet("hostnetwork-disable-selinux") {
+		config.HostNetworkDisableSELinux = ctx.Bool("hostnetwork-disable-selinux")
+	}
+
+	if ctx.IsSet("disable-hostport-mapping") {
+		config.DisableHostPortMapping = ctx.Bool("disable-hostport-mapping")
+	}
+
+	// Timezone
+	if ctx.IsSet("timezone") {
+		config.Timezone = ctx.String("timezone")
+	}
+
+	return nil
+}
+
+// mergeRuntimesConfig parses and merges the --runtimes flag which specifies OCI runtime
+// configurations in the format: runtime_name:runtime_path:runtime_root:runtime_type:...
+func mergeRuntimesConfig(config *libconfig.Config, ctx *cli.Context) error {
+	runtimes := StringSliceTrySplit(ctx, "runtimes")
+	for _, r := range runtimes {
+		fields := strings.Split(r, ":")
+		runtimeType := libconfig.DefaultRuntimeType
+		privilegedWithoutHostDevices := false
+		runtimeConfigPath := ""
+		containerMinMemory := ""
+
+		switch len(fields) {
+		case 7:
+			containerMinMemory = fields[6]
+			if _, err := units.RAMInBytes(containerMinMemory); err != nil {
+				return fmt.Errorf("invalid value %q for --runtimes:container_min_memory: %w", containerMinMemory, err)
+			}
+
+			fallthrough
+		case 6:
+			runtimeConfigPath = fields[5]
+
+			fallthrough
+		case 5:
+			if fields[4] == "true" {
+				privilegedWithoutHostDevices = true
+			}
+
+			fallthrough
+		case 4:
+			runtimeType = fields[3]
+
+			fallthrough
+		case 3:
+			config.Runtimes[fields[0]] = &libconfig.RuntimeHandler{
+				RuntimePath:                  fields[1],
+				RuntimeRoot:                  fields[2],
+				RuntimeType:                  runtimeType,
+				PrivilegedWithoutHostDevices: privilegedWithoutHostDevices,
+				RuntimeConfigPath:            runtimeConfigPath,
+				ContainerMinMemory:           containerMinMemory,
+			}
+		default:
+			return fmt.Errorf("invalid format for --runtimes: %q", r)
+		}
+	}
+
+	return nil
+}
+
+// mergeNetworkConfig merges NetworkConfig-related CLI flags into the config.
+func mergeNetworkConfig(config *libconfig.Config, ctx *cli.Context) {
+	if ctx.IsSet("cni-default-network") {
+		config.CNIDefaultNetwork = ctx.String("cni-default-network")
+	}
+
+	if ctx.IsSet("cni-config-dir") {
+		config.NetworkDir = ctx.String("cni-config-dir")
+	}
+
+	if ctx.IsSet("cni-plugin-dir") {
+		config.PluginDirs = StringSliceTrySplit(ctx, "cni-plugin-dir")
+	}
+}
+
+// mergeAPIConfig merges APIConfig-related CLI flags into the config, including gRPC and streaming settings.
+func mergeAPIConfig(config *libconfig.Config, ctx *cli.Context) {
+	if ctx.IsSet("grpc-max-recv-msg-size") {
+		config.GRPCMaxRecvMsgSize = ctx.Int("grpc-max-recv-msg-size")
+	}
+
+	if ctx.IsSet("grpc-max-send-msg-size") {
+		config.GRPCMaxSendMsgSize = ctx.Int("grpc-max-send-msg-size")
+	}
+
+	if ctx.IsSet("listen") {
+		config.Listen = ctx.String("listen")
+	}
+
+	if ctx.IsSet("stream-address") {
+		config.StreamAddress = ctx.String("stream-address")
+	}
+
+	if ctx.IsSet("stream-port") {
+		config.StreamPort = ctx.String("stream-port")
 	}
 
 	if ctx.IsSet("stream-enable-tls") {
@@ -405,42 +563,21 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 		config.StreamTLSKey = ctx.String("stream-tls-key")
 	}
 
+	if ctx.IsSet("tls-min-version") {
+		config.TLSMinVersion = ctx.String("tls-min-version")
+	}
+
+	if ctx.IsSet("tls-cipher-suites") {
+		config.TLSCipherSuites = ctx.StringSlice("tls-cipher-suites")
+	}
+
 	if ctx.IsSet("stream-idle-timeout") {
 		config.StreamIdleTimeout = ctx.String("stream-idle-timeout")
 	}
+}
 
-	if ctx.IsSet("version-file") {
-		config.VersionFile = ctx.String("version-file")
-	}
-
-	if ctx.IsSet("version-file-persist") {
-		config.VersionFilePersist = ctx.String("version-file-persist")
-	}
-
-	if ctx.IsSet("clean-shutdown-file") {
-		config.CleanShutdownFile = ctx.String("clean-shutdown-file")
-	}
-
-	if ctx.IsSet("absent-mount-sources-to-reject") {
-		config.AbsentMountSourcesToReject = StringSliceTrySplit(ctx, "absent-mount-sources-to-reject")
-	}
-
-	if ctx.IsSet("irqbalance-config-restore-file") {
-		config.IrqBalanceConfigRestoreFile = ctx.String("irqbalance-config-restore-file")
-	}
-
-	if ctx.IsSet("internal-wipe") {
-		config.InternalWipe = ctx.Bool("internal-wipe")
-	}
-
-	if ctx.IsSet("internal-repair") {
-		config.InternalRepair = ctx.Bool("internal-repair")
-	}
-
-	if ctx.IsSet("oci-artifact-mount-support") {
-		config.OCIArtifactMountSupport = ctx.Bool("oci-artifact-mount-support")
-	}
-
+// mergeMetricsConfig merges MetricsConfig and StatsConfig-related CLI flags into the config.
+func mergeMetricsConfig(config *libconfig.Config, ctx *cli.Context) {
 	if ctx.IsSet("enable-metrics") {
 		config.EnableMetrics = ctx.Bool("enable-metrics")
 	}
@@ -469,6 +606,22 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 		config.MetricsCollectors = collectors.FromSlice(ctx.StringSlice("metrics-collectors"))
 	}
 
+	// StatsConfig fields
+	if ctx.IsSet("stats-collection-period") {
+		config.StatsCollectionPeriod = ctx.Int("stats-collection-period")
+	}
+
+	if ctx.IsSet("collection-period") {
+		config.CollectionPeriod = ctx.Int("collection-period")
+	}
+
+	if ctx.IsSet("included-pod-metrics") {
+		//nolint:staticcheck // Needs to use the user input config.
+		config.IncludedPodMetrics = StringSliceTrySplit(ctx, "included-pod-metrics")
+	}
+}
+
+func mergeTracingConfig(config *libconfig.Config, ctx *cli.Context) {
 	if ctx.IsSet("enable-tracing") {
 		config.EnableTracing = ctx.Bool("enable-tracing")
 	}
@@ -480,7 +633,9 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 	if ctx.IsSet("tracing-sampling-rate-per-million") {
 		config.TracingSamplingRatePerMillion = ctx.Int("tracing-sampling-rate-per-million")
 	}
+}
 
+func mergeNRIConfig(config *libconfig.Config, ctx *cli.Context) {
 	if ctx.IsSet("enable-nri") {
 		config.NRI.Enabled = ctx.Bool("enable-nri")
 	}
@@ -509,63 +664,37 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 		config.NRI.PluginRequestTimeout = ctx.Duration("nri-plugin-request-timeout")
 	}
 
-	if ctx.IsSet("big-files-temporary-dir") {
-		config.BigFilesTemporaryDir = ctx.String("big-files-temporary-dir")
+	if ctx.IsSet("nri-enable-default-validator") {
+		config.NRI.DefaultValidator.Enable = ctx.Bool("nri-enable-default-validator")
 	}
 
-	if ctx.IsSet("auto-reload-registries") {
-		config.AutoReloadRegistries = ctx.Bool("auto-reload-registries")
+	if ctx.IsSet("nri-validator-reject-oci-hook-adjustment") {
+		config.NRI.DefaultValidator.RejectOCIHookAdjustment = ctx.Bool("nri-validator-reject-oci-hook-adjustment")
 	}
 
-	if ctx.IsSet("pull-progress-timeout") {
-		config.PullProgressTimeout = ctx.Duration("pull-progress-timeout")
+	if ctx.IsSet("nri-validator-reject-runtime-default-seccomp-adjustment") {
+		config.NRI.DefaultValidator.RejectRuntimeDefaultSeccompAdjustment = ctx.Bool("nri-validator-reject-runtime-default-seccomp-adjustment")
 	}
 
-	if ctx.IsSet("separate-pull-cgroup") {
-		config.SeparatePullCgroup = ctx.String("separate-pull-cgroup")
+	if ctx.IsSet("nri-validator-reject-unconfined-seccomp-adjustment") {
+		config.NRI.DefaultValidator.RejectUnconfinedSeccompAdjustment = ctx.Bool("nri-validator-reject-unconfined-seccomp-adjustment")
 	}
 
-	if ctx.IsSet("infra-ctr-cpuset") {
-		config.InfraCtrCPUSet = ctx.String("infra-ctr-cpuset")
+	if ctx.IsSet("nri-validator-reject-custom-seccomp-adjustment") {
+		config.NRI.DefaultValidator.RejectCustomSeccompAdjustment = ctx.Bool("nri-validator-reject-custom-seccomp-adjustment")
 	}
 
-	if ctx.IsSet("shared-cpuset") {
-		config.SharedCPUSet = ctx.String("shared-cpuset")
+	if ctx.IsSet("nri-validator-reject-namespace-adjustment") {
+		config.NRI.DefaultValidator.RejectNamespaceAdjustment = ctx.Bool("nri-validator-reject-namespace-adjustment")
 	}
 
-	if ctx.IsSet("stats-collection-period") {
-		config.StatsCollectionPeriod = ctx.Int("stats-collection-period")
+	if ctx.IsSet("nri-validator-required-plugins") {
+		config.NRI.DefaultValidator.RequiredPlugins = StringSliceTrySplit(ctx, "nri-validator-required-plugins")
 	}
 
-	if ctx.IsSet("collection-period") {
-		config.CollectionPeriod = ctx.Int("collection-period")
+	if ctx.IsSet("nri-validator-tolerate-missing-plugins-annotation") {
+		config.NRI.DefaultValidator.TolerateMissingAnnotation = ctx.String("nri-validator-tolerate-missing-plugins-annotation")
 	}
-
-	if ctx.IsSet("included-pod-metrics") {
-		config.IncludedPodMetrics = StringSliceTrySplit(ctx, "included-pod-metrics")
-	}
-
-	if ctx.IsSet("enable-pod-events") {
-		config.EnablePodEvents = ctx.Bool("enable-pod-events")
-	}
-
-	if ctx.IsSet("hostnetwork-disable-selinux") {
-		config.HostNetworkDisableSELinux = ctx.Bool("hostnetwork-disable-selinux")
-	}
-
-	if ctx.IsSet("pinned-images") {
-		config.PinnedImages = StringSliceTrySplit(ctx, "pinned-images")
-	}
-
-	if ctx.IsSet("disable-hostport-mapping") {
-		config.DisableHostPortMapping = ctx.Bool("disable-hostport-mapping")
-	}
-
-	if ctx.IsSet("timezone") {
-		config.Timezone = ctx.String("timezone")
-	}
-
-	return nil
 }
 
 func GetFlagsAndMetadata() ([]cli.Flag, map[string]any, error) {
@@ -703,6 +832,14 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			TakesFile: true,
 		},
 		&cli.StringFlag{
+			Name:      "namespaced-auth-dir",
+			Usage:     "Path to the root directory for namespaced auth files. Must be an absolute path.",
+			Value:     defConf.NamespacedAuthDir,
+			EnvVars:   []string{"CONTAINER_NAMESPACED_AUTH_DIR"},
+			TakesFile: true,
+			Hidden:    true,
+		},
+		&cli.StringFlag{
 			Name:      "signature-policy",
 			Usage:     "Path to signature policy JSON file.",
 			EnvVars:   []string{"CONTAINER_SIGNATURE_POLICY"},
@@ -750,9 +887,11 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			EnvVars: []string{"CONTAINER_STORAGE_OPT"},
 		},
 		&cli.StringSliceFlag{
-			Name:  "insecure-registry",
+			Name: "insecure-registry",
+			//nolint:staticcheck // SA1019: InsecureRegistries is deprecated but still supported for backward compatibility
 			Value: cli.NewStringSlice(defConf.InsecureRegistries...),
 			Usage: "Enable insecure registry communication, i.e., enable un-encrypted and/or untrusted communication." + `
+    This option is deprecated. Please use "insecure" in registries.conf instead.
     1. List of insecure registries can contain an element with CIDR notation to
        specify a whole subnet.
     2. Insecure registries accept HTTP or accept HTTPS with certificates from
@@ -774,6 +913,11 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			Name:  "decryption-keys-path",
 			Usage: "Path to load keys for image decryption.",
 			Value: defConf.DecryptionKeysPath,
+		},
+		&cli.StringSliceFlag{
+			Name:  "additional-artifact-stores",
+			Value: cli.NewStringSlice(defConf.AdditionalArtifactStores...),
+			Usage: "Additional read-only OCI artifact store paths.",
 		},
 		&cli.StringFlag{
 			Name:    "default-runtime",
@@ -1060,6 +1204,46 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			Usage: `Timeout for a plugin to handle an NRI request.`,
 			Value: defConf.NRI.PluginRequestTimeout,
 		},
+		&cli.BoolFlag{
+			Name:  "nri-enable-default-validator",
+			Usage: "Enable the default NRI validator plugin.",
+			Value: defConf.NRI.DefaultValidator.Enable,
+		},
+		&cli.BoolFlag{
+			Name:  "nri-validator-reject-oci-hook-adjustment",
+			Usage: "Reject NRI plugin adjustment of OCI Hooks.",
+			Value: defConf.NRI.DefaultValidator.RejectOCIHookAdjustment,
+		},
+		&cli.BoolFlag{
+			Name:  "nri-validator-reject-runtime-default-seccomp-adjustment",
+			Usage: "Reject NRI plugin adjustment of runtime default seccomp policy.",
+			Value: defConf.NRI.DefaultValidator.RejectRuntimeDefaultSeccompAdjustment,
+		},
+		&cli.BoolFlag{
+			Name:  "nri-validator-reject-unconfined-seccomp-adjustment",
+			Usage: "Reject NRI plugin adjustment of unconfined seccomp policy.",
+			Value: defConf.NRI.DefaultValidator.RejectUnconfinedSeccompAdjustment,
+		},
+		&cli.BoolFlag{
+			Name:  "nri-validator-reject-custom-seccomp-adjustment",
+			Usage: "Reject NRI plugin adjustment of custom seccomp policy.",
+			Value: defConf.NRI.DefaultValidator.RejectCustomSeccompAdjustment,
+		},
+		&cli.BoolFlag{
+			Name:  "nri-validator-reject-namespace-adjustment",
+			Usage: "Reject NRI plugin adjustment of linux namespaces.",
+			Value: defConf.NRI.DefaultValidator.RejectNamespaceAdjustment,
+		},
+		&cli.StringSliceFlag{
+			Name:  "nri-validator-required-plugins",
+			Usage: "List of required NRI plugins that must be present.",
+			Value: cli.NewStringSlice(defConf.NRI.DefaultValidator.RequiredPlugins...),
+		},
+		&cli.StringFlag{
+			Name:  "nri-validator-tolerate-missing-plugins-annotation",
+			Usage: `Name of the annotation used to indicate toleration of missing required NRI plugins.`,
+			Value: defConf.NRI.DefaultValidator.TolerateMissingAnnotation,
+		},
 		&cli.StringFlag{
 			Name:    "big-files-temporary-dir",
 			Usage:   `Path to the temporary directory to use for storing big files, used to store image blobs and data streams related to containers image management.`,
@@ -1217,6 +1401,17 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			TakesFile: true,
 		},
 		&cli.StringFlag{
+			Name:    "tls-min-version",
+			Usage:   "Minimum TLS version for streaming and metrics servers (VersionTLS12 or VersionTLS13).",
+			EnvVars: []string{"CONTAINER_TLS_MIN_VERSION"},
+			Value:   defConf.TLSMinVersion,
+		},
+		&cli.StringSliceFlag{
+			Name:    "tls-cipher-suites",
+			Usage:   "Comma-separated list of cipher suites for TLS 1.2.",
+			EnvVars: []string{"CONTAINER_TLS_CIPHER_SUITES"},
+		},
+		&cli.StringFlag{
 			Name:      "stream-tls-cert",
 			Usage:     "Path to the x509 certificate file used to serve the encrypted stream. This file can change and CRI-O will automatically pick up the changes.",
 			EnvVars:   []string{"CONTAINER_TLS_CERT"},
@@ -1325,10 +1520,14 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			EnvVars: []string{"COLLECTION_PERIOD"},
 		},
 		&cli.StringSliceFlag{
-			Name:    "included-pod-metrics",
-			Usage:   "A list of pod metrics to include. Specify the names of the metrics to include in this list.",
-			EnvVars: []string{"CONTAINER_INCLUDED_POD_METRCIS"},
-			Value:   cli.NewStringSlice(defConf.IncludedPodMetrics...),
+			Name:  "included-pod-metrics",
+			Usage: "A list of pod metrics to include. Specify the names of the metrics to include in this list.",
+			EnvVars: []string{
+				"CONTAINER_INCLUDED_POD_METRCIS", // TODO: This typo'ed variable is deprecated and can be removed in a future release.
+				"CONTAINER_INCLUDED_POD_METRICS",
+			},
+			//nolint:staticcheck // Needs to use the user input config.
+			Value: cli.NewStringSlice(defConf.IncludedPodMetrics...),
 		},
 		&cli.BoolFlag{
 			Name:    "enable-criu-support",
@@ -1370,6 +1569,12 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			Usage:   "To set the timezone for a container in CRI-O. If an empty string is provided, CRI-O retains its default behavior. Use 'Local' to match the timezone of the host machine.",
 			EnvVars: []string{"CONTAINER_TIME_ZONE"},
 			Value:   defConf.Timezone,
+		},
+		&cli.StringFlag{
+			Name:    "short-name-mode",
+			Usage:   "Describes the mode of short name resolution. Allowed values are 'enforcing' and 'disabled'.",
+			EnvVars: []string{"CONTAINER_SHORT_NAME_MODE"},
+			Value:   defConf.ShortNameMode,
 		},
 	}
 }

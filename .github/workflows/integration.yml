@@ -13,6 +13,9 @@ env:
   CONMON_BINARY: /usr/local/bin/conmon # from: scripts/github-actions-setup
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test-binaries:
@@ -56,15 +59,19 @@ jobs:
       fail-fast: false
       matrix:
         run:
-          - name: critest / conmon / runc / amd64
-            arch: amd64
-            runner: ubuntu-latest
-            defaultRuntime: runc
-            runtimeType: oci
-            critest: 1
-            userns: 0
-            jobs: 1
-            timeout: 10
+          # TODO: Re-enable runc integration tests when mitigation is found
+          # Disabled due to AppArmor issue in nested environments
+          # See: https://github.com/cri-o/cri-o/issues/9573
+          # See: https://github.com/opencontainers/runc/issues/4968
+          # - name: critest / conmon / runc / amd64
+          #   arch: amd64
+          #   runner: ubuntu-latest
+          #   defaultRuntime: runc
+          #   runtimeType: oci
+          #   critest: 1
+          #   userns: 0
+          #   jobs: 1
+          #   timeout: 20
 
           - name: critest / conmon / crun / amd64
             arch: amd64
@@ -74,17 +81,17 @@ jobs:
             critest: 1
             userns: 0
             jobs: 1
-            timeout: 10
+            timeout: 20
 
-          - name: critest / conmon-rs / runc / amd64
-            arch: amd64
-            runner: ubuntu-latest
-            defaultRuntime: runc
-            runtimeType: pod
-            critest: 1
-            userns: 0
-            jobs: 1
-            timeout: 10
+          # - name: critest / conmon-rs / runc / amd64
+          #   arch: amd64
+          #   runner: ubuntu-latest
+          #   defaultRuntime: runc
+          #   runtimeType: pod
+          #   critest: 1
+          #   userns: 0
+          #   jobs: 1
+          #   timeout: 20
 
           - name: critest / conmon-rs / crun / amd64
             arch: amd64
@@ -94,17 +101,17 @@ jobs:
             critest: 1
             userns: 0
             jobs: 1
-            timeout: 10
+            timeout: 20
 
-          - name: critest / conmon / runc / arm64
-            arch: arm64
-            runner: ubuntu-24.04-arm
-            defaultRuntime: runc
-            runtimeType: oci
-            critest: 1
-            userns: 0
-            jobs: 1
-            timeout: 10
+          # - name: critest / conmon / runc / arm64
+          #   arch: arm64
+          #   runner: ubuntu-24.04-arm
+          #   defaultRuntime: runc
+          #   runtimeType: oci
+          #   critest: 1
+          #   userns: 0
+          #   jobs: 1
+          #   timeout: 20
 
           - name: critest / conmon / crun / arm64
             arch: arm64
@@ -114,17 +121,17 @@ jobs:
             critest: 1
             userns: 0
             jobs: 1
-            timeout: 10
+            timeout: 20
 
-          - name: critest / conmon-rs / runc / arm64
-            arch: arm64
-            runner: ubuntu-24.04-arm
-            defaultRuntime: runc
-            runtimeType: pod
-            critest: 1
-            userns: 0
-            jobs: 1
-            timeout: 10
+          # - name: critest / conmon-rs / runc / arm64
+          #   arch: arm64
+          #   runner: ubuntu-24.04-arm
+          #   defaultRuntime: runc
+          #   runtimeType: pod
+          #   critest: 1
+          #   userns: 0
+          #   jobs: 1
+          #   timeout: 20
 
           - name: critest / conmon-rs / crun / arm64
             arch: arm64
@@ -134,17 +141,17 @@ jobs:
             critest: 1
             userns: 0
             jobs: 1
-            timeout: 10
+            timeout: 20
 
-          - name: integration / conmon / runc / amd64
-            arch: amd64
-            runner: ubuntu-latest
-            defaultRuntime: runc
-            runtimeType: oci
-            critest: 0
-            userns: 0
-            jobs: 2
-            timeout: 120
+          # - name: integration / conmon / runc / amd64
+          #   arch: amd64
+          #   runner: ubuntu-latest
+          #   defaultRuntime: runc
+          #   runtimeType: oci
+          #   critest: 0
+          #   userns: 0
+          #   jobs: 2
+          #   timeout: 120
 
           - name: integration / conmon / crun / amd64
             arch: amd64
@@ -156,20 +163,30 @@ jobs:
             jobs: 2
             timeout: 120
 
-          - name: integration / conmon-rs / runc / amd64
+          - name: integration / conmon / crun / arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            defaultRuntime: crun
+            runtimeType: oci
+            critest: 0
+            userns: 0
+            jobs: 2
+            timeout: 120
+
+          - name: integration / conmon-rs / crun / amd64
             arch: amd64
             runner: ubuntu-latest
-            defaultRuntime: runc
+            defaultRuntime: crun
             runtimeType: pod
             critest: 0
             userns: 0
             jobs: 2
             timeout: 120
 
-          - name: integration / userns / runc / amd64
+          - name: integration / userns / crun / amd64
             arch: amd64
             runner: ubuntu-latest
-            defaultRuntime: runc
+            defaultRuntime: crun
             runtimeType: oci
             critest: 0
             userns: 1
@@ -191,7 +208,7 @@ jobs:
             ~/.cache/go-build
             ~/go/pkg/mod
           key: go-${{ matrix.run.name }}-${{ matrix.run.arch }}-${{ hashFiles('**/go.sum') }}-${{ hashFiles('scripts/versions') }}
-      - uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # v3.7.0
+      - uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
           name: test-binaries-${{ matrix.run.arch }}
@@ -220,7 +237,9 @@ jobs:
           TEST_USERNS: ${{ matrix.run.userns }}
           CONTAINER_DEFAULT_RUNTIME: ${{ matrix.run.defaultRuntime }}
       # Codecov
-      - run: sudo go tool covdata textfmt -i="$GOCOVERDIR" -o build/coverage/coverprofile
+      - run: |
+          sudo chown -R $(id -u):$(id -g) build
+          go tool covdata textfmt -i="$GOCOVERDIR" -o build/coverage/coverprofile
       - uses: codecov/codecov-action@7f8b4b4bde536c465e797be725718b88c5d95e0e # v5.1.1
         with:
           files: build/coverage/coverprofile

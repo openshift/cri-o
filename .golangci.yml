@@ -14,6 +14,7 @@ run:
 linters:
   default: none
   enable:
+    - arangolint
     - asasalint
     - asciicheck
     - bidichk
@@ -25,6 +26,7 @@ linters:
     - dupl
     - dupword
     - durationcheck
+    - embeddedstructfieldcheck
     - errcheck
     - errchkjson
     - errorlint
@@ -40,7 +42,6 @@ linters:
     - gocyclo
     - godot
     - goheader
-    - gomoddirectives
     - gomodguard
     - goprintffuncname
     - gosmopolitan
@@ -50,15 +51,16 @@ linters:
     - importas
     - ineffassign
     - intrange
+    - iotamixing
     - loggercheck
     - makezero
     - mirror
     - misspell
+    - modernize
     - musttag
     - nakedret
     - nilnesserr
     - nlreturn
-    - noctx
     - nolintlint
     - nosprintfhostport
     - perfsprint
@@ -77,11 +79,12 @@ linters:
     - tparallel
     - unconvert
     - unparam
+    - unqueryvet
     - unused
     - usestdlibvars
     - usetesting
     - wastedassign
-    - wsl
+    - wsl_v5
     # - containedctx
     # - contextcheck
     # - cyclop
@@ -95,7 +98,9 @@ linters:
     # - funlen
     # - gochecknoglobals
     # - gocognit
+    # - godoclint
     # - godox
+    # - gomoddirectives
     # - gosec
     # - inamedparam
     # - interfacebloat
@@ -106,6 +111,8 @@ linters:
     # - nestif
     # - nilerr
     # - nilnil
+    # - noctx
+    # - noinlineerr
     # - nonamedreturns
     # - paralleltest
     # - predeclared
@@ -130,7 +137,7 @@ linters:
         - filepathJoin
         - whyNoLint
     gocyclo:
-      min-complexity: 177
+      min-complexity: 60
     nakedret:
       max-func-lines: 15
     revive:
@@ -139,6 +146,10 @@ linters:
           arguments:
             - 22
           disabled: false
+    wsl_v5:
+      allow-first-in-block: true
+      allow-whole-block: false
+      branch-max-lines: 2
   exclusions:
     generated: strict
     presets:

@@ -4,22 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
-	"github.com/containers/common/pkg/hooks"
-	cstorage "github.com/containers/storage"
-	"github.com/containers/storage/pkg/ioutils"
-	cmount "github.com/containers/storage/pkg/mount"
-	"github.com/containers/storage/pkg/truncindex"
-	json "github.com/json-iterator/go"
+	json "github.com/goccy/go-json"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	selinux "github.com/opencontainers/selinux/go-selinux"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/pkg/hooks"
+	cstorage "go.podman.io/storage"
+	"go.podman.io/storage/pkg/ioutils"
+	cmount "go.podman.io/storage/pkg/mount"
+	"go.podman.io/storage/pkg/truncindex"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
+	"github.com/cri-o/cri-o/internal/annotations"
 	"github.com/cri-o/cri-o/internal/hostport"
 	"github.com/cri-o/cri-o/internal/lib/constants"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
@@ -30,12 +32,19 @@ import (
 	"github.com/cri-o/cri-o/internal/registrar"
 	"github.com/cri-o/cri-o/internal/storage"
 	"github.com/cri-o/cri-o/internal/storage/references"
-	"github.com/cri-o/cri-o/pkg/annotations"
+	v2 "github.com/cri-o/cri-o/pkg/annotations/v2"
 	libconfig "github.com/cri-o/cri-o/pkg/config"
+)
+
+const (
+	probeInterval = 10 * time.Second
+	probeJitter   = probeInterval / 10
 )
 
 // ContainerServer implements the ImageServer.
 type ContainerServer struct {
+	*statsserver.StatsServer
+
 	runtime              *oci.Runtime
 	store                cstorage.Store
 	storageImageServer   storage.ImageServer
@@ -45,11 +54,13 @@ type ContainerServer struct {
 	podNameIndex         *registrar.Registrar
 	podIDIndex           *truncindex.TruncIndex
 	Hooks                *hooks.Manager
-	*statsserver.StatsServer
 
 	stateLock sync.Locker
 	state     *containerServerState
 	config    *libconfig.Config
+
+	// monitorCh is used to signal the monitor goroutine to exit.
+	monitorCh chan struct{}
 }
 
 // Runtime returns the oci runtime for the ContainerServer.
@@ -165,9 +176,12 @@ func New(ctx context.Context, configIface libconfig.Iface) (*ContainerServer, er
 			sandboxes:       memorystore.New[*sandbox.Sandbox](),
 			processLevels:   make(map[string]int),
 		},
-		config: config,
+		config:    config,
+		monitorCh: make(chan struct{}),
 	}
 	c.StatsServer = statsserver.New(ctx, c)
+
+	go c.probeMonitorProcesses(ctx)
 
 	return c, nil
 }
@@ -193,7 +207,11 @@ func (c *ContainerServer) LoadSandbox(ctx context.Context, id string) (sb *sandb
 	}
 
 	sbox := sandbox.NewBuilder()
+
 	name := m.Annotations[annotations.Name]
+	if name == "" {
+		return nil, errors.New("sandbox name annotation cannot be empty")
+	}
 
 	name, err = c.ReservePodName(id, name)
 	if err != nil {
@@ -212,6 +230,19 @@ func (c *ContainerServer) LoadSandbox(ctx context.Context, id string) (sb *sandb
 	var metadata types.PodSandboxMetadata
 	if err := json.Unmarshal([]byte(m.Annotations[annotations.Metadata]), &metadata); err != nil {
 		return nil, fmt.Errorf("error unmarshalling %s annotation: %w", annotations.Metadata, err)
+	}
+
+	// Validate critical metadata fields to prevent restoring corrupt/malicious configs
+	if metadata.GetName() == "" {
+		return nil, errors.New("sandbox metadata name cannot be empty")
+	}
+
+	if metadata.GetNamespace() == "" {
+		return nil, errors.New("sandbox metadata namespace cannot be empty")
+	}
+
+	if metadata.GetUid() == "" {
+		return nil, errors.New("sandbox metadata uid cannot be empty")
 	}
 
 	processLabel := m.Process.SelinuxLabel
@@ -252,16 +283,16 @@ func (c *ContainerServer) LoadSandbox(ctx context.Context, id string) (sb *sandb
 	}
 
 	podLinuxOverhead := types.LinuxContainerResources{}
-	if v, found := m.Annotations[annotations.PodLinuxOverhead]; found {
+	if v, found := v2.GetAnnotationValue(m.Annotations, v2.PodLinuxOverhead); found {
 		if err := json.Unmarshal([]byte(v), &podLinuxOverhead); err != nil {
-			return nil, fmt.Errorf("error unmarshalling %s annotation: %w", annotations.PodLinuxOverhead, err)
+			return nil, fmt.Errorf("error unmarshalling %s annotation: %w", v2.PodLinuxOverhead, err)
 		}
 	}
 
 	podLinuxResources := types.LinuxContainerResources{}
-	if v, found := m.Annotations[annotations.PodLinuxResources]; found {
+	if v, found := v2.GetAnnotationValue(m.Annotations, v2.PodLinuxResources); found {
 		if err := json.Unmarshal([]byte(v), &podLinuxResources); err != nil {
-			return nil, fmt.Errorf("error unmarshalling %s annotation: %w", annotations.PodLinuxResources, err)
+			return nil, fmt.Errorf("error unmarshalling %s annotation: %w", v2.PodLinuxResources, err)
 		}
 	}
 
@@ -275,14 +306,22 @@ func (c *ContainerServer) LoadSandbox(ctx context.Context, id string) (sb *sandb
 	sbox.SetHostname(m.Annotations[annotations.HostName])
 	sbox.SetPortMappings(portMappings)
 	sbox.SetHostNetwork(hostNetwork)
-	sbox.SetUsernsMode(m.Annotations[annotations.UsernsModeAnnotation])
+
+	usernsMode, _ := v2.GetAnnotationValue(m.Annotations, v2.UsernsMode)
+	sbox.SetUsernsMode(usernsMode)
 	sbox.SetPodLinuxOverhead(&podLinuxOverhead)
 	sbox.SetPodLinuxResources(&podLinuxResources)
 	sbox.SetHostnamePath(m.Annotations[annotations.HostnamePath])
 	sbox.SetNamespaceOptions(&nsOpts)
 	sbox.SetSeccompProfilePath(spp)
 	sbox.SetCreatedAt(created)
-	sbox.SetNamespace(m.Annotations[annotations.Namespace])
+
+	namespace := m.Annotations[annotations.Namespace]
+	if namespace == "" {
+		return nil, errors.New("sandbox namespace cannot be empty")
+	}
+
+	sbox.SetNamespace(namespace)
 	sbox.SetKubeName(m.Annotations[annotations.KubeName])
 
 	sb, err = sbox.GetSandbox()
@@ -338,12 +377,14 @@ func (c *ContainerServer) LoadSandbox(ctx context.Context, id string) (sb *sandb
 	// We should not take whether the server currently has DropInfraCtr specified, but rather
 	// whether the server used to.
 	wasSpoofed := false
-	if spoofed, ok := m.Annotations[annotations.SpoofedContainer]; ok && spoofed == "true" {
+	if spoofed, ok := v2.GetAnnotationValue(m.Annotations, v2.Spoofed); ok && spoofed == "true" {
 		wasSpoofed = true
 	}
 
 	if !wasSpoofed {
-		scontainer, err = oci.NewContainer(m.Annotations[annotations.ContainerID], cname, sandboxPath, m.Annotations[annotations.LogPath], labels, m.Annotations, kubeAnnotations, m.Annotations[annotations.UserRequestedImage], nil, nil, "", nil, id, false, false, false, sb.RuntimeHandler(), sandboxDir, created, m.Annotations[annotations.StopSignalAnnotation])
+		stopSignal, _ := v2.GetAnnotationValue(m.Annotations, v2.StopSignal)
+
+		scontainer, err = oci.NewContainer(m.Annotations[annotations.ContainerID], cname, sandboxPath, m.Annotations[annotations.LogPath], labels, m.Annotations, kubeAnnotations, m.Annotations[annotations.UserRequestedImage], nil, nil, "", nil, id, false, false, false, sb.RuntimeHandler(), sandboxDir, created, stopSignal)
 		if err != nil {
 			return sb, err
 		}
@@ -514,9 +555,14 @@ func (c *ContainerServer) LoadContainer(ctx context.Context, id string) (retErr 
 		imageID = &id
 	}
 
-	platformRuntimePath, ok := m.Annotations[annotations.PlatformRuntimePath]
+	platformRuntimePath, ok := v2.GetAnnotationValue(m.Annotations, v2.PlatformRuntimePath)
 	if !ok {
 		platformRuntimePath = ""
+	}
+
+	stopSignal, ok := v2.GetAnnotationValue(m.Annotations, v2.StopSignal)
+	if !ok {
+		stopSignal = ""
 	}
 
 	kubeAnnotations := make(map[string]string)
@@ -529,7 +575,7 @@ func (c *ContainerServer) LoadContainer(ctx context.Context, id string) (retErr 
 		return err
 	}
 
-	ctr, err := oci.NewContainer(id, name, containerPath, m.Annotations[annotations.LogPath], labels, m.Annotations, kubeAnnotations, userRequestedImage, someNameOfTheImage, imageID, "", &metadata, sb.ID(), tty, stdin, stdinOnce, sb.RuntimeHandler(), containerDir, created, m.Annotations[annotations.StopSignalAnnotation])
+	ctr, err := oci.NewContainer(id, name, containerPath, m.Annotations[annotations.LogPath], labels, m.Annotations, kubeAnnotations, userRequestedImage, someNameOfTheImage, imageID, "", &metadata, sb.ID(), tty, stdin, stdinOnce, sb.RuntimeHandler(), containerDir, created, stopSignal)
 	if err != nil {
 		return err
 	}
@@ -597,6 +643,7 @@ func (c *ContainerServer) ContainerStateToDisk(ctx context.Context, ctr *oci.Con
 	}
 
 	defer jsonSource.Close()
+
 	enc := json.NewEncoder(jsonSource)
 
 	return enc.Encode(ctr.State())
@@ -624,6 +671,7 @@ func (c *ContainerServer) ContainerIDForName(name string) (string, error) {
 func (c *ContainerServer) ReleaseContainerName(ctx context.Context, name string) {
 	_, span := log.StartSpan(ctx)
 	defer span.End()
+
 	c.ctrNameIndex.Release(name)
 }
 
@@ -661,6 +709,8 @@ func recoverLogError() {
 // Shutdown attempts to shut down the server's storage cleanly.
 func (c *ContainerServer) Shutdown() error {
 	defer recoverLogError()
+
+	close(c.monitorCh)
 
 	_, err := c.store.Shutdown(false)
 	if err != nil && !errors.Is(err, cstorage.ErrLayerUsedByContainer) {
@@ -743,6 +793,7 @@ func (c *ContainerServer) RemoveContainer(ctx context.Context, ctr *oci.Containe
 func (c *ContainerServer) RemoveInfraContainer(ctx context.Context, ctr *oci.Container) {
 	_, span := log.StartSpan(ctx)
 	defer span.End()
+
 	c.state.infraContainers.Delete(ctr.ID())
 }
 
@@ -778,6 +829,7 @@ func (c *ContainerServer) ListContainers(filters ...func(*oci.Container) bool) (
 func (c *ContainerServer) AddSandbox(ctx context.Context, sb *sandbox.Sandbox) error {
 	_, span := log.StartSpan(ctx)
 	defer span.End()
+
 	c.state.sandboxes.Add(sb.ID(), sb)
 
 	c.stateLock.Lock()
@@ -982,4 +1034,30 @@ func CheckReportHasErrors(report cstorage.CheckReport) bool {
 	return len(report.Layers) > 0 || len(report.ROLayers) > 0 ||
 		len(report.Images) > 0 || len(report.ROImages) > 0 ||
 		len(report.Containers) > 0
+}
+
+// probeMonitorProcesses periodically probes the monitor processes of all containers.
+// This is used to detect the case where a container monitor process exits thought its container is running.
+// The way probing is delegated to each runtime implementation.
+func (c *ContainerServer) probeMonitorProcesses(ctx context.Context) {
+	timer := time.NewTimer(probeInterval)
+
+	for {
+		select {
+		case <-c.monitorCh:
+			return
+		case <-timer.C:
+		}
+
+		log.Tracef(ctx, "Probe monitor processes")
+
+		for _, ctr := range c.listContainers() {
+			err := c.runtime.ProbeMonitor(ctx, ctr)
+			if err != nil {
+				log.Errorf(ctx, "Error handling container monitor for container %s: %v", ctr.ID(), err)
+			}
+		}
+
+		timer.Reset(probeInterval + time.Duration(rand.Int63n(probeJitter.Nanoseconds())))
+	}
 }

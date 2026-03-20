@@ -13,7 +13,6 @@ import (
 	context "context"
 	io "io"
 	reflect "reflect"
-	syscall "syscall"
 
 	cgmgr "github.com/cri-o/cri-o/internal/config/cgmgr"
 	oci "github.com/cri-o/cri-o/internal/oci"
@@ -118,6 +117,21 @@ func (mr *MockRuntimeImplMockRecorder) DeleteContainer(arg0, arg1 any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteContainer", reflect.TypeOf((*MockRuntimeImpl)(nil).DeleteContainer), arg0, arg1)
 }
 
+// DiskStats mocks base method.
+func (m *MockRuntimeImpl) DiskStats(arg0 context.Context, arg1 *oci.Container, arg2 string) (*oci.DiskMetrics, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DiskStats", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*oci.DiskMetrics)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DiskStats indicates an expected call of DiskStats.
+func (mr *MockRuntimeImplMockRecorder) DiskStats(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiskStats", reflect.TypeOf((*MockRuntimeImpl)(nil).DiskStats), arg0, arg1, arg2)
+}
+
 // ExecContainer mocks base method.
 func (m *MockRuntimeImpl) ExecContainer(arg0 context.Context, arg1 *oci.Container, arg2 []string, arg3 io.Reader, arg4, arg5 io.WriteCloser, arg6 bool, arg7 <-chan remotecommand.TerminalSize) error {
 	m.ctrl.T.Helper()
@@ -189,6 +203,20 @@ func (mr *MockRuntimeImplMockRecorder) PortForwardContainer(arg0, arg1, arg2, ar
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PortForwardContainer", reflect.TypeOf((*MockRuntimeImpl)(nil).PortForwardContainer), arg0, arg1, arg2, arg3, arg4)
 }
 
+// ProbeMonitor mocks base method.
+func (m *MockRuntimeImpl) ProbeMonitor(arg0 context.Context, arg1 *oci.Container) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ProbeMonitor", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ProbeMonitor indicates an expected call of ProbeMonitor.
+func (mr *MockRuntimeImplMockRecorder) ProbeMonitor(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProbeMonitor", reflect.TypeOf((*MockRuntimeImpl)(nil).ProbeMonitor), arg0, arg1)
+}
+
 // ReopenContainerLog mocks base method.
 func (m *MockRuntimeImpl) ReopenContainerLog(arg0 context.Context, arg1 *oci.Container) error {
 	m.ctrl.T.Helper()
@@ -217,18 +245,34 @@ func (mr *MockRuntimeImplMockRecorder) RestoreContainer(arg0, arg1, arg2, arg3 a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestoreContainer", reflect.TypeOf((*MockRuntimeImpl)(nil).RestoreContainer), arg0, arg1, arg2, arg3)
 }
 
-// SignalContainer mocks base method.
-func (m *MockRuntimeImpl) SignalContainer(arg0 context.Context, arg1 *oci.Container, arg2 syscall.Signal) error {
+// ServeAttachContainer mocks base method.
+func (m *MockRuntimeImpl) ServeAttachContainer(arg0 context.Context, arg1 *oci.Container, arg2, arg3, arg4 bool) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SignalContainer", arg0, arg1, arg2)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret := m.ctrl.Call(m, "ServeAttachContainer", arg0, arg1, arg2, arg3, arg4)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
-// SignalContainer indicates an expected call of SignalContainer.
-func (mr *MockRuntimeImplMockRecorder) SignalContainer(arg0, arg1, arg2 any) *gomock.Call {
+// ServeAttachContainer indicates an expected call of ServeAttachContainer.
+func (mr *MockRuntimeImplMockRecorder) ServeAttachContainer(arg0, arg1, arg2, arg3, arg4 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignalContainer", reflect.TypeOf((*MockRuntimeImpl)(nil).SignalContainer), arg0, arg1, arg2)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ServeAttachContainer", reflect.TypeOf((*MockRuntimeImpl)(nil).ServeAttachContainer), arg0, arg1, arg2, arg3, arg4)
+}
+
+// ServeExecContainer mocks base method.
+func (m *MockRuntimeImpl) ServeExecContainer(arg0 context.Context, arg1 *oci.Container, arg2 []string, arg3, arg4, arg5, arg6 bool) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ServeExecContainer", arg0, arg1, arg2, arg3, arg4, arg5, arg6)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ServeExecContainer indicates an expected call of ServeExecContainer.
+func (mr *MockRuntimeImplMockRecorder) ServeExecContainer(arg0, arg1, arg2, arg3, arg4, arg5, arg6 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ServeExecContainer", reflect.TypeOf((*MockRuntimeImpl)(nil).ServeExecContainer), arg0, arg1, arg2, arg3, arg4, arg5, arg6)
 }
 
 // StartContainer mocks base method.

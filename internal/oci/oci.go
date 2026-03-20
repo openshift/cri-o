@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/docker/go-units"
@@ -18,6 +17,7 @@ import (
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	"github.com/cri-o/cri-o/internal/config/cgmgr"
+	"github.com/cri-o/cri-o/internal/config/seccomp"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/pkg/config"
 )
@@ -31,8 +31,6 @@ const (
 	ContainerStateRunning = "running"
 	// ContainerStateStopped represents the stopped state of a container.
 	ContainerStateStopped = "stopped"
-	// ContainerCreateTimeout represents the value of container creating timeout.
-	ContainerCreateTimeout = 240 * time.Second
 
 	// killContainerTimeout is the timeout that we wait for the container to
 	// be SIGKILLed.
@@ -72,7 +70,7 @@ type RuntimeImpl interface {
 	PauseContainer(context.Context, *Container) error
 	UnpauseContainer(context.Context, *Container) error
 	ContainerStats(context.Context, *Container, string) (*cgmgr.CgroupStats, error)
-	SignalContainer(context.Context, *Container, syscall.Signal) error
+	DiskStats(context.Context, *Container, string) (*DiskMetrics, error)
 	AttachContainer(context.Context, *Container, io.Reader, io.WriteCloser, io.WriteCloser,
 		bool, <-chan remotecommand.TerminalSize) error
 	PortForwardContainer(context.Context, *Container, string,
@@ -81,6 +79,10 @@ type RuntimeImpl interface {
 	CheckpointContainer(context.Context, *Container, *rspec.Spec, bool) error
 	RestoreContainer(context.Context, *Container, string, string) error
 	IsContainerAlive(*Container) bool
+	// ProbeMonitor is used to check the liveness of the container monitor process.
+	ProbeMonitor(context.Context, *Container) error
+	ServeExecContainer(context.Context, *Container, []string, bool, bool, bool, bool) (string, error)
+	ServeAttachContainer(context.Context, *Container, bool, bool, bool) (string, error)
 }
 
 // New creates a new Runtime with options provided.
@@ -188,6 +190,20 @@ func (r *Runtime) RuntimeType(runtimeHandler string) (string, error) {
 	return rh.RuntimeType, nil
 }
 
+// Seccomp returns the seccomp config for the specified handler. Falls back to the runtime seccomp config if not exist.
+func (r *Runtime) Seccomp(handler string) (*seccomp.Config, error) {
+	rh, err := r.getRuntimeHandler(handler)
+	if err != nil {
+		return nil, err
+	}
+
+	if rh.RuntimeSeccomp() != nil {
+		return rh.RuntimeSeccomp(), nil
+	}
+
+	return r.config.Seccomp(), nil
+}
+
 // Timezone returns the timezone configured inside the container.
 func (r *Runtime) Timezone() string {
 	return r.config.Timezone
@@ -238,6 +254,16 @@ func (r *Runtime) RuntimeDefaultAnnotations(runtimeHandler string) (map[string]s
 	}
 
 	return rh.RuntimeDefaultAnnotations(), nil
+}
+
+// RuntimeStreamWebsockets returns the configured websocket streaming option for this handler.
+func (r *Runtime) RuntimeStreamWebsockets(runtimeHandler string) (bool, error) {
+	rh, err := r.getRuntimeHandler(runtimeHandler)
+	if err != nil {
+		return false, err
+	}
+
+	return rh.RuntimeStreamWebsockets(), nil
 }
 
 func (r *Runtime) newRuntimeImpl(c *Container) (RuntimeImpl, error) {
@@ -369,6 +395,7 @@ func (r *Runtime) StopContainer(ctx context.Context, c *Container, timeout int64
 func (r *Runtime) DeleteContainer(ctx context.Context, c *Container) (err error) {
 	ctx, span := log.StartSpan(ctx)
 	defer span.End()
+
 	r.runtimeImplMapMutex.RLock()
 	impl, ok := r.runtimeImplMap[c.ID()]
 	r.runtimeImplMapMutex.RUnlock()
@@ -442,17 +469,17 @@ func (r *Runtime) ContainerStats(ctx context.Context, c *Container, cgroup strin
 	return impl.ContainerStats(ctx, c, cgroup)
 }
 
-// SignalContainer sends a signal to a container process.
-func (r *Runtime) SignalContainer(ctx context.Context, c *Container, sig syscall.Signal) error {
+// DiskStats provides disk statistics for a container.
+func (r *Runtime) DiskStats(ctx context.Context, c *Container, cgroup string) (*DiskMetrics, error) {
 	ctx, span := log.StartSpan(ctx)
 	defer span.End()
 
 	impl, err := r.RuntimeImpl(c)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return impl.SignalContainer(ctx, c, sig)
+	return impl.DiskStats(ctx, c, cgroup)
 }
 
 // AttachContainer attaches IO to a running container.
@@ -533,4 +560,31 @@ func (r *Runtime) IsContainerAlive(c *Container) (bool, error) {
 	}
 
 	return impl.IsContainerAlive(c), nil
+}
+
+func (r *Runtime) ProbeMonitor(ctx context.Context, c *Container) error {
+	impl, err := r.RuntimeImpl(c)
+	if err != nil {
+		return err
+	}
+
+	return impl.ProbeMonitor(ctx, c)
+}
+
+func (r *Runtime) ServeExecContainer(ctx context.Context, c *Container, cmd []string, tty, stdin, stdout, stderr bool) (string, error) {
+	impl, err := r.RuntimeImpl(c)
+	if err != nil {
+		return "", err
+	}
+
+	return impl.ServeExecContainer(ctx, c, cmd, tty, stdin, stdout, stderr)
+}
+
+func (r *Runtime) ServeAttachContainer(ctx context.Context, c *Container, stdin, stdout, stderr bool) (string, error) {
+	impl, err := r.RuntimeImpl(c)
+	if err != nil {
+		return "", err
+	}
+
+	return impl.ServeAttachContainer(ctx, c, stdin, stdout, stderr)
 }

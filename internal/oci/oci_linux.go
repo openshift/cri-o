@@ -15,13 +15,13 @@ import (
 const InfraContainerName = "POD"
 
 func (r *runtimeOCI) createContainerPlatform(c *Container, cgroupParent string, pid int) error {
-	g := &generate.Generator{
-		Config: &rspec.Spec{
+	g := generate.NewFromSpec(
+		&rspec.Spec{
 			Linux: &rspec.Linux{
 				Resources: &rspec.LinuxResources{},
 			},
 		},
-	}
+	)
 
 	// First, set the cpuset as the one for the infra container.
 	// This should be overridden if specified in a workload.
@@ -34,7 +34,7 @@ func (r *runtimeOCI) createContainerPlatform(c *Container, cgroupParent string, 
 	}
 
 	// Mutate our newly created spec to find the customizations that are needed for conmon
-	if err := r.config.Workloads.MutateSpecGivenAnnotations(InfraContainerName, g, c.Annotations()); err != nil {
+	if err := r.config.Workloads.MutateSpecGivenAnnotations(InfraContainerName, &g, c.Annotations()); err != nil {
 		return err
 	}
 
@@ -44,6 +44,8 @@ func (r *runtimeOCI) createContainerPlatform(c *Container, cgroupParent string, 
 		return err
 	}
 
+	// Record conmon's cgroup path in the container, so we can properly
+	// clean it up when removing the container.
 	c.conmonCgroupfsPath = conmonCgroupfsPath
 
 	return nil

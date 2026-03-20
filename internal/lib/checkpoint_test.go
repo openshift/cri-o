@@ -6,12 +6,12 @@ import (
 	"os"
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
-	criu "github.com/checkpoint-restore/go-criu/v7/utils"
-	cstorage "github.com/containers/storage"
-	"github.com/containers/storage/pkg/archive"
+	criu "github.com/checkpoint-restore/go-criu/v8/utils"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	cstorage "go.podman.io/storage"
+	"go.podman.io/storage/pkg/archive"
 	"go.uber.org/mock/gomock"
 
 	"github.com/cri-o/cri-o/internal/lib"

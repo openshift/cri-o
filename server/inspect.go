@@ -11,10 +11,11 @@ import (
 	"os"
 	"runtime/debug"
 
-	"github.com/containers/storage/pkg/idtools"
 	"github.com/go-chi/chi/v5"
-	json "github.com/json-iterator/go"
+	json "github.com/goccy/go-json"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/storage/pkg/idtools"
+	"k8s.io/utils/ptr"
 
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/log"
@@ -24,10 +25,7 @@ import (
 )
 
 func (s *Server) getIDMappingsInfo() types.IDMappings {
-	sizeMax := int64(int(^uint(0) >> 1))
-	if sizeMax > math.MaxUint32 {
-		sizeMax = math.MaxUint32
-	}
+	sizeMax := min(int64(int(^uint(0)>>1)), math.MaxUint32)
 
 	if s.defaultIDMappings == nil {
 		fullMapping := idtools.IDMap{
@@ -115,7 +113,7 @@ func (s *Server) getContainerInfo(ctx context.Context, id string, getContainerFu
 		image = someNameOfTheImage.StringForOutOfProcessConsumptionOnly()
 	}
 
-	imageRef := ctr.CRIContainer().ImageRef
+	imageRef := ctr.CRIContainer().GetImageRef()
 
 	return types.ContainerInfo{
 		Name:            ctr.Name(),
@@ -130,6 +128,7 @@ func (s *Server) getContainerInfo(ctx context.Context, id string, getContainerFu
 		LogPath:         ctr.LogPath(),
 		Sandbox:         ctr.Sandbox(),
 		IPs:             sb.IPs(),
+		HostNetwork:     ptr.To(sb.HostNetwork()),
 	}, nil
 }
 
@@ -312,6 +311,7 @@ func (s *Server) GetExtendInterfaceMux(enableProfile bool) *chi.Mux {
 		}
 
 		defer os.Remove(f.Name())
+
 		debug.WriteHeapDump(f.Fd())
 
 		if _, err := f.Seek(0, 0); err != nil {
