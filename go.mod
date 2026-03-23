@@ -262,3 +262,5 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 	tags.cncf.io/container-device-interface/specs-go v1.1.0 // indirect
 )
+
+replace github.com/opencontainers/runc => github.com/opencontainers/runc v1.3.1
