@@ -396,7 +396,7 @@ func (a *nriAPI) ListContainers() []nri.Container {
 	}
 
 	for _, ctr := range ctrList {
-		switch ctr.State().Status {
+		switch ctr.GetStatus() {
 		case oci.ContainerStateCreated, oci.ContainerStateRunning, oci.ContainerStatePaused:
 			containers = append(containers, &criContainer{
 				api: a,
@@ -669,17 +669,21 @@ func (c *criContainer) GetName() string {
 }
 
 func (c *criContainer) GetState() api.ContainerState {
-	if c.ctr != nil {
-		switch c.ctr.State().Status {
-		case oci.ContainerStateCreated:
-			return api.ContainerState_CONTAINER_CREATED
-		case oci.ContainerStatePaused:
-			return api.ContainerState_CONTAINER_PAUSED
-		case oci.ContainerStateRunning:
-			return api.ContainerState_CONTAINER_RUNNING
-		case oci.ContainerStateStopped:
-			return api.ContainerState_CONTAINER_STOPPED
-		}
+	if c.ctr == nil {
+		return api.ContainerState_CONTAINER_UNKNOWN
+	}
+
+	cState := c.ctr.GetState()
+
+	switch cState.Status {
+	case oci.ContainerStateCreated:
+		return api.ContainerState_CONTAINER_CREATED
+	case oci.ContainerStatePaused:
+		return api.ContainerState_CONTAINER_PAUSED
+	case oci.ContainerStateRunning:
+		return api.ContainerState_CONTAINER_RUNNING
+	case oci.ContainerStateStopped:
+		return api.ContainerState_CONTAINER_STOPPED
 	}
 
 	return api.ContainerState_CONTAINER_UNKNOWN
