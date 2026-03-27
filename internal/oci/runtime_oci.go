@@ -1098,20 +1098,60 @@ func (r *runtimeOCI) StopLoopForContainer(ctx context.Context, c *Container, bm 
 
 killContainer:
 	// We cannot use ExponentialBackoff() here as its stop conditions are not flexible enough.
+	killAttempts := 0
+	diagnosticsLogged := false
 	kwait.BackoffUntil(func() {
 		if _, err := r.runtimeCmd("kill", c.ID(), "KILL"); err != nil {
-			if !errors.Is(err, ErrNotFound) {
-				log.Errorf(ctx, "Killing container %v failed: %v", c.ID(), err)
-			} else {
-				log.Debugf(ctx, "Error while killing container %s: %v", c.ID(), err)
-			}
+			log.Errorf(ctx, "Killing container %v failed: %v", c.ID(), err)
 		}
 
 		if err := c.Living(); err != nil {
-			log.Debugf(ctx, "Container is no longer alive")
+			log.Infof(ctx, "Container is no longer alive")
 			stop()
 
 			return
+		}
+
+		killAttempts++
+		// Log diagnostics only once, after the process survives more than 3 kill attempts.
+		if killAttempts > 3 && !diagnosticsLogged {
+			diagnosticsLogged = true
+
+			pid := c.state.InitPid
+			wchan, _ := os.ReadFile(fmt.Sprintf("/proc/%d/wchan", pid))
+			status, _ := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+			cgroup, _ := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid))
+			log.Warnf(ctx, "Container %s PID %d survived kill after %d attempts. wchan=%s cgroup=%s",
+				c.ID(), pid, killAttempts, strings.TrimSpace(string(wchan)), strings.TrimSpace(string(cgroup)))
+			// Log status for State, Threads, voluntary/nonvoluntary switches
+			for _, line := range strings.Split(string(status), "\n") {
+				log.Warnf(ctx, "  /proc/%d/status: %s", pid, line)
+			}
+
+			// Check child process states
+			childrenDir := fmt.Sprintf("/proc/%d/task/%d/children", pid, pid)
+			if children, err := os.ReadFile(childrenDir); err == nil {
+				for _, cpid := range strings.Fields(string(children)) {
+					cWchan, _ := os.ReadFile(fmt.Sprintf("/proc/%s/wchan", cpid))
+					cState, _ := os.ReadFile(fmt.Sprintf("/proc/%s/stat", cpid))
+					log.Warnf(ctx, "  child %s wchan=%s stat=%s", cpid,
+						strings.TrimSpace(string(cWchan)),
+						strings.TrimSpace(string(cState)))
+				}
+			}
+
+			if stateOut, stateErr := r.runtimeCmd("state", c.ID()); stateErr != nil {
+				log.Warnf(ctx, "runc state for container %s failed: %v", c.ID(), stateErr)
+			} else {
+				log.Warnf(ctx, "runc state for container %s: %s", c.ID(), stateOut)
+			}
+
+			stateFilePath := filepath.Join(r.root, c.ID(), "state.json")
+			if stateFileData, err := os.ReadFile(stateFilePath); err != nil {
+				log.Warnf(ctx, "runc state file %s read failed: %v", stateFilePath, err)
+			} else {
+				log.Warnf(ctx, "runc state file for container %s: %s", c.ID(), string(stateFileData))
+			}
 		}
 
 		log.Debugf(ctx, "Killing failed for some reasons, retrying...")
@@ -1631,19 +1671,19 @@ func (r *runtimeOCI) runtimeCmd(args ...string) (string, error) {
 
 	err := cmd.Run()
 	if err != nil {
-		stdErrStr := stderr.String()
-
-		switch {
-		// crun, for most of the commands.
-		case strings.Contains(stdErrStr, "no such process"):
-			fallthrough //nolint:gocritic
-		// runc, for most of the commands.
-		case strings.Contains(stdErrStr, "container not running"):
-			fallthrough //nolint:gocritic
-		// runc, on a rare occasion.
-		case strings.Contains(stdErrStr, "invalid process"):
-			err = ErrNotFound
-		}
+		//stdErrStr := stderr.String()
+		//
+		//switch {
+		//// crun, for most of the commands.
+		//case strings.Contains(stdErrStr, "no such process"):
+		//	fallthrough //nolint:gocritic
+		//// runc, for most of the commands.
+		//case strings.Contains(stdErrStr, "container not running"):
+		//	fallthrough //nolint:gocritic
+		//// runc, on a rare occasion.
+		//case strings.Contains(stdErrStr, "invalid process"):
+		//	err = ErrNotFound
+		//}
 
 		return "", fmt.Errorf("`%v %v` failed: %v %v: %w", r.handler.RuntimePath, strings.Join(runtimeArgs, " "), stderr.String(), stdout.String(), err)
 	}
