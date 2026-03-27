@@ -59,7 +59,7 @@ func (s *Server) stopContainer(ctx context.Context, ctr *oci.Container, timeout 
 	}
 
 	if err := s.ContainerServer.Runtime().StopContainer(ctx, ctr, timeout); err != nil {
-		return fmt.Errorf("failed to stop container %s: %w", ctr.ID(), err)
+		return fmt.Errorf("failed to stop container %s: %w ", ctr.ID(), err)
 	}
 
 	s.postStopCleanup(ctx, ctr, sb, hooks)
