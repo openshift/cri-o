@@ -23,7 +23,7 @@ import (
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/oci"
-	crioannotations "github.com/cri-o/cri-o/pkg/annotations/v2"
+	crioannotations "github.com/cri-o/cri-o/pkg/annotations"
 	"github.com/cri-o/cri-o/pkg/config"
 	cgmgrmock "github.com/cri-o/cri-o/test/mocks/config/cgmgr"
 )
@@ -398,7 +398,7 @@ var _ = Describe("high_performance_hooks", func() {
 		Context("with enabled equals to true", func() {
 			It("should not set the irq bit mask with housekeeping CPUs annotation present without disable first", func() {
 				c, sb := createContainerSandbox("4,5,6,7", map[string]string{
-					crioannotations.IRQLoadBalancing: annotationHousekeeping,
+					crioannotations.IRQLoadBalancingAnnotation: annotationHousekeeping,
 				})
 				startFlags := "00000000,ffffffff"
 				startBanned := "ffffffff,00000000"
@@ -414,7 +414,7 @@ var _ = Describe("high_performance_hooks", func() {
 			})
 			It("should set the irq bit mask with housekeeping CPUs annotation present with disable first", func() {
 				c, sb := createContainerSandbox("4,5,6,7", map[string]string{
-					crioannotations.IRQLoadBalancing: annotationHousekeeping,
+					crioannotations.IRQLoadBalancingAnnotation: annotationHousekeeping,
 				})
 				startFlags := "00000000,ffffffff"
 				startBanned := "ffffffff,00000000"
@@ -455,7 +455,7 @@ var _ = Describe("high_performance_hooks", func() {
 				}
 
 				c, sb := createContainerSandbox("4,5,6,7", map[string]string{
-					crioannotations.IRQLoadBalancing: annotationHousekeeping,
+					crioannotations.IRQLoadBalancingAnnotation: annotationHousekeeping,
 				})
 				verifySetIRQLoadBalancing(h, c, sb, false, "00000000,ffffffff", "00000000,ffffff1f", "ffffffff,00000000", "ffffffff,000000e0", "4", false)
 			})
@@ -470,7 +470,7 @@ var _ = Describe("high_performance_hooks", func() {
 
 				createSysCPUThreadSiblingsDir(sysCPUDir, 64, 1)
 				c, sb := createContainerSandbox("4,5,6,7", map[string]string{
-					crioannotations.IRQLoadBalancing: annotationHousekeeping,
+					crioannotations.IRQLoadBalancingAnnotation: annotationHousekeeping,
 				})
 				verifySetIRQLoadBalancing(h, c, sb, false, "00000000,ffffffff", "00000000,ffffff1f", "ffffffff,00000000", "ffffffff,000000e0", "4", false)
 			})
@@ -485,7 +485,7 @@ var _ = Describe("high_performance_hooks", func() {
 
 				createSysCPUThreadSiblingsDir(sysCPUDir, 64, 2)
 				c, sb := createContainerSandbox("4,5,6,7", map[string]string{
-					crioannotations.IRQLoadBalancing: annotationHousekeeping,
+					crioannotations.IRQLoadBalancingAnnotation: annotationHousekeeping,
 				})
 				verifySetIRQLoadBalancing(h, c, sb, false, "00000000,ffffffff", "00000000,ffffff3f", "ffffffff,00000000", "ffffffff,000000c0", "4-5", false)
 			})
@@ -500,7 +500,7 @@ var _ = Describe("high_performance_hooks", func() {
 
 				createSysCPUThreadSiblingsDir(sysCPUDir, 64, 4)
 				c, sb := createContainerSandbox("4-11", map[string]string{
-					crioannotations.IRQLoadBalancing: annotationHousekeeping,
+					crioannotations.IRQLoadBalancingAnnotation: annotationHousekeeping,
 				})
 				verifySetIRQLoadBalancing(h, c, sb, false, "00000000,ffffffff", "00000000,fffff0ff", "ffffffff,00000000", "ffffffff,00000f00", "4-7", false)
 			})
@@ -515,7 +515,7 @@ var _ = Describe("high_performance_hooks", func() {
 
 				createInvalidSysCPUThreadSiblingsDir(sysCPUDir, 64)
 				c, sb := createContainerSandbox("4-11", map[string]string{
-					crioannotations.IRQLoadBalancing: annotationHousekeeping,
+					crioannotations.IRQLoadBalancingAnnotation: annotationHousekeeping,
 				})
 				verifySetIRQLoadBalancing(h, c, sb, false, "00000000,ffffffff", "00000000,fffff0ff", "ffffffff,00000000", "ffffffff,00000f00", "4-7", true)
 			})
@@ -1298,7 +1298,7 @@ var _ = Describe("high_performance_hooks", func() {
 
 			sbox = baseSandboxBuilder()
 			err = sbox.SetCRISandbox(sbox.ID(), make(map[string]string), map[string]string{
-				crioannotations.CPUShared + "/cnt1": annotationEnable,
+				crioannotations.CPUSharedAnnotation + "/cnt1": annotationEnable,
 			}, &types.PodSandboxMetadata{})
 			Expect(err).ToNot(HaveOccurred())
 			sbSharedAnnotation, err = sbox.GetSandbox()
@@ -1537,13 +1537,15 @@ var _ = Describe("high_performance_hooks", func() {
 			}
 			var wg sync.WaitGroup
 			for cpu := range 16 {
-				wg.Go(func() {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
 					defer GinkgoRecover()
 					container, err := createContainer(strconv.Itoa(cpu))
 					Expect(err).ToNot(HaveOccurred())
 					err = hooks.PreStart(ctx, container, sb)
 					Expect(err).ToNot(HaveOccurred())
-				})
+				}()
 			}
 			wg.Wait()
 			verifySetIRQLoadBalancing("00000000,00000000", "ffffffff,ffffffff")
@@ -1557,7 +1559,7 @@ var _ = Describe("high_performance_hooks", func() {
 				mockCtrl = gomock.NewController(GinkgoT())
 				mockCgMgr = cgmgrmock.NewMockCgroupManager(mockCtrl)
 				runtimeName = "high-performance"
-				sandboxAnnotations = map[string]string{crioannotations.IRQLoadBalancing: "disable"}
+				sandboxAnnotations = map[string]string{crioannotations.IRQLoadBalancingAnnotation: "disable"}
 				cfg = &config.Config{
 					RuntimeConfig: config.RuntimeConfig{
 						IrqBalanceConfigFile: irqBalanceConfigFile,
@@ -1620,13 +1622,15 @@ var _ = Describe("high_performance_hooks", func() {
 
 				var wg sync.WaitGroup
 				for cpu := range 16 {
-					wg.Go(func() {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
 						defer GinkgoRecover()
 						container, err := createContainer(strconv.Itoa(cpu))
 						Expect(err).ToNot(HaveOccurred())
 						err = hooks.PreStart(ctx, container, sb)
 						Expect(err).ToNot(HaveOccurred())
-					})
+					}()
 				}
 				wg.Wait()
 				verifySetIRQLoadBalancing(flags, bannedCPUFlags)
@@ -1641,14 +1645,14 @@ var _ = Describe("high_performance_hooks", func() {
 				mockCtrl = gomock.NewController(GinkgoT())
 				mockCgMgr = cgmgrmock.NewMockCgroupManager(mockCtrl)
 				runtimeName = "hp"
-				sandboxAnnotations = map[string]string{crioannotations.IRQLoadBalancing: "disable"}
+				sandboxAnnotations = map[string]string{crioannotations.IRQLoadBalancingAnnotation: "disable"}
 				cfg = &config.Config{
 					RuntimeConfig: config.RuntimeConfig{
 						IrqBalanceConfigFile: irqBalanceConfigFile,
 						Runtimes: config.Runtimes{
 							"hp": {
 								AllowedAnnotations: []string{
-									crioannotations.IRQLoadBalancing,
+									crioannotations.IRQLoadBalancingAnnotation,
 								},
 							},
 							"default": {},
@@ -1682,7 +1686,7 @@ var _ = Describe("high_performance_hooks", func() {
 						Runtimes: config.Runtimes{
 							"hp": {
 								AllowedAnnotations: []string{
-									crioannotations.IRQLoadBalancing,
+									crioannotations.IRQLoadBalancingAnnotation,
 								},
 							},
 							"default": {},
@@ -1713,7 +1717,7 @@ var _ = Describe("high_performance_hooks", func() {
 				mockCtrl = gomock.NewController(GinkgoT())
 				mockCgMgr = cgmgrmock.NewMockCgroupManager(mockCtrl)
 				runtimeName = "default"
-				sandboxAnnotations = map[string]string{crioannotations.IRQLoadBalancing: "disable"}
+				sandboxAnnotations = map[string]string{crioannotations.IRQLoadBalancingAnnotation: "disable"}
 				cfg = &config.Config{
 					RuntimeConfig: config.RuntimeConfig{
 						IrqBalanceConfigFile: irqBalanceConfigFile,
@@ -1752,12 +1756,12 @@ var _ = Describe("high_performance_hooks", func() {
 							},
 							"hp": {
 								AllowedAnnotations: []string{
-									crioannotations.IRQLoadBalancing,
+									crioannotations.IRQLoadBalancingAnnotation,
 								},
 							},
 							"cpu-balancing-anywhere": {
 								AllowedAnnotations: []string{
-									crioannotations.CPULoadBalancing,
+									crioannotations.CPULoadBalancingAnnotation,
 								},
 							},
 							"default": {},
@@ -1778,13 +1782,15 @@ var _ = Describe("high_performance_hooks", func() {
 				Expect(ok).To(BeTrue())
 				var wg sync.WaitGroup
 				for cpu := range 16 {
-					wg.Go(func() {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
 						defer GinkgoRecover()
 						container, err := createContainer(strconv.Itoa(cpu))
 						Expect(err).ToNot(HaveOccurred())
 						err = hooks.PreStart(ctx, container, sb)
 						Expect(err).ToNot(HaveOccurred())
-					})
+					}()
 				}
 				wg.Wait()
 				verifySetIRQLoadBalancing(flags, bannedCPUFlags)

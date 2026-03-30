@@ -2,18 +2,17 @@ package config_test
 
 import (
 	"context"
-	"crypto/tls"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 
+	"github.com/containers/storage"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"go.podman.io/storage"
 
 	"github.com/cri-o/cri-o/internal/config/cgmgr"
-	v2 "github.com/cri-o/cri-o/pkg/annotations/v2"
+	crioann "github.com/cri-o/cri-o/pkg/annotations"
 	"github.com/cri-o/cri-o/pkg/config"
 	"github.com/cri-o/cri-o/utils/cmdrunner"
 )
@@ -732,7 +731,7 @@ var _ = t.Describe("Config", func() {
 			// Given
 			sut.Runtimes[config.DefaultRuntime] = &config.RuntimeHandler{
 				RuntimePath:        validFilePath,
-				AllowedAnnotations: []string{v2.Devices},
+				AllowedAnnotations: []string{crioann.DevicesAnnotation},
 			}
 
 			// When
@@ -740,8 +739,8 @@ var _ = t.Describe("Config", func() {
 
 			// Then
 			Expect(err).ToNot(HaveOccurred())
-			Expect(sut.Runtimes[config.DefaultRuntime].AllowedAnnotations).To(ContainElement(v2.Devices))
-			Expect(sut.Runtimes[config.DefaultRuntime].DisallowedAnnotations).NotTo(ContainElement(v2.Devices))
+			Expect(sut.Runtimes[config.DefaultRuntime].AllowedAnnotations).To(ContainElement(crioann.DevicesAnnotation))
+			Expect(sut.Runtimes[config.DefaultRuntime].DisallowedAnnotations).NotTo(ContainElement(crioann.DevicesAnnotation))
 		})
 
 		It("should allow no_sync_log for implicit default runtime", func() {
@@ -1779,257 +1778,6 @@ var _ = t.Describe("Config", func() {
 
 			// Then
 			Expect(ok).To(BeTrue())
-		})
-	})
-
-	t.Describe("ValidateContainerCreateTimeout", func() {
-		It("should set default timeout when not configured", func() {
-			// Given
-			handler := &config.RuntimeHandler{}
-
-			// When
-			handler.ValidateContainerCreateTimeout("test-runtime")
-
-			// Then
-			Expect(handler.ContainerCreateTimeout).To(Equal(int64(240)))
-		})
-
-		It("should use configured timeout when valid", func() {
-			// Given
-			handler := &config.RuntimeHandler{
-				ContainerCreateTimeout: 600, // 10 minutes
-			}
-
-			// When
-			handler.ValidateContainerCreateTimeout("test-runtime")
-
-			// Then
-			Expect(handler.ContainerCreateTimeout).To(Equal(int64(600)))
-		})
-
-		It("should set minimum timeout when below minimum", func() {
-			// Given
-			handler := &config.RuntimeHandler{
-				ContainerCreateTimeout: 15, // Below minimum of 30
-			}
-
-			// When
-			handler.ValidateContainerCreateTimeout("test-runtime")
-
-			// Then
-			Expect(handler.ContainerCreateTimeout).To(Equal(int64(30)))
-		})
-
-		It("should allow minimum timeout", func() {
-			// Given
-			handler := &config.RuntimeHandler{
-				ContainerCreateTimeout: 30, // Exactly minimum
-			}
-
-			// When
-			handler.ValidateContainerCreateTimeout("test-runtime")
-
-			// Then
-			Expect(handler.ContainerCreateTimeout).To(Equal(int64(30)))
-		})
-
-		It("should handle zero timeout by setting default", func() {
-			// Given
-			handler := &config.RuntimeHandler{
-				ContainerCreateTimeout: 0,
-			}
-
-			// When
-			handler.ValidateContainerCreateTimeout("test-runtime")
-
-			// Then
-			Expect(handler.ContainerCreateTimeout).To(Equal(int64(240)))
-		})
-
-		It("should handle negative timeout by setting minimum", func() {
-			// Given
-			handler := &config.RuntimeHandler{
-				ContainerCreateTimeout: -10,
-			}
-
-			// When
-			handler.ValidateContainerCreateTimeout("test-runtime")
-
-			// Then
-			Expect(handler.ContainerCreateTimeout).To(Equal(int64(30)))
-		})
-
-		It("should set different timeouts for different runtime handlers", func() {
-			// Given
-			sut.Runtimes[config.DefaultRuntime] = &config.RuntimeHandler{
-				RuntimePath:            validFilePath,
-				ContainerCreateTimeout: 300, // 5 minutes for OCI runtime
-			}
-			sut.Runtimes["kata"] = &config.RuntimeHandler{
-				RuntimePath:            validFilePath,
-				ContainerCreateTimeout: 600, // 10 minutes for VM runtime
-			}
-
-			// When
-			err := sut.ValidateRuntimes()
-
-			// Then
-			Expect(err).ToNot(HaveOccurred())
-			Expect(sut.Runtimes[config.DefaultRuntime].ContainerCreateTimeout).To(Equal(int64(300)))
-			Expect(sut.Runtimes["kata"].ContainerCreateTimeout).To(Equal(int64(600)))
-		})
-	})
-
-	t.Describe("StatsConfig.Validate", func() {
-		It("should succeed with default config", func() {
-			// Given
-			// When
-			err := sut.StatsConfig.Validate()
-
-			// Then
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		It("should succeed with valid config", func() {
-			// Given
-			sut.IncludedPodMetrics = []string{"cpu", "memory"}
-
-			// When
-			err := sut.StatsConfig.Validate()
-
-			// Then
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		It("should succeed with all", func() {
-			// Given
-			sut.IncludedPodMetrics = []string{"all"}
-
-			// When
-			err := sut.StatsConfig.Validate()
-
-			// Then
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		It("should fail with invalid metric", func() {
-			// Given
-			sut.IncludedPodMetrics = []string{"invalid"}
-
-			// When
-			err := sut.StatsConfig.Validate()
-
-			// Then
-			Expect(err).To(HaveOccurred())
-		})
-
-		It("should fail when all not in the first element", func() {
-			// Given
-			sut.IncludedPodMetrics = []string{"cpu", "memory", "all"}
-
-			// When
-			err := sut.StatsConfig.Validate()
-
-			// Then
-			Expect(err).To(HaveOccurred())
-		})
-
-		It("should fail when all is not the only one element", func() {
-			// Given
-			sut.IncludedPodMetrics = []string{"all", "cpu", "memory"}
-
-			// When
-			err := sut.StatsConfig.Validate()
-
-			// Then
-			Expect(err).To(HaveOccurred())
-		})
-	})
-
-	// TLSMinVersion configuration tests
-	t.Describe("TLSMinVersion", func() {
-		It("should validate VersionTLS12 in APIConfig", func() {
-			sut.TLSMinVersion = "VersionTLS12"
-			Expect(sut.APIConfig.Validate(false)).To(Succeed())
-			Expect(sut.APIConfig.GetTLSMinVersion()).To(Equal(uint16(tls.VersionTLS12)))
-		})
-
-		It("should validate VersionTLS13 in APIConfig", func() {
-			sut.TLSMinVersion = "VersionTLS13"
-			Expect(sut.APIConfig.Validate(false)).To(Succeed())
-			Expect(sut.APIConfig.GetTLSMinVersion()).To(Equal(uint16(tls.VersionTLS13)))
-		})
-
-		It("should fail validation for invalid version string", func() {
-			sut.TLSMinVersion = "InvalidTLSVersion"
-			Expect(sut.APIConfig.Validate(false)).ToNot(Succeed())
-		})
-
-		It("should fail validation for deprecated TLS 1.0", func() {
-			sut.TLSMinVersion = "VersionTLS10"
-			Expect(sut.APIConfig.Validate(false)).ToNot(Succeed())
-		})
-
-		It("should fail validation for deprecated TLS 1.1", func() {
-			sut.TLSMinVersion = "VersionTLS11"
-			Expect(sut.APIConfig.Validate(false)).ToNot(Succeed())
-		})
-
-		It("should default to TLS 1.2 when empty", func() {
-			sut.TLSMinVersion = ""
-			Expect(sut.APIConfig.Validate(false)).To(Succeed())
-			Expect(sut.APIConfig.GetTLSMinVersion()).To(Equal(uint16(tls.VersionTLS12)))
-		})
-	})
-
-	// TLSCipherSuites configuration tests
-	t.Describe("TLSCipherSuites", func() {
-		It("should return nil when no cipher suites configured", func() {
-			sut.TLSCipherSuites = nil
-			Expect(sut.APIConfig.Validate(false)).To(Succeed())
-			Expect(sut.APIConfig.GetTLSCipherSuites()).To(BeNil())
-		})
-
-		It("should parse valid cipher suite names after Validate", func() {
-			sut.TLSMinVersion = "VersionTLS12"
-			sut.TLSCipherSuites = []string{"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"}
-			Expect(sut.APIConfig.Validate(false)).To(Succeed())
-			Expect(sut.APIConfig.GetTLSCipherSuites()).To(HaveLen(1))
-		})
-
-		It("should fail validation for unknown cipher suite", func() {
-			sut.TLSMinVersion = "VersionTLS12"
-			sut.TLSCipherSuites = []string{"UNKNOWN_CIPHER"}
-			Expect(sut.APIConfig.Validate(false)).ToNot(Succeed())
-		})
-	})
-
-	// TLSMinVersion and TLSCipherSuites together tests
-	t.Describe("TLSMinVersion and CipherSuites together", func() {
-		It("should accept both minVersion and cipher suites for TLS 1.2", func() {
-			sut.TLSMinVersion = "VersionTLS12"
-			sut.TLSCipherSuites = []string{
-				"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
-				"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
-			}
-			Expect(sut.APIConfig.Validate(false)).To(Succeed())
-			Expect(sut.APIConfig.GetTLSCipherSuites()).To(HaveLen(2))
-		})
-
-		It("should ignore cipher suites when TLS 1.3 is set", func() {
-			sut.TLSMinVersion = "VersionTLS13"
-			sut.TLSCipherSuites = []string{"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"}
-			Expect(sut.APIConfig.Validate(false)).To(Succeed())
-			// GetTLSCipherSuites returns nil for TLS 1.3
-			Expect(sut.APIConfig.GetTLSCipherSuites()).To(BeNil())
-		})
-
-		It("should skip cipher suite validation when TLS 1.3 is set", func() {
-			sut.TLSMinVersion = "VersionTLS13"
-			// Invalid cipher suite should not cause validation error with TLS 1.3
-			sut.TLSCipherSuites = []string{"INVALID_CIPHER_SUITE"}
-			Expect(sut.APIConfig.Validate(false)).To(Succeed())
-			Expect(sut.APIConfig.GetTLSCipherSuites()).To(BeNil())
 		})
 	})
 })

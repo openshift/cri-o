@@ -5,7 +5,7 @@ GO_ARCH=$(shell $(GO) env GOARCH)
 GO_BUILD ?= $(GO) build $(TRIMPATH)
 GO_TEST ?= $(GO) test $(TRIMPATH)
 GO_RUN ?= $(GO) run
-NIX_IMAGE ?= nixos/nix:2.31.2
+NIX_IMAGE ?= nixos/nix:2.25.4
 
 PROJECT := github.com/cri-o/cri-o
 CRIO_INSTANCE := crio_dev
@@ -49,11 +49,11 @@ GO_MD2MAN ?= ${BUILD_BIN_PATH}/go-md2man
 GINKGO := ${BUILD_BIN_PATH}/ginkgo
 MOCKGEN := ${BUILD_BIN_PATH}/mockgen
 GOLANGCI_LINT := ${BUILD_BIN_PATH}/golangci-lint
-GOLANGCI_LINT_VERSION := v2.6.2
+GOLANGCI_LINT_VERSION := v2.5.0
 GO_MOD_OUTDATED := ${BUILD_BIN_PATH}/go-mod-outdated
 GO_MOD_OUTDATED_VERSION := 0.9.0
 GOSEC := ${BUILD_BIN_PATH}/gosec
-GOSEC_VERSION := 2.22.8
+GOSEC_VERSION := 2.21.4
 MDTOC := ${BUILD_BIN_PATH}/mdtoc
 MDTOC_VERSION := v1.4.0
 RELEASE_NOTES := ${BUILD_BIN_PATH}/release-notes
@@ -61,10 +61,18 @@ RELEASE_NOTES_VERSION := v0.18.0
 ZEITGEIST := ${BUILD_BIN_PATH}/zeitgeist
 ZEITGEIST_VERSION := v0.5.4
 SHFMT := ${BUILD_BIN_PATH}/shfmt
-SHFMT_VERSION := v3.12.0
+SHFMT_VERSION := v3.10.0
 SHELLCHECK := ${BUILD_BIN_PATH}/shellcheck
-SHELLCHECK_VERSION := v0.11.0
+SHELLCHECK_VERSION := v0.10.0
 BATS_FILES := $(wildcard test/*.bats)
+
+ifeq ($(shell bash -c '[[ `command -v git` && `git rev-parse --git-dir 2>/dev/null` ]] && echo true'), true)
+	COMMIT_NO := $(shell git rev-parse HEAD 2> /dev/null || true)
+	GIT_TREE_STATE := $(if $(shell git status --porcelain --untracked-files=no),dirty,clean)
+else
+	COMMIT_NO := unknown
+	GIT_TREE_STATE := unknown
+endif
 
 # pass crio CLI options to generate custom configuration options at build time
 CONF_OVERRIDES ?=
@@ -168,7 +176,7 @@ $(GOLANGCI_LINT):
 
 $(SHELLCHECK): $(BUILD_BIN_PATH)
 	URL=https://github.com/koalaman/shellcheck/releases/download/$(SHELLCHECK_VERSION)/shellcheck-$(SHELLCHECK_VERSION).linux.x86_64.tar.xz \
-	SHA256SUM=4da528ddb3a4d1b7b24a59d4e16eb2f5fd960f4bd9a3708a15baddbdf1d5a55b && \
+	SHA256SUM=f35ae15a4677945428bdfe61ccc297490d89dd1e544cc06317102637638c6deb && \
 	curl -sSfL $$URL | tar xfJ - -C ${BUILD_BIN_PATH} --strip 1 shellcheck-$(SHELLCHECK_VERSION)/shellcheck && \
 	sha256sum ${SHELLCHECK} | grep -q $$SHA256SUM
 
@@ -314,7 +322,7 @@ uninstall: ## Uninstall all files.
 ##@ Verify targets:
 
 .PHONY: lint
-lint: ${GOLANGCI_LINT} ## Run the golang linter, supposed to not run on CI.
+lint:  ${GOLANGCI_LINT} ## Run the golang linter, supposed to not run on CI.
 	${GOLANGCI_LINT} version
 	${GOLANGCI_LINT} linters
 	GL_DEBUG=gocritic ${GOLANGCI_LINT} run --fix
@@ -329,16 +337,16 @@ check-config-template: ## Validate that the config template is correct.
 	./hack/validate-config.sh
 
 .PHONY: shellfiles
-shellfiles:
+shellfiles: ${SHFMT}
 	$(eval SHELLFILES=$(shell ${SHFMT} -f . | grep -v vendor/ | grep -v hack/lib | grep -v hack/build-rpms.sh | grep -v .bats))
 
 .PHONY: shfmt
-shfmt: ${SHFMT} shellfiles ## Run shfmt on all shell files.
+shfmt: shellfiles ## Run shfmt on all shell files.
 	${SHFMT} -ln bash -w -i 4 -d ${SHELLFILES}
 	${SHFMT} -ln bats -w -sr -d $(BATS_FILES)
 
 .PHONY: shellcheck
-shellcheck: ${SHELLCHECK} shellfiles ## Run shellcheck on all shell files.
+shellcheck: shellfiles ${SHELLCHECK} ## Run shellcheck on all shell files.
 	${SHELLCHECK} \
 		-P scripts \
 		-P test \
@@ -448,7 +456,6 @@ mockgen: \
 	mock-ocicni-types \
 	mock-seccompociartifact-types \
 	mock-ociartifact-types \
-	mock-ociartifact-datastore-types \
 	mock-systemd \
 	mock-cgmgr
 
@@ -464,7 +471,7 @@ mock-containerstorage: ${MOCKGEN}
 	${MOCKGEN} \
 		-package containerstoragemock \
 		-destination ${MOCK_PATH}/containerstorage/containerstorage.go \
-		go.podman.io/storage Store
+		github.com/containers/storage Store
 
 .PHONY: mock-cmdrunner
 mock-cmdrunner: ${MOCKGEN}
@@ -506,7 +513,7 @@ mock-image-types: ${MOCKGEN}
 	${BUILD_BIN_PATH}/mockgen \
 		-package imagetypesmock \
 		-destination ${MOCK_PATH}/containers/image/v5/types.go \
-		go.podman.io/image/v5/types ImageCloser
+		github.com/containers/image/v5/types ImageCloser
 
 .PHONY: mock-ocicni-types
 mock-ocicni-types: ${MOCKGEN}
@@ -527,14 +534,7 @@ mock-ociartifact-types: ${MOCKGEN}
 	${BUILD_BIN_PATH}/mockgen \
 		-package ociartifactmock \
 		-destination ${MOCK_PATH}/ociartifact/ociartifact.go \
-		github.com/cri-o/cri-o/internal/ociartifact Impl,LibartifactStore
-
-.PHONY: mock-ociartifact-datastore-types
-mock-ociartifact-datastore-types: ${MOCKGEN}
-	${BUILD_BIN_PATH}/mockgen \
-		-package datastoremock \
-		-destination ${MOCK_PATH}/ociartifact/datastore/datastore.go \
-		github.com/cri-o/cri-o/internal/ociartifact/datastore Impl
+		github.com/cri-o/cri-o/internal/ociartifact Impl
 
 .PHONY: mock-systemd
 mock-systemd: ${MOCKGEN}

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -11,6 +12,7 @@ import (
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	"github.com/cri-o/cri-o/internal/log"
+	"github.com/cri-o/cri-o/internal/oci"
 )
 
 // Exec prepares a streaming endpoint to execute a command in the container.
@@ -52,8 +54,13 @@ func (s *StreamService) Exec(ctx context.Context, containerID string, cmd []stri
 		return status.Errorf(codes.NotFound, "could not find container %q: %v", containerID, err)
 	}
 
-	if err := c.Living(); err != nil {
-		return status.Errorf(codes.NotFound, "container is not created or running: %v", err)
+	if err := s.runtimeServer.ContainerServer.Runtime().UpdateContainerStatus(s.ctx, c); err != nil {
+		return err
+	}
+
+	cState := c.State()
+	if cState.Status != oci.ContainerStateRunning && cState.Status != oci.ContainerStateCreated {
+		return errors.New("container is not created or running")
 	}
 
 	return s.runtimeServer.ContainerServer.Runtime().ExecContainer(s.ctx, c, cmd, stdin, stdout, stderr, tty, resizeChan)

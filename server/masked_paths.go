@@ -4,7 +4,7 @@ import (
 	"slices"
 	"sync"
 
-	"go.podman.io/common/pkg/config"
+	"github.com/containers/common/pkg/config"
 )
 
 // appendDefaultMaskedPaths is retrieving the default masked paths and appends

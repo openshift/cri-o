@@ -5,18 +5,7 @@
 
 package ociartifact
 
-import (
-	ociartifactmock "github.com/cri-o/cri-o/test/mocks/ociartifact"
-)
-
-func (s *Store) SetFakeStore(l LibartifactStore) {
-	s.libartifactStore = l
-}
-
-func (s *Store) SetFakeImpl(impl Impl) {
+// SetOCIArtifactImpl sets the OCI artifact implementation.
+func (s *Store) SetImpl(impl Impl) {
 	s.impl = impl
-}
-
-type FakeLibartifactStore struct {
-	*ociartifactmock.MockLibartifactStore
 }

@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"strings"
 
-	json "github.com/goccy/go-json"
+	istorage "github.com/containers/image/v5/storage"
+	"github.com/containers/storage"
+	json "github.com/json-iterator/go"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
-	istorage "go.podman.io/image/v5/storage"
-	"go.podman.io/storage"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	"github.com/cri-o/cri-o/internal/log"
@@ -114,12 +114,6 @@ func (s *Server) storageImageStatus(ctx context.Context, spec *types.ImageSpec) 
 
 	potentialMatches, err := s.ContainerServer.StorageImageServer().CandidatesForPotentiallyShortImageName(s.config.SystemContext, spec.GetImage())
 	if err != nil {
-		if len(spec.GetImage()) >= 3 && isHexString(spec.GetImage()) {
-			log.Debugf(ctx, "CandidatesForPotentiallyShortImageName failed for %q, but input looks like digest/ID: %v", spec.GetImage(), err)
-
-			return nil, nil
-		}
-
 		return nil, err
 	}
 
@@ -187,15 +181,4 @@ func createImageInfo(result *pkgstorage.ImageResult) (map[string]string, error) 
 	}
 
 	return map[string]string{"info": string(bytes)}, nil
-}
-
-// isHexString returns true if the string contains only hexadecimal characters.
-func isHexString(s string) bool {
-	for _, c := range s {
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
-			return false
-		}
-	}
-
-	return true
 }

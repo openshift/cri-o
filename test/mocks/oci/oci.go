@@ -13,6 +13,7 @@ import (
 	context "context"
 	io "io"
 	reflect "reflect"
+	syscall "syscall"
 
 	cgmgr "github.com/cri-o/cri-o/internal/config/cgmgr"
 	oci "github.com/cri-o/cri-o/internal/oci"
@@ -115,21 +116,6 @@ func (m *MockRuntimeImpl) DeleteContainer(arg0 context.Context, arg1 *oci.Contai
 func (mr *MockRuntimeImplMockRecorder) DeleteContainer(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteContainer", reflect.TypeOf((*MockRuntimeImpl)(nil).DeleteContainer), arg0, arg1)
-}
-
-// DiskStats mocks base method.
-func (m *MockRuntimeImpl) DiskStats(arg0 context.Context, arg1 *oci.Container, arg2 string) (*oci.DiskMetrics, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DiskStats", arg0, arg1, arg2)
-	ret0, _ := ret[0].(*oci.DiskMetrics)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// DiskStats indicates an expected call of DiskStats.
-func (mr *MockRuntimeImplMockRecorder) DiskStats(arg0, arg1, arg2 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiskStats", reflect.TypeOf((*MockRuntimeImpl)(nil).DiskStats), arg0, arg1, arg2)
 }
 
 // ExecContainer mocks base method.
@@ -273,6 +259,20 @@ func (m *MockRuntimeImpl) ServeExecContainer(arg0 context.Context, arg1 *oci.Con
 func (mr *MockRuntimeImplMockRecorder) ServeExecContainer(arg0, arg1, arg2, arg3, arg4, arg5, arg6 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ServeExecContainer", reflect.TypeOf((*MockRuntimeImpl)(nil).ServeExecContainer), arg0, arg1, arg2, arg3, arg4, arg5, arg6)
+}
+
+// SignalContainer mocks base method.
+func (m *MockRuntimeImpl) SignalContainer(arg0 context.Context, arg1 *oci.Container, arg2 syscall.Signal) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SignalContainer", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SignalContainer indicates an expected call of SignalContainer.
+func (mr *MockRuntimeImplMockRecorder) SignalContainer(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignalContainer", reflect.TypeOf((*MockRuntimeImpl)(nil).SignalContainer), arg0, arg1, arg2)
 }
 
 // StartContainer mocks base method.

@@ -21,20 +21,16 @@ type Config struct {
 	mu     sync.RWMutex
 	config *tls.Config
 
-	TLSCert      string
-	TLSKey       string
-	TLSCA        string
-	MinVersion   uint16
-	CipherSuites []uint16
+	TLSCert string
+	TLSKey  string
+	TLSCA   string
 }
 
-func NewCertConfig(ctx context.Context, doneChan chan struct{}, certPath, keyPath, caPath string, minVersion uint16, cipherSuites []uint16) (*Config, error) {
+func NewCertConfig(ctx context.Context, doneChan chan struct{}, certPath, keyPath, caPath string) (*Config, error) {
 	cc := &Config{
-		TLSCert:      certPath,
-		TLSKey:       keyPath,
-		TLSCA:        caPath,
-		MinVersion:   minVersion,
-		CipherSuites: cipherSuites,
+		TLSCert: certPath,
+		TLSKey:  keyPath,
+		TLSCA:   caPath,
 	}
 
 	if err := cc.reload(ctx); err != nil {
@@ -134,8 +130,6 @@ func (cc *Config) reload(ctx context.Context) error {
 	}
 
 	config.Certificates = []tls.Certificate{certificate}
-	config.MinVersion = cc.MinVersion
-	config.CipherSuites = cc.CipherSuites
 
 	// Set up mTLS configurations if TLSCA is set
 	if cc.TLSCA != "" {

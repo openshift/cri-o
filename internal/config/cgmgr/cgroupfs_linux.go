@@ -10,10 +10,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/containers/storage/pkg/unshare"
 	"github.com/opencontainers/cgroups"
 	"github.com/opencontainers/cgroups/manager"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
-	"go.podman.io/storage/pkg/unshare"
 
 	"github.com/cri-o/cri-o/internal/config/node"
 	"github.com/cri-o/cri-o/utils"
@@ -102,7 +102,12 @@ func (m *CgroupfsManager) ContainerCgroupStats(sbParent, containerID string) (*C
 		return nil, err
 	}
 
-	return statsFromLibctrMgr(cgMgr)
+	stats, err := cgMgr.GetStats()
+	if err != nil {
+		return nil, err
+	}
+
+	return libctrStatsToCgroupStats(stats), nil
 }
 
 // RemoveContainerCgManager removes the cgroup manager for the container.
@@ -169,7 +174,12 @@ func (m *CgroupfsManager) SandboxCgroupStats(sbParent, sbID string) (*CgroupStat
 		return nil, err
 	}
 
-	return statsFromLibctrMgr(cgMgr)
+	stats, err := cgMgr.GetStats()
+	if err != nil {
+		return nil, err
+	}
+
+	return libctrStatsToCgroupStats(stats), nil
 }
 
 // RemoveSandboxCgroupManager removes the cgroup manager for the sandbox.

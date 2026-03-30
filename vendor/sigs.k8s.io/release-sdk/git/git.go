@@ -753,6 +753,7 @@ func (r *Repo) latestNonPatchFinalVersions() ([]semver.Version, error) {
 
 	_ = tags.ForEach(func(t *plumbing.Reference) error {
 		ver, err := helpers.TagStringToSemver(t.Name().Short())
+
 		if err == nil {
 			// We're searching for the latest, non patch final tag
 			if ver.Patch == 0 && len(ver.Pre) == 0 {
@@ -774,8 +775,8 @@ func (r *Repo) latestNonPatchFinalVersions() ([]semver.Version, error) {
 
 func (r *Repo) releaseBranchOrMainRef(major, minor uint64) (sha, rev string, err error) {
 	relBranch := fmt.Sprintf("%s%d.%d", releaseBranchPrefix, major, minor)
-
 	sha, err = r.RevParseTag(relBranch)
+
 	if err == nil {
 		logrus.Debugf("Found release branch %s", relBranch)
 

@@ -4,8 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"maps"
-	"slices"
 	"sync"
 	"time"
 
@@ -23,7 +21,6 @@ const (
 
 type runtime struct {
 	sync.Mutex
-
 	cc         *grpc.ClientConn
 	runtime    cri.RuntimeServiceClient
 	image      cri.ImageServiceClient
@@ -50,11 +47,12 @@ func ConnectRuntime() (*runtime, error) {
 
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),                  //nolint:staticcheck,nolintlint
-		grpc.FailOnNonTempDialError(true), //nolint:staticcheck,nolintlint
+		grpc.WithBlock(),                  //nolint:staticcheck // use it until an appropriate alternative is present
+		grpc.FailOnNonTempDialError(true), //nolint:staticcheck // use it until an appropriate alternative is present
 	}
 
-	cc, err := grpc.DialContext(ctx, *crioSocket, dialOpts...) //nolint:staticcheck,nolintlint
+	//nolint:staticcheck // use it until an appropriate alternative is present
+	cc, err := grpc.DialContext(ctx, *crioSocket, dialOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("runtime connection failed: %w", err)
 	}
@@ -121,8 +119,10 @@ func (r *runtime) PullImage(image string) (string, error) {
 	}
 
 	for _, img := range listReply.GetImages() {
-		if slices.Contains(img.GetRepoTags(), image) {
-			return img.GetId(), nil
+		for _, tag := range img.GetRepoTags() {
+			if tag == image {
+				return img.GetId(), nil
+			}
 		}
 	}
 
@@ -167,7 +167,9 @@ type PodOption func(*cri.PodSandboxConfig) error
 
 func WithPodAnnotations(annotations map[string]string) PodOption {
 	return func(cfg *cri.PodSandboxConfig) error {
-		maps.Copy(cfg.GetAnnotations(), annotations)
+		for k, v := range annotations {
+			cfg.Annotations[k] = v
+		}
 
 		return nil
 	}
@@ -175,7 +177,9 @@ func WithPodAnnotations(annotations map[string]string) PodOption {
 
 func WithPodLabels(labels map[string]string) PodOption {
 	return func(cfg *cri.PodSandboxConfig) error {
-		maps.Copy(cfg.GetLabels(), labels)
+		for k, v := range labels {
+			cfg.Labels[k] = v
+		}
 
 		return nil
 	}
@@ -401,7 +405,9 @@ func WithEnv(envs []*cri.KeyValue) ContainerOption {
 
 func WithAnnotations(annotations map[string]string) ContainerOption {
 	return func(cfg *cri.ContainerConfig) error {
-		maps.Copy(cfg.GetAnnotations(), annotations)
+		for k, v := range annotations {
+			cfg.Annotations[k] = v
+		}
 
 		return nil
 	}
@@ -409,7 +415,9 @@ func WithAnnotations(annotations map[string]string) ContainerOption {
 
 func WithLabels(labels map[string]string) ContainerOption {
 	return func(cfg *cri.ContainerConfig) error {
-		maps.Copy(cfg.GetLabels(), labels)
+		for k, v := range labels {
+			cfg.Labels[k] = v
+		}
 
 		return nil
 	}

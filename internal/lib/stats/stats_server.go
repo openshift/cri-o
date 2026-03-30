@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
+	cstorage "github.com/containers/storage"
 	"github.com/sirupsen/logrus"
-	cstorage "go.podman.io/storage"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
@@ -19,8 +19,6 @@ import (
 // If collectionPeriod is > 0, it maintains this list by updating the stats on collectionPeriod frequency.
 // Otherwise, it only updates the stats as they're requested.
 type StatsServer struct {
-	parentServerIface
-
 	shutdown         chan struct{}
 	alreadyShutdown  bool
 	collectionPeriod time.Duration
@@ -28,7 +26,8 @@ type StatsServer struct {
 	ctrStats         map[string]*types.ContainerStats
 	sboxMetrics      map[string]*SandboxMetrics
 	ctx              context.Context
-	mutex            sync.Mutex
+	parentServerIface
+	mutex sync.Mutex
 }
 
 // parentServerIface is an interface for requesting information from the parent ContainerServer.

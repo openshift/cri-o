@@ -1,9 +1,9 @@
 dependencies:
   - name: go
-    version: 1.25
+    version: 1.24
     refPaths:
       - path: nix/derivation.nix
-        match: buildGo125Module
+        match: buildGo124Module
       - path: go.mod
         match: go
 
@@ -13,19 +13,19 @@ dependencies:
   # tag the .0 release if it does not already exist. If the .0 release is done,
   # increase the development version to the next minor (1.x.0).
   - name: development version
-    version: 1.35.1
+    version: 1.34.6
     refPaths:
       - path: internal/version/version.go
         match: Version
 
   - name: supported versions
-    version: '{"1.34", "1.33", "1.32"}'
+    version: '{"1.33", "1.32", "1.31"}'
     refPaths:
       - path: internal/version/version.go
         match: ReleaseMinorVersions
 
   - name: golangci-lint
-    version: v2.6.2
+    version: v2.5.0
     refPaths:
       - path: .github/workflows/verify.yml
         match: GOLANGCI_LINT_VERSION
@@ -33,13 +33,13 @@ dependencies:
         match: GOLANGCI_LINT_VERSION
 
   - name: shellcheck
-    version: v0.11.0
+    version: v0.10.0
     refPaths:
       - path: Makefile
         match: SHELLCHECK_VERSION
 
   - name: cni-plugins
-    version: v1.8.0
+    version: v1.7.1
     refPaths:
       - path: scripts/versions
         match: cni-plugins
@@ -53,7 +53,7 @@ dependencies:
         match: conmon
 
   - name: cri-tools
-    version: v1.35.0
+    version: master
     refPaths:
       - path: contrib/test/ci/vars.yml
         match: cri_tools_git_version
@@ -64,14 +64,6 @@ dependencies:
       - path: scripts/versions
         match: buildah
 
-  - name: libpathrs
-    version: 0.2.4
-    refPaths:
-      - path: scripts/versions
-        match: libpathrs
-      - path: contrib/test/ci/build/libpathrs.yml
-        match: build-libpathrs.sh
-
   - name: runc
     version: main
     refPaths:
@@ -79,7 +71,7 @@ dependencies:
         match: runc
 
   - name: bats
-    version: v1.12.0
+    version: v1.11.1
     refPaths:
       - path: scripts/versions
         match: bats
@@ -93,7 +85,7 @@ dependencies:
         match: ZEITGEIST_VERSION
 
   - name: nix
-    version: 2.31.2
+    version: 2.25.4
     refPaths:
       - path: .github/workflows/test.yml
         match: NIX_VERSION
@@ -109,7 +101,7 @@ dependencies:
         match: RELEASE_NOTES_VERSION
 
   - name: shfmt
-    version: 3.12.0
+    version: 3.10.0
     refPaths:
       - path: Makefile
         match: SHFMT_VERSION
@@ -121,13 +113,13 @@ dependencies:
         match: GO_MOD_OUTDATED_VERSION
 
   - name: govulncheck
-    version: v1.1.4
+    version: v1.1.3
     refPaths:
       - path: hack/govulncheck.sh
         match: GOVULNCHECK_VERSION
 
   - name: gosec
-    version: 2.22.8
+    version: 2.21.4
     refPaths:
       - path: Makefile
         match: GOSEC_VERSION

@@ -5,7 +5,6 @@ import (
 	"os"
 	"reflect"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -238,7 +237,13 @@ func openFile(path string) []byte {
 }
 
 func stringInSlice(a string, list []string) bool {
-	return slices.Contains(list, a)
+	for _, b := range list {
+		if b == a {
+			return true
+		}
+	}
+
+	return false
 }
 
 func allEntries(c *config.Config) []entry {
@@ -287,7 +292,7 @@ func recursiveEntries(
 
 			if !stringInSlice(tag, excludedTagsValue) {
 				switch {
-				case field.Type.Implements(reflect.TypeFor[stringer]()):
+				case field.Type.Implements(reflect.TypeOf((*stringer)(nil)).Elem()):
 					// We need a checked type assertion to make golangci-lint happy...
 					if str, ok := vv.MethodByName("String").Interface().(func() string); ok {
 						// if the field is a pointer and nil, skip validation

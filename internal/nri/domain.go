@@ -45,7 +45,6 @@ func SetDomain(d Domain) {
 
 type domainTable struct {
 	sync.Mutex
-
 	domain Domain
 }
 

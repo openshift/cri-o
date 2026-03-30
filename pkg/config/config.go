@@ -3,7 +3,6 @@ package config
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,18 +16,17 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/containers/common/pkg/hooks"
 	conmonrsClient "github.com/containers/conmon-rs/pkg/client"
+	"github.com/containers/image/v5/pkg/sysregistriesv2"
+	"github.com/containers/image/v5/types"
+	"github.com/containers/storage"
 	cpConfig "github.com/cri-o/crio-credential-provider/pkg/config"
 	"github.com/cri-o/ocicni/pkg/ocicni"
 	"github.com/docker/go-units"
 	"github.com/opencontainers/runtime-spec/specs-go/features"
 	selinux "github.com/opencontainers/selinux/go-selinux"
 	"github.com/sirupsen/logrus"
-	"go.podman.io/common/pkg/hooks"
-	"go.podman.io/image/v5/pkg/sysregistriesv2"
-	"go.podman.io/image/v5/types"
-	"go.podman.io/storage"
-	cliflag "k8s.io/component-base/cli/flag"
 	"k8s.io/utils/cpuset"
 	"k8s.io/utils/ptr"
 	"tags.cncf.io/container-device-interface/pkg/cdi"
@@ -48,7 +46,7 @@ import (
 	"github.com/cri-o/cri-o/internal/config/ulimits"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/storage/references"
-	v2 "github.com/cri-o/cri-o/pkg/annotations/v2"
+	"github.com/cri-o/cri-o/pkg/annotations"
 	"github.com/cri-o/cri-o/server/metrics/collectors"
 	"github.com/cri-o/cri-o/server/useragent"
 	"github.com/cri-o/cri-o/utils"
@@ -60,10 +58,6 @@ const (
 	defaultGRPCMaxMsgSize = 80 * 1024 * 1024
 	// default minimum memory for all other runtimes.
 	defaultContainerMinMemory = 12 * 1024 * 1024 // 12 MiB
-	// defaultContainerCreateTimeout is the default timeout for container creation operations in seconds.
-	defaultContainerCreateTimeout = 240
-	// minimumContainerCreateTimeout is the minimum allowed timeout for container creation operations in seconds.
-	minimumContainerCreateTimeout = 30
 	// minimum memory for crun, the default runtime.
 	defaultContainerMinMemoryCrun = 500 * 1024 // 500 KiB
 	OCIBufSize                    = 8192
@@ -77,39 +71,13 @@ const (
 	MonitorExecCgroupContainer    = "container"
 )
 
-// When updating metrics, remember to update the document as well.
-const (
-	AllMetrics      = "all"
-	CPUMetrics      = "cpu"
-	DiskMetrics     = "disk"
-	DiskIOMetrics   = "diskIO"
-	HugetlbMetrics  = "hugetlb"
-	MemoryMetrics   = "memory"
-	NetworkMetrics  = "network"
-	OOMMetrics      = "oom"
-	ProcessMetrics  = "process"
-	SpecMetrics     = "spec"
-	PressureMetrics = "pressure"
-)
-
-// AvailableMetrics is a list of all available metrics that can be included in stats.
-// It excludes the "all" metric, which is a special value that includes all other metrics.
-var AvailableMetrics = []string{
-	CPUMetrics,
-	DiskMetrics,
-	DiskIOMetrics,
-	HugetlbMetrics,
-	MemoryMetrics,
-	NetworkMetrics,
-	OOMMetrics,
-	ProcessMetrics,
-	SpecMetrics,
-	PressureMetrics,
-}
-
 // Config represents the entire set of configuration values that can be set for
 // the server. This is intended to be loaded from a toml-encoded config file.
 type Config struct {
+	Comment          string
+	singleConfigPath string // Path to the single config file
+	dropInConfigDir  string // Path to the drop-in config files
+
 	RootConfig
 	APIConfig
 	RuntimeConfig
@@ -118,11 +86,6 @@ type Config struct {
 	MetricsConfig
 	TracingConfig
 	StatsConfig
-
-	Comment          string
-	singleConfigPath string // Path to the single config file
-	dropInConfigDir  string // Path to the drop-in config files
-
 	NRI           *nri.Config
 	SystemContext *types.SystemContext
 }
@@ -240,9 +203,8 @@ func (c *RootConfig) GetStore() (storage.Store, error) {
 
 // runtimeHandlerFeatures represents the supported features of the runtime.
 type runtimeHandlerFeatures struct {
-	features.Features
-
 	RecursiveReadOnlyMounts bool `json:"-"` // Internal use only.
+	features.Features
 }
 
 // RuntimeHandler represents each item of the "crio.runtime.runtimes" TOML
@@ -257,22 +219,20 @@ type RuntimeHandler struct {
 	// to a container running as privileged.
 	PrivilegedWithoutHostDevices bool `toml:"privileged_without_host_devices,omitempty"`
 	// AllowedAnnotations is a slice of experimental annotations that this runtime handler is allowed to process.
-	// The currently recognized values are (V2 format recommended, V1 format deprecated but supported):
-	// "userns-mode.crio.io" (V1: "io.kubernetes.cri-o.userns-mode") for configuring a user namespace for the pod.
-	// "devices.crio.io" (V1: "io.kubernetes.cri-o.Devices") for configuring devices for the pod.
-	// "shm-size.crio.io" (V1: "io.kubernetes.cri-o.ShmSize") for configuring the size of /dev/shm.
-	// "unified-cgroup.crio.io/$CTR_NAME" (V1: "io.kubernetes.cri-o.UnifiedCgroup.$CTR_NAME") for configuring the cgroup v2 unified block for a container.
+	// The currently recognized values are:
+	// "io.kubernetes.cri-o.userns-mode" for configuring a user namespace for the pod.
+	// "io.kubernetes.cri-o.Devices" for configuring devices for the pod.
+	// "io.kubernetes.cri-o.ShmSize" for configuring the size of /dev/shm.
+	// "io.kubernetes.cri-o.UnifiedCgroup.$CTR_NAME" for configuring the cgroup v2 unified block for a container.
 	// "io.containers.trace-syscall" for tracing syscalls via the OCI seccomp BPF hook.
-	// "link-logs.crio.io" (V1: "io.kubernetes.cri-o.LinkLogs") for linking logs into the pod.
-	// "seccomp-profile.crio.io" (V1: "seccomp-profile.kubernetes.cri-o.io") for setting the seccomp profile for:
-	//   - a specific container by using: `seccomp-profile.crio.io/<CONTAINER_NAME>`
-	//   - a whole pod by using: `seccomp-profile.crio.io/POD`
+	// "io.kubernetes.cri-o.LinkLogs" for linking logs into the pod.
+	// "seccomp-profile.kubernetes.cri-o.io" for setting the seccomp profile for:
+	//   - a specific container by using: `seccomp-profile.kubernetes.cri-o.io/<CONTAINER_NAME>`
+	//   - a whole pod by using: `seccomp-profile.kubernetes.cri-o.io/POD`
 	//   Note that the annotation works on containers as well as on images.
-	//   For images, the plain annotation `seccomp-profile.crio.io`
+	//   For images, the plain annotation `seccomp-profile.kubernetes.cri-o.io`
 	//   can be used without the required `/POD` suffix or a container name.
-	// "disable-fips.crio.io" (V1: "io.kubernetes.cri-o.DisableFIPS") for disabling FIPS mode for a pod within a FIPS-enabled Kubernetes cluster.
-	// Both V1 and V2 annotations are accepted; V2 takes precedence when both are present.
-	// See ANNOTATION_MIGRATION.md for the complete migration guide.
+	// "io.kubernetes.cri-o.DisableFIPS" for disabling FIPS mode for a pod within a FIPS-enabled Kubernetes cluster.
 	AllowedAnnotations []string `toml:"allowed_annotations,omitempty"`
 
 	// DisallowedAnnotations is the slice of experimental annotations that are not allowed for this handler.
@@ -336,10 +296,6 @@ type RuntimeHandler struct {
 	// If set to "", the runtime config seccomp_profile will be used.
 	// If that is also set to "", the internal default seccomp profile will be applied.
 	SeccompProfile string `toml:"seccomp_profile,omitempty"`
-
-	// ContainerCreateTimeout is the timeout for container creation operations in seconds.
-	// If not set, defaults to 240 seconds.
-	ContainerCreateTimeout int64 `toml:"container_create_timeout,omitempty"`
 
 	// seccompConfig is the seccomp configuration for the handler.
 	seccompConfig *seccomp.Config
@@ -424,12 +380,6 @@ type RuntimeConfig struct {
 
 	// DecryptionKeysPath is the path where keys for image decryption are stored.
 	DecryptionKeysPath string `toml:"decryption_keys_path"`
-
-	// AdditionalArtifactStores is a list of additional read-only artifact stores.
-	// Note that CRI-O expects an "artifacts/" subdirectory within each configured
-	// path (mirroring the main store convention). For example, if configured with
-	// "/mnt/nfs", the artifacts should be placed in "/mnt/nfs/artifacts/".
-	AdditionalArtifactStores []string `toml:"additional_artifact_stores"`
 
 	// Conmon is the path to conmon binary, used for managing the runtime.
 	// This option is currently deprecated, and will be replaced with RuntimeHandler.MonitorConfig.Path.
@@ -667,8 +617,7 @@ type ImageConfig struct {
 	SignaturePolicyDir string `toml:"signature_policy_dir"`
 	// InsecureRegistries is a list of registries that must be contacted w/o
 	// TLS verification.
-	//
-	// Deprecated: it's no longer effective. Please use `insecure` in `registries.conf` instead.
+	// Deprecated: use `insecure` in `registries.conf` instead.
 	InsecureRegistries []string `toml:"insecure_registries"`
 	// ImageVolumes controls how volumes specified in image config are handled
 	ImageVolumes ImageVolumesType `toml:"image_volumes"`
@@ -744,20 +693,6 @@ type APIConfig struct {
 
 	// StreamIdleTimeout is how long to leave idle connections open for
 	StreamIdleTimeout string `toml:"stream_idle_timeout"`
-
-	// TLSMinVersion is the minimum TLS version for CRI-O's TLS servers (streaming and metrics).
-	// Valid values are: "VersionTLS12" and "VersionTLS13" (matching Kubernetes conventions).
-	// Default is "VersionTLS12".
-	TLSMinVersion string `toml:"tls_min_version"`
-
-	// TLSCipherSuites is the list of cipher suites to use for TLS 1.2.
-	// If empty, the Go default cipher suites are used.
-	// This has no effect on TLS 1.3 as Go manages cipher suites automatically for TLS 1.3.
-	TLSCipherSuites []string `toml:"tls_cipher_suites"`
-
-	// Parsed TLS values (populated during Validate)
-	tlsMinVersionParsed   uint16
-	tlsCipherSuitesParsed []uint16
 }
 
 // MetricsConfig specifies all necessary configuration for Prometheus based
@@ -810,15 +745,8 @@ type StatsConfig struct {
 	CollectionPeriod int `toml:"collection_period"`
 
 	// IncludedPodMetrics specifies the list of metrics to include when collecting pod metrics.
-	// If "all" is specified, all metrics are included. In that case, "all" should be the only element.
-	//
-	// Deprecated: Use this field only when the user input config is needed because it's not formalized.
-	// Use EnabledPodMetrics() instead.
+	// If empty, all available metrics will be collected.
 	IncludedPodMetrics []string `toml:"included_pod_metrics"`
-
-	// includedPodMetrics is an internal representation of IncludedPodMetrics.
-	// It doesn't contain "all".
-	includedPodMetrics []string
 }
 
 // tomlConfig is another way of looking at a Config, which is
@@ -827,7 +755,6 @@ type StatsConfig struct {
 type tomlConfig struct {
 	Crio struct {
 		RootConfig
-
 		API     struct{ APIConfig }     `toml:"api"`
 		Runtime struct{ RuntimeConfig } `toml:"runtime"`
 		Image   struct{ ImageConfig }   `toml:"image"`
@@ -1072,7 +999,6 @@ func DefaultConfig() (*Config, error) {
 			StreamPort:         "0",
 			GRPCMaxSendMsgSize: defaultGRPCMaxMsgSize,
 			GRPCMaxRecvMsgSize: defaultGRPCMaxMsgSize,
-			TLSMinVersion:      DefaultTLSMinVersion,
 		},
 		RuntimeConfig: *DefaultRuntimeConfig(cgroupManager),
 		ImageConfig: ImageConfig{
@@ -1207,10 +1133,6 @@ func (c *Config) Validate(onExecution bool) error {
 		return fmt.Errorf("validating NRI config: %w", err)
 	}
 
-	if err := c.StatsConfig.Validate(); err != nil {
-		return fmt.Errorf("validating stats config: %w", err)
-	}
-
 	return nil
 }
 
@@ -1235,36 +1157,6 @@ func (c *APIConfig) Validate(onExecution bool) error {
 		if c.StreamTLSKey == "" {
 			return errors.New("stream TLS key path is empty")
 		}
-	}
-
-	// Reset parsed TLS state to avoid stale values after reloads
-	c.tlsMinVersionParsed = 0
-	c.tlsCipherSuitesParsed = nil
-
-	// Parse and validate TLS version using Kubernetes component-base
-	tlsVersion, err := cliflag.TLSVersion(c.TLSMinVersion)
-	if err != nil {
-		return fmt.Errorf("validating tls_min_version: %w", err)
-	}
-
-	// Only TLS 1.2 and TLS 1.3 are supported
-	if tlsVersion != tls.VersionTLS12 && tlsVersion != tls.VersionTLS13 {
-		return errors.New("tls_min_version must be VersionTLS12 or VersionTLS13, got unsupported version")
-	}
-
-	c.tlsMinVersionParsed = tlsVersion
-
-	// Parse and validate TLS cipher suites using Kubernetes component-base
-	// Note: TLS 1.3 cipher suites are managed by Go automatically
-	if tlsVersion == tls.VersionTLS12 && len(c.TLSCipherSuites) > 0 {
-		cipherSuites, err := cliflag.TLSCipherSuites(c.TLSCipherSuites)
-		if err != nil {
-			return fmt.Errorf("validating tls_cipher_suites: %w", err)
-		}
-
-		c.tlsCipherSuitesParsed = cipherSuites
-	} else if tlsVersion == tls.VersionTLS13 && len(c.TLSCipherSuites) > 0 {
-		logrus.Warn("tls_cipher_suites configuration is ignored when tls_min_version is VersionTLS13 (Go manages TLS 1.3 cipher suites automatically)")
 	}
 
 	if onExecution {
@@ -1336,12 +1228,6 @@ func (c *RootConfig) CleanShutdownSupportedFileName() string {
 // execution checks. It returns an `error` on validation failure, otherwise
 // `nil`.
 func (c *RuntimeConfig) Validate(systemContext *types.SystemContext, onExecution bool) error {
-	for _, p := range c.AdditionalArtifactStores {
-		if !filepath.IsAbs(p) {
-			return fmt.Errorf("additional_artifact_stores entry must be absolute: %q", p)
-		}
-	}
-
 	if err := c.ulimitsConfig.LoadUlimits(c.DefaultUlimits); err != nil {
 		return err
 	}
@@ -1550,12 +1436,11 @@ func getDefaultMonitorGroup(isSystemd bool) string {
 
 func defaultRuntimeHandler(isSystemd bool) *RuntimeHandler {
 	return &RuntimeHandler{
-		RuntimeType:            DefaultRuntimeType,
-		RuntimeRoot:            DefaultRuntimeRoot,
-		ContainerCreateTimeout: defaultContainerCreateTimeout,
+		RuntimeType: DefaultRuntimeType,
+		RuntimeRoot: DefaultRuntimeRoot,
 		AllowedAnnotations: []string{
-			v2.OCISeccompBPFHook,
-			v2.Devices,
+			annotations.OCISeccompBPFHookAnnotation,
+			annotations.DevicesAnnotation,
 		},
 		MonitorEnv: []string{
 			"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -1934,8 +1819,6 @@ func (r *RuntimeHandler) Validate(name string) error {
 		logrus.Errorf("Unable to set minimum container memory for runtime handler %q: %v", name, err)
 	}
 
-	r.ValidateContainerCreateTimeout(name)
-
 	if err := r.ValidateNoSyncLog(); err != nil {
 		return fmt.Errorf("no sync log: %w", err)
 	}
@@ -2078,20 +1961,6 @@ func (r *RuntimeHandler) ValidateContainerMinMemory(name string) error {
 	return nil
 }
 
-// ValidateContainerCreateTimeout sets the default container create timeout if not configured.
-func (r *RuntimeHandler) ValidateContainerCreateTimeout(name string) {
-	switch {
-	case r.ContainerCreateTimeout == 0:
-		r.ContainerCreateTimeout = defaultContainerCreateTimeout
-		logrus.Infof("Runtime handler %q container create timeout not set, using default: %d seconds", name, r.ContainerCreateTimeout)
-	case r.ContainerCreateTimeout < minimumContainerCreateTimeout:
-		logrus.Warnf("Runtime handler %q container create timeout (%d seconds) is less than minimum (%d seconds), setting to minimum: %d seconds", name, r.ContainerCreateTimeout, minimumContainerCreateTimeout, minimumContainerCreateTimeout)
-		r.ContainerCreateTimeout = minimumContainerCreateTimeout
-	default:
-		logrus.Infof("Runtime handler %q container create timeout set to: %d seconds", name, r.ContainerCreateTimeout)
-	}
-}
-
 // ValidateWebsocketStreaming can be used to verify if the runtime supports WebSocket streaming.
 func (r *RuntimeHandler) ValidateWebsocketStreaming(name string) error {
 	if r.RuntimeType != RuntimeTypePod {
@@ -2223,7 +2092,7 @@ func (r *RuntimeHandler) validateRuntimeSeccompProfile() error {
 
 func validateAllowedAndGenerateDisallowedAnnotations(allowed []string) (disallowed []string, _ error) {
 	disallowedMap := make(map[string]bool)
-	for _, ann := range v2.AllAllowedAnnotations {
+	for _, ann := range annotations.AllAllowedAnnotations {
 		disallowedMap[ann] = false
 	}
 
@@ -2277,46 +2146,4 @@ func (c *NetworkConfig) CNIManagerShutdown() {
 // SetSingleConfigPath set single config path for config.
 func (c *Config) SetSingleConfigPath(singleConfigPath string) {
 	c.singleConfigPath = singleConfigPath
-}
-
-func (c *StatsConfig) Validate() error {
-	if len(c.IncludedPodMetrics) == 1 && c.IncludedPodMetrics[0] == AllMetrics {
-		c.includedPodMetrics = AvailableMetrics
-
-		return nil
-	}
-
-	for _, metrics := range c.IncludedPodMetrics {
-		if metrics == AllMetrics {
-			return errors.New("'all' should be only one element in included_pod_metrics")
-		}
-
-		if !slices.Contains(AvailableMetrics, metrics) {
-			return fmt.Errorf("invalid pod metrics %q, available metrics: %v", metrics, AvailableMetrics)
-		}
-	}
-
-	c.includedPodMetrics = c.IncludedPodMetrics
-
-	return nil
-}
-
-func (c *StatsConfig) EnabledPodMetrics() []string {
-	return c.includedPodMetrics
-}
-
-// DefaultTLSMinVersion is the default minimum TLS version.
-const DefaultTLSMinVersion = "VersionTLS12"
-
-// GetTLSMinVersion returns the parsed TLS minimum version.
-// The value is parsed and validated during Validate().
-func (c *APIConfig) GetTLSMinVersion() uint16 {
-	return c.tlsMinVersionParsed
-}
-
-// GetTLSCipherSuites returns the TLS cipher suites for the API config.
-// Returns nil if no cipher suites are configured or if TLS 1.3+ (uses Go defaults).
-// The value is parsed and validated during Validate().
-func (c *APIConfig) GetTLSCipherSuites() []uint16 {
-	return c.tlsCipherSuitesParsed
 }

@@ -13,14 +13,13 @@ import (
 )
 
 const (
-	GithubTokenEnvKey    = "GITHUB_TOKEN"
-	GitRemoteEnvKey      = "REMOTE"
-	OrgEnvKey            = "ORG"
-	VersionFile          = "internal/version/version.go"
-	DependenciesYAMLFile = "dependencies.yaml"
-	BranchPrefix         = "release-"
-	VersionPrefix        = "v"
-	CrioOrgRepo          = "cri-o"
+	GithubTokenEnvKey = "GITHUB_TOKEN"
+	GitRemoteEnvKey   = "REMOTE"
+	OrgEnvKey         = "ORG"
+	VersionFile       = "internal/version/version.go"
+	BranchPrefix      = "release-"
+	VersionPrefix     = "v"
+	CrioOrgRepo       = "cri-o"
 )
 
 func GetCurrentVersionFromReleaseBranch(repo *git.Repo, baseBranchName string) (res semver.Version, err error) {

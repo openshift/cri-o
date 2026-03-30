@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
-	"go.podman.io/image/v5/types"
+	"github.com/containers/image/v5/types"
 
 	"github.com/cri-o/cri-o/internal/log"
-	"github.com/cri-o/cri-o/internal/ociartifact/datastore"
-	v2 "github.com/cri-o/cri-o/pkg/annotations/v2"
+	"github.com/cri-o/cri-o/internal/ociartifact"
+	"github.com/cri-o/cri-o/pkg/annotations"
 )
 
 // SeccompOCIArtifact is the main structure for handling seccomp related OCI
@@ -20,21 +19,16 @@ type SeccompOCIArtifact struct {
 }
 
 // New creates a new seccomp OCI artifact handler.
-func New(root string, systemContext *types.SystemContext) (*SeccompOCIArtifact, error) {
-	store, err := datastore.New(root, systemContext)
-	if err != nil {
-		return nil, err
-	}
-
+func New(root string, systemContext *types.SystemContext) *SeccompOCIArtifact {
 	return &SeccompOCIArtifact{
-		store,
-	}, nil
+		impl: ociartifact.NewStore(root, systemContext),
+	}
 }
 
 const (
 	// SeccompProfilePodAnnotation is the annotation used for matching a whole pod
 	// rather than a specific container.
-	SeccompProfilePodAnnotation = v2.SeccompProfile + "/POD"
+	SeccompProfilePodAnnotation = annotations.SeccompProfileAnnotation + "/POD"
 
 	// requiredConfigMediaType is the config media type for OCI artifact seccomp profiles.
 	requiredConfigMediaType = "application/vnd.cncf.seccomp-profile.config.v1+json"
@@ -51,24 +45,21 @@ func (s *SeccompOCIArtifact) TryPull(
 
 	profileRef := ""
 
-	containerKey := fmt.Sprintf("%s/%s", v2.SeccompProfile, containerName)
-	if val, key, ok := v2.GetAnnotationValueWithKey(podAnnotations, containerKey); ok {
-		log.Infof(ctx, "Found container specific seccomp profile annotation: %s=%s", key, val)
+	containerKey := fmt.Sprintf("%s/%s", annotations.SeccompProfileAnnotation, containerName)
+	if val, ok := podAnnotations[containerKey]; ok {
+		log.Infof(ctx, "Found container specific seccomp profile annotation: %s=%s", containerKey, val)
 		profileRef = val
-	} else if val, key, ok := v2.GetAnnotationValueWithKey(podAnnotations, SeccompProfilePodAnnotation); ok {
-		baseKey := strings.TrimSuffix(key, "/POD")
-		log.Infof(ctx, "Found pod specific seccomp profile annotation: %s=%s", baseKey, val)
+	} else if val, ok := podAnnotations[SeccompProfilePodAnnotation]; ok {
+		log.Infof(ctx, "Found pod specific seccomp profile annotation: %s=%s", annotations.SeccompProfileAnnotation, val)
 		profileRef = val
-	} else if val, key, ok := v2.GetAnnotationValueWithKey(imageAnnotations, v2.SeccompProfile); ok {
-		log.Infof(ctx, "Found image specific seccomp profile annotation: %s=%s", key, val)
+	} else if val, ok := imageAnnotations[annotations.SeccompProfileAnnotation]; ok {
+		log.Infof(ctx, "Found image specific seccomp profile annotation: %s=%s", annotations.SeccompProfileAnnotation, val)
 		profileRef = val
-	} else if val, key, ok := v2.GetAnnotationValueWithKey(imageAnnotations, containerKey); ok {
-		baseKey := strings.TrimSuffix(key, "/"+containerName)
-		log.Infof(ctx, "Found image specific seccomp profile annotation for container %s: %s=%s", containerName, baseKey, val)
+	} else if val, ok := imageAnnotations[containerKey]; ok {
+		log.Infof(ctx, "Found image specific seccomp profile annotation for container %s: %s=%s", containerName, annotations.SeccompProfileAnnotation, val)
 		profileRef = val
-	} else if val, key, ok := v2.GetAnnotationValueWithKey(imageAnnotations, SeccompProfilePodAnnotation); ok {
-		baseKey := strings.TrimSuffix(key, "/POD")
-		log.Infof(ctx, "Found image specific seccomp profile annotation for pod: %s=%s", baseKey, val)
+	} else if val, ok := imageAnnotations[SeccompProfilePodAnnotation]; ok {
+		log.Infof(ctx, "Found image specific seccomp profile annotation for pod: %s=%s", annotations.SeccompProfileAnnotation, val)
 		profileRef = val
 	}
 
@@ -76,7 +67,7 @@ func (s *SeccompOCIArtifact) TryPull(
 		return nil, nil
 	}
 
-	artifactData, err := s.impl.PullData(ctx, profileRef, &datastore.PullOptions{EnforceConfigMediaType: requiredConfigMediaType})
+	artifactData, err := s.impl.PullData(ctx, profileRef, &ociartifact.PullOptions{EnforceConfigMediaType: requiredConfigMediaType})
 	if err != nil {
 		return nil, fmt.Errorf("pull OCI artifact: %w", err)
 	}

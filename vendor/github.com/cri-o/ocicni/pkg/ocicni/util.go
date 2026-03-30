@@ -4,6 +4,5 @@ package ocicni
 func newNSManager() (*nsManager, error) {
 	nsm := &nsManager{}
 	err := nsm.init()
-
 	return nsm, err
 }

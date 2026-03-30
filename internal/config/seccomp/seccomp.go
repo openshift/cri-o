@@ -12,11 +12,11 @@ import (
 	"slices"
 	"sync"
 
-	json "github.com/goccy/go-json"
+	"github.com/containers/common/pkg/seccomp"
+	imagetypes "github.com/containers/image/v5/types"
+	json "github.com/json-iterator/go"
 	"github.com/opencontainers/runtime-tools/generate"
 	"github.com/sirupsen/logrus"
-	"go.podman.io/common/pkg/seccomp"
-	imagetypes "go.podman.io/image/v5/types"
 	"golang.org/x/sys/unix"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
@@ -132,7 +132,7 @@ func validateSyscallIndex(prof *seccomp.Seccomp, name string, parentStructIndex,
 	}
 	logrus.Fatalf(
 		`The default internal seccomp policy has been changed, and CRI-O can't adjust some risky syscalls.
-You are likely seeing this error because "go.podman.io/common/pkg/seccomp" was updated.
+You are likely seeing this error because "github.com/containers/common/pkg/seccomp" was updated.
 Please contact the developers or change "DefaultProfile()" in "internal/config/seccomp/seccomp.go"
 to match the updated policy as per the following hint: %s`, msg,
 	)
@@ -199,11 +199,11 @@ func (c *Config) LoadDefaultProfile() error {
 	c.profile = DefaultProfile()
 
 	if logrus.IsLevelEnabled(logrus.TraceLevel) {
-		profileBytes, err := json.Marshal(c.profile)
+		profileString, err := json.MarshalToString(c.profile)
 		if err != nil {
-			return fmt.Errorf("marshal default seccomp profile: %w", err)
+			return fmt.Errorf("marshal default seccomp profile to string: %w", err)
 		}
-		logrus.Tracef("Default seccomp profile content: %s", string(profileBytes))
+		logrus.Tracef("Default seccomp profile content: %s", profileString)
 	}
 
 	return nil
@@ -238,11 +238,7 @@ func (c *Config) Setup(
 	// Specifically set profile fields always have a higher priority than OCI artifact annotations
 	// TODO(sgrunert): allow merging OCI artifact profiles with security context ones.
 	if profileField == nil || profileField.ProfileType == types.SecurityProfile_Unconfined {
-		store, err := seccompociartifact.New(graphRoot, sys)
-		if err != nil {
-			return nil, "", fmt.Errorf("create OCI artifact seccomp profile store: %w", err)
-		}
-		ociArtifactProfile, err := store.TryPull(ctx, containerName, sandboxAnnotations, imageAnnotations)
+		ociArtifactProfile, err := seccompociartifact.New(graphRoot, sys).TryPull(ctx, containerName, sandboxAnnotations, imageAnnotations)
 		if err != nil {
 			return nil, "", fmt.Errorf("try to pull OCI artifact seccomp profile: %w", err)
 		}

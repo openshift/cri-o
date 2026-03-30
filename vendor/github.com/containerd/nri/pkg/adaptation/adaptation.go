@@ -32,6 +32,8 @@ import (
 	"github.com/containerd/nri/pkg/log"
 	validator "github.com/containerd/nri/plugins/default-validator/builtin"
 	"github.com/containerd/ttrpc"
+	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -41,7 +43,7 @@ const (
 	DefaultPluginPath = "/opt/nri/plugins"
 	// DefaultSocketPath is the default socket path for external plugins.
 	DefaultSocketPath = api.DefaultSocketPath
-	// DefaultPluginConfigPath is the drop-in directory for NRI-launched plugin configuration.
+	// PluginConfigDir is the drop-in directory for NRI-launched plugin configuration.
 	DefaultPluginConfigPath = "/etc/nri/conf.d"
 )
 
@@ -78,9 +80,6 @@ type Adaptation struct {
 var (
 	// Used instead of nil Context in logging.
 	noCtx = context.TODO()
-
-	// ErrWasmDisabled is returned for WASM initialization if WASM support is disabled.
-	ErrWasmDisabled = errors.New("WASM support is disabled (at build time)")
 )
 
 // Option to apply to the NRI runtime.
@@ -156,12 +155,23 @@ func New(name, version string, syncFn SyncFn, updateFn UpdateFn, opts ...Option)
 		return nil, fmt.Errorf("failed to create NRI adaptation, nil UpdateFn")
 	}
 
-	wasmService, err := getWasmService()
-	if err != nil {
-		log.Errorf(noCtx, "failed to initialize WASM support: %v", err)
-		if !errors.Is(err, ErrWasmDisabled) {
+	wasmWithCloseOnContextDone := func(ctx context.Context) (wazero.Runtime, error) {
+		var (
+			cfg = wazero.NewRuntimeConfig().WithCloseOnContextDone(true)
+			r   = wazero.NewRuntimeWithConfig(ctx, cfg)
+		)
+		if _, err := wasi_snapshot_preview1.Instantiate(ctx, r); err != nil {
 			return nil, err
 		}
+		return r, nil
+	}
+
+	wasmPlugins, err := api.NewPluginPlugin(
+		context.Background(),
+		api.WazeroRuntime(wasmWithCloseOnContextDone),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to initialize WASM service: %w", err)
 	}
 
 	r := &Adaptation{
@@ -173,7 +183,7 @@ func New(name, version string, syncFn SyncFn, updateFn UpdateFn, opts ...Option)
 		dropinPath:  DefaultPluginConfigPath,
 		socketPath:  DefaultSocketPath,
 		syncLock:    sync.RWMutex{},
-		wasmService: wasmService,
+		wasmService: wasmPlugins,
 	}
 
 	for _, o := range opts {
@@ -701,7 +711,6 @@ func (r *Adaptation) finishedPluginSync() {
 	r.syncLock.Unlock()
 }
 
-// PluginSyncBlock is a handle for blocking plugin synchronization.
 type PluginSyncBlock struct {
 	r *Adaptation
 }

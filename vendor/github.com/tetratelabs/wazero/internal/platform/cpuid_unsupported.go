@@ -2,7 +2,7 @@
 
 package platform
 
-var CpuFeatures = func() CpuFeatureFlags { return &cpuFeatureFlags{} }
+var CpuFeatures CpuFeatureFlags = &cpuFeatureFlags{}
 
 // cpuFeatureFlags implements CpuFeatureFlags for unsupported platforms.
 type cpuFeatureFlags struct{}

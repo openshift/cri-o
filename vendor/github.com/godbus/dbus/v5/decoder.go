@@ -53,13 +53,13 @@ func (dec *decoder) align(n int) {
 }
 
 // Calls binary.Read(dec.in, dec.order, v) and panics on read errors.
-func (dec *decoder) binread(v any) {
+func (dec *decoder) binread(v interface{}) {
 	if err := binary.Read(dec.in, dec.order, v); err != nil {
 		panic(err)
 	}
 }
 
-func (dec *decoder) Decode(sig Signature) (vs []any, err error) {
+func (dec *decoder) Decode(sig Signature) (vs []interface{}, err error) {
 	defer func() {
 		var ok bool
 		v := recover()
@@ -69,7 +69,7 @@ func (dec *decoder) Decode(sig Signature) (vs []any, err error) {
 			}
 		}
 	}()
-	vs = make([]any, 0)
+	vs = make([]interface{}, 0)
 	s := sig.str
 	for s != "" {
 		err, rem := validSingle(s, &depthCounter{})
@@ -106,7 +106,7 @@ func (dec *decoder) decodeU() uint32 {
 	return dec.order.Uint32(dec.buf)
 }
 
-func (dec *decoder) decode(s string, depth int) any {
+func (dec *decoder) decode(s string, depth int) interface{} {
 	dec.align(alignment(typeFor(s)))
 	switch s[0] {
 	case 'y':
@@ -249,7 +249,7 @@ func (dec *decoder) decode(s string, depth int) any {
 			panic(FormatError("input exceeds container depth limit"))
 		}
 		dec.align(8)
-		v := make([]any, 0)
+		v := make([]interface{}, 0)
 		s = s[1 : len(s)-1]
 		for s != "" {
 			err, rem := validSingle(s, &depthCounter{})
@@ -291,10 +291,9 @@ func sigByteSize(sig string) int {
 			i := 1
 			depth := 1
 			for i < len(sig[offset:]) && depth != 0 {
-				switch sig[offset+i] {
-				case '(':
+				if sig[offset+i] == '(' {
 					depth++
-				case ')':
+				} else if sig[offset+i] == ')' {
 					depth--
 				}
 				i++
@@ -371,6 +370,12 @@ func (c *stringConverter) String(b []byte) string {
 }
 
 // toString converts a byte slice to a string without allocating.
+// Starting from Go 1.20 you should use unsafe.String.
 func toString(b []byte) string {
-	return unsafe.String(&b[0], len(b))
+	var s string
+	h := (*reflect.StringHeader)(unsafe.Pointer(&s))
+	h.Data = uintptr(unsafe.Pointer(&b[0]))
+	h.Len = len(b)
+
+	return s
 }

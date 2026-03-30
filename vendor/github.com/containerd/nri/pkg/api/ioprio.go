@@ -47,7 +47,7 @@ func (ioprio *LinuxIOPriority) ToOCI() *rspec.LinuxIOPriority {
 	}
 }
 
-// FromOCIIOPriorityClass returns the IOPrioClass corresponding the the given
+// FromOCIIOPrioClass returns the IOPrioClass corresponding the the given
 // OCI IOPriorityClass.
 func FromOCIIOPriorityClass(o rspec.IOPriorityClass) IOPrioClass {
 	return IOPrioClass(IOPrioClass_value[string(o)])

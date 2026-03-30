@@ -21,9 +21,7 @@ type instruction struct {
 func (i *instruction) IsCall() bool { return i.kind == call }
 
 // IsIndirectCall implements regalloc.Instr.
-func (i *instruction) IsIndirectCall() bool {
-	return i.kind == callIndirect
-}
+func (i *instruction) IsIndirectCall() bool { return i.kind == callIndirect }
 
 // IsReturn implements regalloc.Instr.
 func (i *instruction) IsReturn() bool { return i.kind == ret }
@@ -290,11 +288,6 @@ func (i *instruction) String() string {
 	case nopUseReg:
 		return fmt.Sprintf("nop_use_reg %s", i.op1.format(true))
 
-	case tailCall:
-		return fmt.Sprintf("tailCall %s", ssa.FuncRef(i.u1))
-	case tailCallIndirect:
-		return fmt.Sprintf("tailCallIndirect %s", i.op1.format(true))
-
 	default:
 		panic(fmt.Sprintf("BUG: %d", int(i.kind)))
 	}
@@ -364,7 +357,7 @@ func (i *instruction) Uses(regs *[]regalloc.VReg) []regalloc.VReg {
 		default:
 			panic(fmt.Sprintf("BUG: invalid operand: %s", i))
 		}
-	case useKindCallInd, useKindTailCallInd:
+	case useKindCallInd:
 		op := i.op1
 		switch op.kind {
 		case operandKindReg:
@@ -435,16 +428,13 @@ func (i *instruction) Uses(regs *[]regalloc.VReg) []regalloc.VReg {
 func (i *instruction) AssignUse(index int, v regalloc.VReg) {
 	switch uk := useKinds[i.kind]; uk {
 	case useKindNone:
-	case useKindCallInd, useKindTailCallInd:
+	case useKindCallInd:
 		if index != 0 {
 			panic("BUG")
 		}
 		op := &i.op1
 		switch op.kind {
 		case operandKindReg:
-			if uk == useKindTailCallInd && v != r11VReg {
-				panic("BUG")
-			}
 			op.setReg(v)
 		case operandKindMem:
 			op.addressMode().assignUses(index, v)
@@ -848,12 +838,6 @@ const (
 	// nopUseReg is a meta instruction that uses one register and does nothing.
 	nopUseReg
 
-	// tailCall is a meta instruction that emits a tail call.
-	tailCall
-
-	// tailCallIndirect is a meta instruction that emits a tail call with an indirect call.
-	tailCallIndirect
-
 	instrMax
 )
 
@@ -1095,10 +1079,6 @@ func (k instructionKind) String() string {
 		return "lockcmpxchg"
 	case lockxadd:
 		return "lockxadd"
-	case tailCall:
-		return "tailCall"
-	case tailCallIndirect:
-		return "tailCallIndirect"
 	default:
 		panic("BUG")
 	}
@@ -1186,27 +1166,6 @@ func (i *instruction) asCallIndirect(ptr operand, abi *backend.FunctionABI) *ins
 		panic("BUG")
 	}
 	i.kind = callIndirect
-	i.op1 = ptr
-	if abi != nil {
-		i.u2 = abi.ABIInfoAsUint64()
-	}
-	return i
-}
-
-func (i *instruction) asTailCallReturnCall(ref ssa.FuncRef, abi *backend.FunctionABI) *instruction {
-	i.kind = tailCall
-	i.u1 = uint64(ref)
-	if abi != nil {
-		i.u2 = abi.ABIInfoAsUint64()
-	}
-	return i
-}
-
-func (i *instruction) asTailCallReturnCallIndirect(ptr operand, abi *backend.FunctionABI) *instruction {
-	if ptr.kind != operandKindReg && ptr.kind != operandKindMem {
-		panic("BUG")
-	}
-	i.kind = tailCallIndirect
 	i.op1 = ptr
 	if abi != nil {
 		i.u2 = abi.ABIInfoAsUint64()
@@ -2383,8 +2342,6 @@ var defKinds = [instrMax]defKind{
 	lockxadd:               defKindNone,
 	neg:                    defKindNone,
 	nopUseReg:              defKindNone,
-	tailCall:               defKindCall,
-	tailCallIndirect:       defKindCall,
 }
 
 // String implements fmt.Stringer.
@@ -2418,7 +2375,6 @@ const (
 	useKindBlendvpd
 	useKindCall
 	useKindCallInd
-	useKindTailCallInd
 	useKindFcvtToSintSequence
 	useKindFcvtToUintSequence
 )
@@ -2469,8 +2425,6 @@ var useKinds = [instrMax]useKind{
 	lockxadd:               useKindOp1RegOp2,
 	neg:                    useKindOp1,
 	nopUseReg:              useKindOp1,
-	tailCall:               useKindCall,
-	tailCallIndirect:       useKindTailCallInd,
 }
 
 func (u useKind) String() string {
@@ -2487,8 +2441,6 @@ func (u useKind) String() string {
 		return "call"
 	case useKindCallInd:
 		return "callInd"
-	case useKindTailCallInd:
-		return "tailCallInd"
 	default:
 		return "invalid"
 	}

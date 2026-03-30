@@ -2,13 +2,10 @@
 
 package platform
 
-import (
-	"runtime"
-	"sync"
-)
+import "runtime"
 
 // CpuFeatures exposes the capabilities for this CPU, queried via the Has, HasExtra methods.
-var CpuFeatures = sync.OnceValue(loadCpuFeatureFlags)
+var CpuFeatures = loadCpuFeatureFlags()
 
 // cpuFeatureFlags implements CpuFeatureFlags interface.
 type cpuFeatureFlags struct {

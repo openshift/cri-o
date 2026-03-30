@@ -88,7 +88,7 @@ type Compiler interface {
 	MatchInstrOneOf(def SSAValueDefinition, opcodes []ssa.Opcode) ssa.Opcode
 
 	// AddRelocationInfo appends the relocation information for the function reference at the current buffer offset.
-	AddRelocationInfo(funcRef ssa.FuncRef, isTailCall bool)
+	AddRelocationInfo(funcRef ssa.FuncRef)
 
 	// AddSourceOffsetInfo appends the source offset information for the given offset.
 	AddSourceOffsetInfo(executableOffset int64, sourceOffset ssa.SourceOffset)
@@ -115,8 +115,6 @@ type RelocationInfo struct {
 	Offset int64
 	// Target is the target function of the call instruction.
 	FuncRef ssa.FuncRef
-	// IsTailCall indicates whether the call instruction is a tail call.
-	IsTailCall bool
 }
 
 // compiler implements Compiler.
@@ -354,11 +352,10 @@ func (c *compiler) SourceOffsetInfo() []SourceOffsetInfo {
 }
 
 // AddRelocationInfo implements Compiler.AddRelocationInfo.
-func (c *compiler) AddRelocationInfo(funcRef ssa.FuncRef, isTailCall bool) {
+func (c *compiler) AddRelocationInfo(funcRef ssa.FuncRef) {
 	c.relocations = append(c.relocations, RelocationInfo{
-		Offset:     int64(len(c.buf)),
-		FuncRef:    funcRef,
-		IsTailCall: isTailCall,
+		Offset:  int64(len(c.buf)),
+		FuncRef: funcRef,
 	})
 }
 

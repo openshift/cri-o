@@ -9,16 +9,16 @@ import (
 	"strings"
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
+	"github.com/containers/storage/pkg/archive"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
-	"go.podman.io/storage/pkg/archive"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	kubetypes "k8s.io/kubelet/pkg/types"
 
-	"github.com/cri-o/cri-o/internal/annotations"
 	"github.com/cri-o/cri-o/internal/factory/container"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/storage"
+	"github.com/cri-o/cri-o/pkg/annotations"
 )
 
 // checkIfCheckpointOCIImage returns checks if the input refers to a checkpoint image.

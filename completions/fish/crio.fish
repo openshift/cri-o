@@ -11,7 +11,6 @@ end
 
 complete -c crio -n '__fish_crio_no_subcommand' -f -l absent-mount-sources-to-reject -r -d 'A list of paths that, when absent from the host, will cause a container creation to fail (as opposed to the current behavior of creating a directory).'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l add-inheritable-capabilities -d 'Add capabilities to the inheritable set, as well as the default group of permitted, bounding and effective.'
-complete -c crio -n '__fish_crio_no_subcommand' -f -l additional-artifact-stores -r -d 'Additional read-only OCI artifact store paths.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l additional-devices -r -d 'Devices to add to the containers.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l allowed-devices -r -d 'Devices a user is allowed to specify with the "io.kubernetes.cri-o.Devices" allowed annotation.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l apparmor-profile -r -d 'Name of the apparmor profile to be used as the runtime\'s default. This only takes effect if the user does not specify a profile via the Kubernetes Pod\'s metadata annotation.'
@@ -177,8 +176,6 @@ complete -c crio -n '__fish_crio_no_subcommand' -l stream-tls-ca -r -d 'Path to 
 complete -c crio -n '__fish_crio_no_subcommand' -l stream-tls-cert -r -d 'Path to the x509 certificate file used to serve the encrypted stream. This file can change and CRI-O will automatically pick up the changes.'
 complete -c crio -n '__fish_crio_no_subcommand' -l stream-tls-key -r -d 'Path to the key file used to serve the encrypted stream. This file can change and CRI-O will automatically pick up the changes.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l timezone -s tz -r -d 'To set the timezone for a container in CRI-O. If an empty string is provided, CRI-O retains its default behavior. Use \'Local\' to match the timezone of the host machine.'
-complete -c crio -n '__fish_crio_no_subcommand' -f -l tls-cipher-suites -r -d 'Comma-separated list of cipher suites for TLS 1.2.'
-complete -c crio -n '__fish_crio_no_subcommand' -f -l tls-min-version -r -d 'Minimum TLS version for streaming and metrics servers (VersionTLS12 or VersionTLS13).'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l tracing-endpoint -r -d 'Address on which the gRPC tracing collector will listen.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l tracing-sampling-rate-per-million -r -d 'Number of samples to collect per million OpenTelemetry spans. Set to 1000000 to always sample.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l uid-mappings -r -d 'Specify the UID mappings to use for the user namespace. This option is deprecated, and will be replaced with Kubernetes user namespace support (KEP-127) in the future.'

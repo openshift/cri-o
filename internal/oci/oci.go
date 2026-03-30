@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/docker/go-units"
@@ -31,6 +32,8 @@ const (
 	ContainerStateRunning = "running"
 	// ContainerStateStopped represents the stopped state of a container.
 	ContainerStateStopped = "stopped"
+	// ContainerCreateTimeout represents the value of container creating timeout.
+	ContainerCreateTimeout = 240 * time.Second
 
 	// killContainerTimeout is the timeout that we wait for the container to
 	// be SIGKILLed.
@@ -70,7 +73,7 @@ type RuntimeImpl interface {
 	PauseContainer(context.Context, *Container) error
 	UnpauseContainer(context.Context, *Container) error
 	ContainerStats(context.Context, *Container, string) (*cgmgr.CgroupStats, error)
-	DiskStats(context.Context, *Container, string) (*DiskMetrics, error)
+	SignalContainer(context.Context, *Container, syscall.Signal) error
 	AttachContainer(context.Context, *Container, io.Reader, io.WriteCloser, io.WriteCloser,
 		bool, <-chan remotecommand.TerminalSize) error
 	PortForwardContainer(context.Context, *Container, string,
@@ -469,17 +472,17 @@ func (r *Runtime) ContainerStats(ctx context.Context, c *Container, cgroup strin
 	return impl.ContainerStats(ctx, c, cgroup)
 }
 
-// DiskStats provides disk statistics for a container.
-func (r *Runtime) DiskStats(ctx context.Context, c *Container, cgroup string) (*DiskMetrics, error) {
+// SignalContainer sends a signal to a container process.
+func (r *Runtime) SignalContainer(ctx context.Context, c *Container, sig syscall.Signal) error {
 	ctx, span := log.StartSpan(ctx)
 	defer span.End()
 
 	impl, err := r.RuntimeImpl(c)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return impl.DiskStats(ctx, c, cgroup)
+	return impl.SignalContainer(ctx, c, sig)
 }
 
 // AttachContainer attaches IO to a running container.

@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/cri-o/cri-o/internal/log"
-	crioann "github.com/cri-o/cri-o/pkg/annotations/v2"
+	crioann "github.com/cri-o/cri-o/pkg/annotations"
 	libconfig "github.com/cri-o/cri-o/pkg/config"
 )
 
@@ -78,12 +78,12 @@ func (hr *HooksRetriever) Get(ctx context.Context, runtimeName string, sandboxAn
 
 func highPerformanceAnnotationsSpecified(annotations map[string]string) bool {
 	for k := range annotations {
-		if strings.HasPrefix(k, crioann.CPULoadBalancing) ||
-			strings.HasPrefix(k, crioann.CPUQuota) ||
-			strings.HasPrefix(k, crioann.IRQLoadBalancing) ||
-			strings.HasPrefix(k, crioann.CPUCStates) ||
-			strings.HasPrefix(k, crioann.CPUFreqGovernor) ||
-			strings.HasPrefix(k, crioann.CPUShared) {
+		if strings.HasPrefix(k, crioann.CPULoadBalancingAnnotation) ||
+			strings.HasPrefix(k, crioann.CPUQuotaAnnotation) ||
+			strings.HasPrefix(k, crioann.IRQLoadBalancingAnnotation) ||
+			strings.HasPrefix(k, crioann.CPUCStatesAnnotation) ||
+			strings.HasPrefix(k, crioann.CPUFreqGovernorAnnotation) ||
+			strings.HasPrefix(k, crioann.CPUSharedAnnotation) {
 			return true
 		}
 	}
@@ -95,7 +95,7 @@ func cpuLoadBalancingAllowed(config *libconfig.Config) bool {
 	cpuLoadBalancingAllowedAnywhereOnce.Do(func() {
 		for _, runtime := range config.Runtimes {
 			for _, ann := range runtime.AllowedAnnotations {
-				if ann == crioann.CPULoadBalancing {
+				if ann == crioann.CPULoadBalancingAnnotation {
 					cpuLoadBalancingAllowedAnywhere = true
 				}
 			}
@@ -103,7 +103,7 @@ func cpuLoadBalancingAllowed(config *libconfig.Config) bool {
 
 		for _, workload := range config.Workloads {
 			for _, ann := range workload.AllowedAnnotations {
-				if ann == crioann.CPULoadBalancing {
+				if ann == crioann.CPULoadBalancingAnnotation {
 					cpuLoadBalancingAllowedAnywhere = true
 				}
 			}

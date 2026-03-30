@@ -17,7 +17,6 @@
 package io
 
 import (
-	"context"
 	"errors"
 	"io"
 	"strings"
@@ -135,7 +134,7 @@ func (c *ContainerIO) Pipe() {
 
 // Attach attaches container stdio.
 // TODO(random-liu): Use pools.Copy in docker to reduce memory usage?
-func (c *ContainerIO) Attach(ctx context.Context, opts AttachOptions) {
+func (c *ContainerIO) Attach(opts AttachOptions) {
 	var wg sync.WaitGroup
 	key := util.GenerateID()
 	stdinKey := streamKey(c.id, "attach-"+key, Stdin)
@@ -176,15 +175,8 @@ func (c *ContainerIO) Attach(ctx context.Context, opts AttachOptions) {
 	}
 
 	attachStream := func(key string, close <-chan struct{}) {
-		select {
-		case <-close:
-			logrus.Infof("Attach stream %q closed", key)
-		case <-ctx.Done():
-			logrus.Infof("Attach client of %q cancelled", key)
-			// Avoid writeGroup heap up
-			c.stdoutGroup.Remove(key)
-			c.stderrGroup.Remove(key)
-		}
+		<-close
+		logrus.Infof("Attach stream %q closed", key)
 		// Make sure stdin gets closed.
 		if stdinStreamRC != nil {
 			stdinStreamRC.Close()

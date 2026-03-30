@@ -5,7 +5,7 @@ package server
 import (
 	"context"
 
-	"go.podman.io/storage/pkg/idtools"
+	"github.com/containers/storage/pkg/idtools"
 	"github.com/cri-o/cri-o/internal/oci"
 )
 

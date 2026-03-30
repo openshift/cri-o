@@ -11,13 +11,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/containers/image/v5/docker/reference"
+	imageTypes "github.com/containers/image/v5/types"
 	encconfig "github.com/containers/ocicrypt/config"
 	"github.com/cri-o/crio-credential-provider/pkg/auth"
 	"github.com/docker/distribution/registry/api/errcode"
 	"github.com/google/uuid"
 	"github.com/opencontainers/go-digest"
-	"go.podman.io/image/v5/docker/reference"
-	imageTypes "go.podman.io/image/v5/types"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	crierrors "k8s.io/cri-api/pkg/errors"
 
@@ -123,18 +123,17 @@ func (s *Server) PullImage(ctx context.Context, req *types.PullImageRequest) (*t
 		return nil, storage.WrapSignatureCRIErrorIfNeeded(pullOp.err)
 	}
 
-	log.Infof(ctx, "Pulled image: %s", pullOp.imageRef)
+	log.Infof(ctx, "Pulled image: %v", pullOp.imageRef)
 
 	return &types.PullImageResponse{
-		ImageRef: pullOp.imageRef,
+		ImageRef: pullOp.imageRef.StringForOutOfProcessConsumptionOnly(),
 	}, nil
 }
 
 // pullImage performs the actual pull operation of PullImage. Used to separate
 // the pull implementation from the pullCache logic in PullImage and improve
 // readability and maintainability.
-// It returns the image ID string suitable for PullImageResponse.ImageRef.
-func (s *Server) pullImage(ctx context.Context, pullArgs *pullArguments) (string, error) {
+func (s *Server) pullImage(ctx context.Context, pullArgs *pullArguments) (storage.RegistryImageReference, error) {
 	var err error
 
 	ctx, span := log.StartSpan(ctx)
@@ -142,7 +141,7 @@ func (s *Server) pullImage(ctx context.Context, pullArgs *pullArguments) (string
 
 	sourceCtx, err := s.contextForNamespace(pullArgs.namespace)
 	if err != nil {
-		return "", fmt.Errorf("get context for namespace: %w", err)
+		return storage.RegistryImageReference{}, fmt.Errorf("get context for namespace: %w", err)
 	}
 
 	log.Debugf(ctx, "Using pull policy path for image %s: %q", pullArgs.image, sourceCtx.SignaturePolicyPath)
@@ -150,7 +149,7 @@ func (s *Server) pullImage(ctx context.Context, pullArgs *pullArguments) (string
 	if pullArgs.namespace != "" {
 		authCleanup, err := s.prepareTempAuthFile(ctx, &sourceCtx, pullArgs.image, pullArgs.namespace)
 		if err != nil {
-			return "", fmt.Errorf("prepare temp auth file: %w", err)
+			return storage.RegistryImageReference{}, fmt.Errorf("prepare temp auth file: %w", err)
 		}
 		defer authCleanup()
 	}
@@ -162,14 +161,14 @@ func (s *Server) pullImage(ctx context.Context, pullArgs *pullArguments) (string
 
 	decryptConfig, err := getDecryptionKeys(s.config.DecryptionKeysPath)
 	if err != nil {
-		return "", err
+		return storage.RegistryImageReference{}, err
 	}
 
 	cgroup := ""
 
 	if s.config.SeparatePullCgroup != "" {
 		if !s.config.CgroupManager().IsSystemd() {
-			return "", errors.New("--separate-pull-cgroup is supported only with systemd")
+			return storage.RegistryImageReference{}, errors.New("--separate-pull-cgroup is supported only with systemd")
 		}
 
 		if s.config.SeparatePullCgroup == utils.PodCgroupName {
@@ -177,32 +176,32 @@ func (s *Server) pullImage(ctx context.Context, pullArgs *pullArguments) (string
 		} else {
 			cgroup = s.config.SeparatePullCgroup
 			if !strings.Contains(cgroup, ".slice") {
-				return "", fmt.Errorf("invalid systemd cgroup %q", cgroup)
+				return storage.RegistryImageReference{}, fmt.Errorf("invalid systemd cgroup %q", cgroup)
 			}
 		}
 	}
 
 	remoteCandidates, err := s.ContainerServer.StorageImageServer().CandidatesForPotentiallyShortImageName(s.config.SystemContext, pullArgs.image)
 	if err != nil {
-		return "", err
+		return storage.RegistryImageReference{}, err
 	}
 	// CandidatesForPotentiallyShortImageName is defined never to return an empty slice on success, so if the loop considers all candidates
 	// and they all fail, this error value should be overwritten by a real failure.
 	lastErr := errors.New("internal error: pullImage failed but reported no error reason")
 
 	for _, remoteCandidateName := range remoteCandidates {
-		imageRef, err := s.pullImageCandidate(ctx, &sourceCtx, remoteCandidateName, decryptConfig, cgroup)
+		repoDigest, err := s.pullImageCandidate(ctx, &sourceCtx, remoteCandidateName, decryptConfig, cgroup)
 		if err == nil {
 			// Update metric for successful image pulls
 			metrics.Instance().MetricImagePullsSuccessesInc(remoteCandidateName)
 
-			return s.resolveImageRefToID(ctx, imageRef)
+			return repoDigest, nil
 		}
 
 		lastErr = err
 	}
 
-	return "", lastErr
+	return storage.RegistryImageReference{}, lastErr
 }
 
 // contextForNamespace takes the provided namespace and returns a modifiable
@@ -320,7 +319,6 @@ func (s *Server) pullImageCandidate(ctx context.Context, sourceCtx *imageTypes.S
 			UseNewCgroup: s.config.SeparatePullCgroup != "",
 			ParentCgroup: cgroup,
 		},
-		AdditionalArtifactStores: s.config.AdditionalArtifactStores,
 	})
 	if err != nil {
 		log.Debugf(ctx, "Error pulling image %s: %v", remoteCandidateName, err)
@@ -330,27 +328,6 @@ func (s *Server) pullImageCandidate(ctx context.Context, sourceCtx *imageTypes.S
 	}
 
 	return repoDigest, nil
-}
-
-// resolveImageRefToID converts a pulled image reference (repo@digest) to a
-// storage image ID suitable for PullImageResponse.ImageRef. For regular
-// container images the ID is looked up via ImageStatusByName. For OCI artifacts
-// (which are not stored in container storage) it falls back to the artifact
-// store.
-func (s *Server) resolveImageRefToID(ctx context.Context, imageRef storage.RegistryImageReference) (string, error) {
-	// Try resolving as a regular container image first.
-	imageResult, err := s.ContainerServer.StorageImageServer().ImageStatusByName(s.config.SystemContext, imageRef)
-	if err == nil {
-		return imageResult.ID.IDStringForOutOfProcessConsumptionOnly(), nil
-	}
-
-	// Fall back to the artifact store for OCI artifacts.
-	artifact, artifactErr := s.ArtifactStore().Status(ctx, imageRef.StringForOutOfProcessConsumptionOnly())
-	if artifactErr != nil {
-		return "", fmt.Errorf("resolve pulled image %s: not found in container storage (%w) or artifact store (%w)", imageRef, err, artifactErr)
-	}
-
-	return artifact.CRIImage().GetId(), nil
 }
 
 // consumeImagePullProgress consumes progress and turns it into metrics updates.

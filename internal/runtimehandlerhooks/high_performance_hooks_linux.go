@@ -14,7 +14,7 @@ import (
 	"sync"
 
 	"github.com/opencontainers/cgroups"
-	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/fields"
@@ -25,7 +25,7 @@ import (
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/oci"
-	crioannotations "github.com/cri-o/cri-o/pkg/annotations/v2"
+	crioannotations "github.com/cri-o/cri-o/pkg/annotations"
 	"github.com/cri-o/cri-o/pkg/config"
 	"github.com/cri-o/cri-o/utils/cmdrunner"
 )
@@ -457,41 +457,41 @@ func (h *HighPerformanceHooks) PostStop(ctx context.Context, c *oci.Container, s
 }
 
 func shouldCPULoadBalancingBeDisabled(ctx context.Context, annotations fields.Set) bool {
-	if annotations[crioannotations.CPULoadBalancing] == annotationTrue {
-		log.Warnf(ctx, "%s", annotationValueDeprecationWarning(crioannotations.CPULoadBalancing))
+	if annotations[crioannotations.CPULoadBalancingAnnotation] == annotationTrue {
+		log.Warnf(ctx, "%s", annotationValueDeprecationWarning(crioannotations.CPULoadBalancingAnnotation))
 	}
 
-	return annotations[crioannotations.CPULoadBalancing] == annotationTrue ||
-		annotations[crioannotations.CPULoadBalancing] == annotationDisable
+	return annotations[crioannotations.CPULoadBalancingAnnotation] == annotationTrue ||
+		annotations[crioannotations.CPULoadBalancingAnnotation] == annotationDisable
 }
 
 func shouldCPUQuotaBeDisabled(ctx context.Context, annotations fields.Set) bool {
-	if annotations[crioannotations.CPUQuota] == annotationTrue {
-		log.Warnf(ctx, "%s", annotationValueDeprecationWarning(crioannotations.CPUQuota))
+	if annotations[crioannotations.CPUQuotaAnnotation] == annotationTrue {
+		log.Warnf(ctx, "%s", annotationValueDeprecationWarning(crioannotations.CPUQuotaAnnotation))
 	}
 
-	return annotations[crioannotations.CPUQuota] == annotationTrue ||
-		annotations[crioannotations.CPUQuota] == annotationDisable
+	return annotations[crioannotations.CPUQuotaAnnotation] == annotationTrue ||
+		annotations[crioannotations.CPUQuotaAnnotation] == annotationDisable
 }
 
 func shouldIRQLoadBalancingBeDisabled(ctx context.Context, annotations fields.Set) bool {
-	if annotations[crioannotations.IRQLoadBalancing] == annotationTrue {
-		log.Warnf(ctx, "%s", annotationValueDeprecationWarning(crioannotations.IRQLoadBalancing))
+	if annotations[crioannotations.IRQLoadBalancingAnnotation] == annotationTrue {
+		log.Warnf(ctx, "%s", annotationValueDeprecationWarning(crioannotations.IRQLoadBalancingAnnotation))
 	}
 
-	return annotations[crioannotations.IRQLoadBalancing] == annotationTrue ||
-		annotations[crioannotations.IRQLoadBalancing] == annotationDisable ||
-		annotations[crioannotations.IRQLoadBalancing] == annotationHousekeeping
+	return annotations[crioannotations.IRQLoadBalancingAnnotation] == annotationTrue ||
+		annotations[crioannotations.IRQLoadBalancingAnnotation] == annotationDisable ||
+		annotations[crioannotations.IRQLoadBalancingAnnotation] == annotationHousekeeping
 }
 
 func shouldCStatesBeConfigured(annotations fields.Set) (present bool, value string) {
-	value, present = annotations[crioannotations.CPUCStates]
+	value, present = annotations[crioannotations.CPUCStatesAnnotation]
 
 	return present, value
 }
 
 func shouldFreqGovernorBeConfigured(annotations fields.Set) (present bool, value string) {
-	value, present = annotations[crioannotations.CPUFreqGovernor]
+	value, present = annotations[crioannotations.CPUFreqGovernorAnnotation]
 
 	return present, value
 }
@@ -501,7 +501,7 @@ func annotationValueDeprecationWarning(annotation string) string {
 }
 
 func requestedSharedCPUs(annotations fields.Set, cName string) bool {
-	key := crioannotations.CPUShared + "/" + cName
+	key := crioannotations.CPUSharedAnnotation + "/" + cName
 	v, ok := annotations[key]
 
 	return ok && v == annotationEnable
@@ -1068,8 +1068,10 @@ func isCPUGovernorSupported(governor, cpuDir string, cpu int) error {
 	}
 
 	// Is the scaling governor supported?
-	if slices.Contains(strings.Fields(string(availGovernors)), governor) {
-		return nil
+	for _, availableGovernor := range strings.Fields(string(availGovernors)) {
+		if availableGovernor == governor {
+			return nil
+		}
 	}
 
 	return fmt.Errorf("governor %s not available for cpu %d", governor, cpu)
@@ -1298,15 +1300,16 @@ func isContainerRequestWholeCPU(cSpec *specs.Spec) bool {
 // cpu-c-states.crio.io: "enable" (enable all c-states)
 // cpu-c-states.crio.io: "max_latency:10" (use a max latency of 10us).
 func convertAnnotationToLatency(annotation string) (maxLatency string, err error) {
+	//nolint:gocritic // this would not be better as a switch statement
 	if annotation == annotationEnable {
 		// Enable all c-states.
 		return "0", nil
 	} else if annotation == annotationDisable {
 		// Disable all c-states.
 		return "n/a", nil
-	} else if after, ok := strings.CutPrefix(annotation, "max_latency:"); ok {
+	} else if strings.HasPrefix(annotation, "max_latency:") {
 		// Use the latency provided
-		latency, err := strconv.Atoi(after)
+		latency, err := strconv.Atoi(strings.TrimPrefix(annotation, "max_latency:"))
 		if err != nil {
 			return "", err
 		}
@@ -1530,7 +1533,7 @@ func injectCpusetEnv(specgen *generate.Generator, isolated, shared *cpuset.CPUSe
 
 // isRequestedHousekeepingCPUs checks if sandbox annotation "irq-load-balancing.crio.io" equals "housekeeping".
 func isRequestedHousekeepingCPUs(annotations fields.Set) bool {
-	return annotations[crioannotations.IRQLoadBalancing] == annotationHousekeeping
+	return annotations[crioannotations.IRQLoadBalancingAnnotation] == annotationHousekeeping
 }
 
 // getHousekeepingCPUs determines which CPUs should be preserved for housekeeping tasks.

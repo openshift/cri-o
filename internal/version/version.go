@@ -13,18 +13,18 @@ import (
 	"text/tabwriter"
 
 	"github.com/blang/semver/v4"
-	json "github.com/goccy/go-json"
+	"github.com/containers/common/pkg/apparmor"
+	"github.com/containers/common/pkg/seccomp"
 	"github.com/google/renameio"
+	json "github.com/json-iterator/go"
 	"github.com/sirupsen/logrus"
-	"go.podman.io/common/pkg/apparmor"
-	"go.podman.io/common/pkg/seccomp"
 )
 
 // Version is the version of the build.
-const Version = "1.35.1"
+const Version = "1.34.6"
 
 // ReleaseMinorVersions are the currently supported minor versions.
-var ReleaseMinorVersions = []string{"1.34", "1.33", "1.32"}
+var ReleaseMinorVersions = []string{"1.33", "1.32", "1.31"}
 
 // Variables injected during build-time.
 var (

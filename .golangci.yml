@@ -26,7 +26,6 @@ linters:
     - dupl
     - dupword
     - durationcheck
-    - embeddedstructfieldcheck
     - errcheck
     - errchkjson
     - errorlint
@@ -42,6 +41,7 @@ linters:
     - gocyclo
     - godot
     - goheader
+    - gomoddirectives
     - gomodguard
     - goprintffuncname
     - gosmopolitan
@@ -56,7 +56,6 @@ linters:
     - makezero
     - mirror
     - misspell
-    - modernize
     - musttag
     - nakedret
     - nilnesserr
@@ -89,6 +88,7 @@ linters:
     # - contextcheck
     # - cyclop
     # - depguard
+    # - embeddedstructfieldcheck
     # - err113
     # - errname
     # - exhaustive
@@ -100,7 +100,6 @@ linters:
     # - gocognit
     # - godoclint
     # - godox
-    # - gomoddirectives
     # - gosec
     # - inamedparam
     # - interfacebloat
@@ -137,7 +136,7 @@ linters:
         - filepathJoin
         - whyNoLint
     gocyclo:
-      min-complexity: 60
+      min-complexity: 177
     nakedret:
       max-func-lines: 15
     revive:

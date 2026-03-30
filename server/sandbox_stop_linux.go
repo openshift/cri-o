@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"go.podman.io/storage"
+	"github.com/containers/storage"
 	"golang.org/x/sync/errgroup"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	kubeletTypes "k8s.io/kubelet/pkg/types"
@@ -14,7 +14,7 @@ import (
 	"github.com/cri-o/cri-o/internal/linklogs"
 	"github.com/cri-o/cri-o/internal/log"
 	oci "github.com/cri-o/cri-o/internal/oci"
-	v2 "github.com/cri-o/cri-o/pkg/annotations/v2"
+	ann "github.com/cri-o/cri-o/pkg/annotations"
 )
 
 func (s *Server) stopPodSandbox(ctx context.Context, sb *sandbox.Sandbox) error {
@@ -28,7 +28,7 @@ func (s *Server) stopPodSandbox(ctx context.Context, sb *sandbox.Sandbox) error 
 
 	// Unlink logs if they were linked
 	sbAnnotations := sb.Annotations()
-	if emptyDirVolName, ok := v2.GetAnnotationValue(sbAnnotations, v2.LinkLogs); ok {
+	if emptyDirVolName, ok := sbAnnotations[ann.LinkLogsAnnotation]; ok {
 		if err := linklogs.UnmountPodLogs(ctx, sb.Labels()[kubeletTypes.KubernetesPodUIDLabel], emptyDirVolName); err != nil {
 			log.Warnf(ctx, "Failed to unlink logs: %v", err)
 		}
@@ -45,24 +45,6 @@ func (s *Server) stopPodSandbox(ctx context.Context, sb *sandbox.Sandbox) error 
 		return nil
 	}
 
-	// Calculate the timeout once. Regular containers get most of the timeout,
-	// reserving a small amount for infra container shutdown. The infra container
-	// will use the full totalTimeout, allowing it to use any time saved from
-	// containers stopping earlier than their allocated timeout.
-	totalTimeout := stopTimeoutFromContext(ctx)
-
-	const infraReservedTimeout int64 = 1 // 1 second reserved for infra container
-
-	var containerTimeout int64
-
-	if totalTimeout < infraReservedTimeout*2 {
-		// If total timeout is too small, split evenly
-		containerTimeout = totalTimeout / 2
-	} else {
-		// Reserve fixed time for infra, give rest to containers
-		containerTimeout = totalTimeout - infraReservedTimeout
-	}
-
 	errorGroup := &errgroup.Group{}
 
 	for _, ctr := range sb.Containers().List() {
@@ -70,13 +52,8 @@ func (s *Server) stopPodSandbox(ctx context.Context, sb *sandbox.Sandbox) error 
 			continue
 		}
 
-		// Because ctr is reused across iterations, all goroutines can end up
-		// calling stopContainer on the last container in the list instead of
-		// their respective one. We fix that by:
-		stopCtr := ctr
-
 		errorGroup.Go(func() error {
-			return s.stopContainer(ctx, stopCtr, containerTimeout)
+			return s.stopContainer(ctx, ctr, stopTimeoutFromContext(ctx))
 		})
 	}
 
@@ -85,7 +62,7 @@ func (s *Server) stopPodSandbox(ctx context.Context, sb *sandbox.Sandbox) error 
 	}
 
 	podInfraContainer := sb.InfraContainer()
-	if err := s.stopContainer(ctx, podInfraContainer, totalTimeout); err != nil && !errors.Is(err, storage.ErrContainerUnknown) && !errors.Is(err, oci.ErrContainerStopped) {
+	if err := s.stopContainer(ctx, podInfraContainer, stopTimeoutFromContext(ctx)); err != nil && !errors.Is(err, storage.ErrContainerUnknown) {
 		return fmt.Errorf("failed to stop infra container for pod sandbox %s: %w", sb.ID(), err)
 	}
 

@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/containers/storage/pkg/idtools"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
-	"go.podman.io/storage/pkg/idtools"
 	"golang.org/x/net/context"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
@@ -19,7 +19,7 @@ import (
 	"github.com/cri-o/cri-o/internal/log"
 	oci "github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/internal/storage"
-	"github.com/cri-o/cri-o/pkg/annotations/v2"
+	crioann "github.com/cri-o/cri-o/pkg/annotations"
 )
 
 // finalizeUserMapping changes the UID, GID and additional GIDs to reflect the new value in the user namespace.
@@ -39,7 +39,7 @@ func disableFipsForContainer(ctr ctrfactory.Container, containerDir string) erro
 	return nil
 }
 
-func addSysfsMounts(ctr ctrfactory.Container, containerConfig *types.ContainerConfig, hostNet bool, sb *sandbox.Sandbox, containerIDMappings *idtools.IDMappings) {
+func addSysfsMounts(ctr ctrfactory.Container, containerConfig *types.ContainerConfig, hostNet bool) {
 }
 
 func setOCIBindMountsPrivileged(g *generate.Generator) {
@@ -209,8 +209,7 @@ func (s *Server) specSetDevices(ctr ctrfactory.Container, sb *sandbox.Sandbox) e
 		return err
 	}
 
-	devicesAnnotationValue, _ := v2.GetAnnotationValue(sb.Annotations(), v2.Devices)
-	annotationDevices, err := device.DevicesFromAnnotation(devicesAnnotationValue, s.config.AllowedDevices)
+	annotationDevices, err := device.DevicesFromAnnotation(sb.Annotations()[crioann.DevicesAnnotation], s.config.AllowedDevices)
 	if err != nil {
 		return err
 	}

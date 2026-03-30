@@ -8,7 +8,6 @@ package dbusmgr
 import (
 	"context"
 	"errors"
-	"os"
 	"sync"
 	"syscall"
 
@@ -26,24 +25,15 @@ var (
 type DbusConnManager struct{}
 
 // NewDbusConnManager initializes systemd dbus connection manager.
-// When running as UID 0, we use system D-Bus even if rootless detection
-// triggered due to user namespace detection or limited UID mappings.
-// This ensures proper systemd cgroup manager functionality in containerized
-// environments where the process runs as root but appears to be in a user namespace.
 func NewDbusConnManager(rootless bool) *DbusConnManager {
 	dbusMu.Lock()
 	defer dbusMu.Unlock()
 
-	useRootless := rootless
-	if rootless && os.Getuid() == 0 {
-		useRootless = false
-	}
-
-	if dbusInited && useRootless != dbusRootless {
+	if dbusInited && rootless != dbusRootless {
 		panic("can't have both root and rootless dbus")
 	}
 
-	dbusRootless = useRootless
+	dbusRootless = rootless
 	dbusInited = true
 
 	return &DbusConnManager{}

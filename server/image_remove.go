@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	storagetypes "go.podman.io/storage"
+	storagetypes "github.com/containers/storage"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	"github.com/cri-o/cri-o/internal/log"

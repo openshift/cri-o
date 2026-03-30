@@ -103,12 +103,6 @@ Path to the key file used to serve the encrypted stream. This file can change an
 **stream_tls_ca**=""
 Path to the x509 CA(s) file used to verify and authenticate client communication with the encrypted stream. This file can change and CRI-O will automatically pick up the changes within 5 minutes.
 
-**tls_min_version**="VersionTLS12"
-Minimum TLS version for streaming and metrics servers. Valid values are "VersionTLS12" and "VersionTLS13". Default is "VersionTLS12".
-
-**tls_cipher_suites**=[]
-List of cipher suites for TLS 1.2. If omitted, the default Go cipher suites will be used. This has no effect on TLS 1.3 as Go manages cipher suites automatically.
-
 **grpc_max_send_msg_size**=83886080
 Maximum grpc send message size in bytes. If not set or <=0, then CRI-O will default to 80 _ 1024 _ 1024.
 
@@ -130,9 +124,6 @@ If true, the runtime will not use `pivot_root`, but instead use `MS_MOVE`.
 
 **decryption_keys_path**="/etc/crio/keys/"
 Path where the keys required for image decryption are located
-
-**additional_artifact_stores**=[]
-A list of additional read-only OCI artifact store paths (experimental, subject to change). CRI-O expects an "artifacts/" subdirectory within each configured path. All entries must be absolute paths. Artifacts in these stores take priority over the main store. Because these stores are read-only, CRI-O cannot remove artifacts from them. If a tag is re-pointed on the registry, the stale local copy in a read-only store will continue to be used; the artifact must be removed from the read-only store directly on the filesystem to pick up the new version.
 
 **conmon**=""
 Path to the conmon binary, used for monitoring the OCI runtime. Will be searched for using $PATH if empty.
@@ -401,12 +392,6 @@ conmon-rs (`runtime_type = "pod"`) supports this configuration for exec and atta
 Path to the seccomp.json profile which is used as the default seccomp profile for the runtime. If not specified, then the `crio.runtime` seccomp profile will be used.
 If that is also not specified, then the internal default seccomp profile will be used.
 
-**container_create_timeout**=240
-The timeout for container creation operations in seconds. If not set, defaults to 240 seconds. If set to a value less than 30 seconds, it will be automatically adjusted to 30 seconds (the minimum allowed value). This allows different runtime handlers to have different container creation timeouts, which is useful for VM-based runtimes that may need longer timeouts than OCI runtimes.
-conmon-rs (`runtime_type = "pod"`) doesn't support the configurable container creation timeout.
-
-Note: The effective timeout is the **minimum** of this value and kubelet's `--runtime-request-timeout` (default: 2 minutes). If you set `container_create_timeout = 600` (10 minutes) but kubelet has the default 2-minute timeout, the operation will be canceled after 2 minutes. Configure both values consistently for VM-based runtimes. For more information about kubelet's runtime request timeout, see the [Kubelet documentation](https://kubernetes.io/docs/reference/command-line-tools-reference/kubelet/).
-
 ### CRIO.RUNTIME.WORKLOADS TABLE
 
 The "crio.runtime.workloads" table defines a list of workloads - a way to customize the behavior of a pod and container.
@@ -510,7 +495,7 @@ Controls how image volumes are handled. The valid values are mkdir, bind and ign
 
 **insecure_registries**=[]
 List of registries to skip TLS verification for pulling images.
-This option is deprecated and no longer effective. Use registries.conf instead.
+This option is deprecated. Use registries.conf instead.
 
 **big_files_temporary_dir**=""
 Path to the temporary directory to use for storing big files, used to store image blobs and data streams related to containers image management.
@@ -597,9 +582,6 @@ The number of seconds between collecting pod/container stats and pod sandbox met
 
 **included_pod_metrics**=[]
 A list of pod metrics to include. Specify the names of the metrics to include in this list.
-If empty, only always-on metrics are included.
-Available values are "cpu", "hugetlb", "memory", "network", "oom", "process", "spec", "disk", "diskIO", "pressure".
-You can also specify "all" to include all available metrics. If you specify "all", it should be the only item in the list.
 
 ## CRIO.NRI TABLE
 

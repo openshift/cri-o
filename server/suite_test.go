@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
+	cstorage "github.com/containers/storage"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
-	cstorage "go.podman.io/storage"
 	"go.uber.org/mock/gomock"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	"k8s.io/kubelet/pkg/cri/streaming"
@@ -109,7 +109,7 @@ var beforeEach = func() {
 			"io.kubernetes.cri-o.PortMappings": "[]",
 			"io.kubernetes.cri-o.Labels": "{}",
 			"io.kubernetes.cri-o.LogPath": "{}",
-			"io.kubernetes.cri-o.Metadata": "{\"name\":\"testpod\",\"namespace\":\"default\",\"uid\":\"test-uid-123\",\"attempt\":0}",
+			"io.kubernetes.cri-o.Metadata": "{}",
 			"io.kubernetes.cri-o.Name": "name",
 			"io.kubernetes.cri-o.Namespace": "default",
 			"io.kubernetes.cri-o.PrivilegedRuntime": "{}",
@@ -226,14 +226,11 @@ var setupSUT = func() {
 
 func mockNewServer() {
 	GinkgoHelper()
-
-	graphroot := t.MustTempDir("graphroot")
 	gomock.InOrder(
 		cniPluginMock.EXPECT().Status().Return(nil),
 		libMock.EXPECT().GetData().Times(2).Return(serverConfig),
 		libMock.EXPECT().GetStore().Return(storeMock, nil),
 		libMock.EXPECT().GetData().Return(serverConfig),
-		storeMock.EXPECT().GraphRoot().Return(graphroot),
 		storeMock.EXPECT().Containers().
 			Return([]cstorage.Container{}, nil),
 		cniPluginMock.EXPECT().GC(gomock.Any(), gomock.Any()).

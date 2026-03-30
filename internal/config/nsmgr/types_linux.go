@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	nspkg "github.com/containernetworking/plugins/pkg/ns"
-	"go.podman.io/storage/pkg/idtools"
+	"github.com/containers/storage/pkg/idtools"
 	"golang.org/x/sys/unix"
 )
 
@@ -35,7 +35,6 @@ type PodNamespaceConfig struct {
 // namespace is the internal implementation of the Namespace interface.
 type namespace struct {
 	sync.Mutex
-
 	ns     NS
 	closed bool
 	nsType NSType

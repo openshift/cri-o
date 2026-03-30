@@ -86,7 +86,6 @@ func setupLogging() {
 
 type nriTest struct {
 	*testing.T
-
 	namespace string
 	plugins   []*plugin
 	options   [][]PluginOption

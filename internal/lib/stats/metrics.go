@@ -6,11 +6,18 @@ import (
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
-	"github.com/cri-o/cri-o/internal/oci"
-	"github.com/cri-o/cri-o/pkg/config"
 )
 
 var baseLabelKeys = []string{"id", "name", "image"}
+
+const (
+	CPUMetrics     = "cpu"
+	HugetlbMetrics = "hugetlb"
+	MemoryMetrics  = "memory"
+	NetworkMetrics = "network"
+	OOMMetrics     = "oom"
+	ProcessMetrics = "process"
+)
 
 type metricValue struct {
 	value      uint64
@@ -43,105 +50,53 @@ func NewSandboxMetrics(sb *sandbox.Sandbox) *SandboxMetrics {
 	}
 }
 
-var alwaysOnMetrics = []*types.MetricDescriptor{
-	containerLastSeen,
-}
-
-var availableMetricDescriptors = map[string][]*types.MetricDescriptor{
-	"": alwaysOnMetrics,
-	config.CPUMetrics: {
-		containerCpuUserSecondsTotal,
-		containerCpuSystemSecondsTotal,
-		containerCpuUsageSecondsTotal,
-		containerCpuCfsPeriodsTotal,
-		containerCpuCfsThrottledPeriodsTotal,
-		containerCpuCfsThrottledSecondsTotal,
-	},
-	config.DiskMetrics: {
-		containerFsInodesFree,
-		containerFsInodesTotal,
-		containerFsLimitBytes,
-		containerFsUsageBytes,
-	},
-	config.DiskIOMetrics: {
-		containerFsReadsBytesTotal,
-		containerFsReadsTotal,
-		containerFsWritesBytesTotal,
-		containerFsWritesTotal,
-		containerBlkioDeviceUsageTotal,
-	},
-	config.HugetlbMetrics: {
-		containerHugetlbUsageBytes,
-		containerHugetlbMaxUsageBytes,
-	},
-	config.MemoryMetrics: {
-		containerMemoryCache,
-		containerMemoryRss,
-		containerMemoryKernelUsage,
-		containerMemoryMappedFile,
-		containerMemorySwap,
-		containerMemoryFailcnt,
-		containerMemoryUsageBytes,
-		containerMemoryMaxUsageBytes,
-		containerMemoryWorkingSetBytes,
-		containerMemoryFailuresTotal,
-	},
-	config.NetworkMetrics: {
-		containerNetworkReceiveBytesTotal,
-		containerNetworkReceivePacketsTotal,
-		containerNetworkReceivePacketsDroppedTotal,
-		containerNetworkReceiveErrorsTotal,
-		containerNetworkTransmitBytesTotal,
-		containerNetworkTransmitPacketsTotal,
-		containerNetworkTransmitPacketsDroppedTotal,
-		containerNetworkTransmitErrorsTotal,
-	},
-	config.OOMMetrics: {
-		containerOomEventsTotal,
-	},
-	config.ProcessMetrics: {
-		containerFileDescriptors,
-		containerProcesses,
-		containerSockets,
-		containerThreads,
-		containerThreadsMax,
-		containerUlimitsSoft,
-	},
-	config.SpecMetrics: {
-		containerSpecCpuPeriod,
-		containerSpecCpuShares,
-		containerSpecCpuQuota,
-		containerSpecMemoryLimitBytes,
-		containerSpecMemoryReservationLimitBytes,
-		containerSpecMemorySwapLimitBytes,
-		containerStartTimeSeconds,
-	},
-	config.PressureMetrics: {
-		containerPressureCPUStalledSecondsTotal,
-		containerPressureCPUWaitingSecondsTotal,
-		containerPressureMemoryStalledSecondsTotal,
-		containerPressureMemoryWaitingSecondsTotal,
-		containerPressureIOStalledSecondsTotal,
-		containerPressureIOWaitingSecondsTotal,
-	},
-}
-
 // PopulateMetricDescriptors stores metricdescriptors statically at startup and populates the list.
 func (ss *StatsServer) PopulateMetricDescriptors(includedKeys []string) map[string][]*types.MetricDescriptor {
 	descriptorsMap := map[string][]*types.MetricDescriptor{
-		"": alwaysOnMetrics,
-	}
-
-	for _, k := range includedKeys {
-		descriptorsMap[k] = availableMetricDescriptors[k]
+		CPUMetrics: {
+			containerCpuUserSecondsTotal,
+			containerCpuSystemSecondsTotal,
+			containerCpuUsageSecondsTotal,
+			containerCpuCfsPeriodsTotal,
+			containerCpuCfsThrottledPeriodsTotal,
+			containerCpuCfsThrottledSecondsTotal,
+		},
+		HugetlbMetrics: {
+			containerHugetlbUsageBytes,
+			containerHugetlbMaxUsageBytes,
+		},
+		MemoryMetrics: {
+			containerMemoryCache,
+			containerMemoryRss,
+			containerMemoryKernelUsage,
+			containerMemoryMappedFile,
+			containerMemorySwap,
+			containerSpecMemoryLimitBytes,
+			containerMemoryFailcnt,
+			containerMemoryUsageBytes,
+			containerMemoryMaxUsageBytes,
+			containerMemoryWorkingSetBytes,
+			containerMemoryFailuresTotal,
+		},
+		NetworkMetrics: {
+			containerNetworkReceiveBytesTotal,
+			containerNetworkReceivePacketsTotal,
+			containerNetworkReceivePacketsDroppedTotal,
+			containerNetworkReceiveErrorsTotal,
+			containerNetworkTransmitBytesTotal,
+			containerNetworkTransmitPacketsTotal,
+			containerNetworkTransmitPacketsDroppedTotal,
+			containerNetworkTransmitErrorsTotal,
+		},
+		OOMMetrics: {
+			containerOomEventsTotal,
+		},
+		ProcessMetrics: {
+			containerProcesses,
+		},
 	}
 
 	return descriptorsMap
-}
-
-// ComputeSandboxMetrics computes the metrics for both pod and container sandbox.
-func computeSandboxMetrics(sb *sandbox.Sandbox, metrics []*containerMetric, metricName string) []*types.Metric {
-	return computeMetrics(sandboxBaseLabelValues(sb), metrics, metricName)
 }
 
 func sandboxBaseLabelValues(sb *sandbox.Sandbox) []string {
@@ -149,25 +104,9 @@ func sandboxBaseLabelValues(sb *sandbox.Sandbox) []string {
 	return []string{sb.ID(), "POD", ""}
 }
 
-// computeContainerMetrics computes the metrics for container.
-func computeContainerMetrics(ctr *oci.Container, metrics []*containerMetric, metricName string) []*types.Metric {
-	return computeMetrics(containerBaseLabelValues(ctr), metrics, metricName)
-}
-
-func containerBaseLabelValues(ctr *oci.Container) []string {
-	image := ""
-	if someNameOfTheImage := ctr.SomeNameOfTheImage(); someNameOfTheImage != nil {
-		image = someNameOfTheImage.StringForOutOfProcessConsumptionOnly()
-	}
-
-	return []string{ctr.ID(), ctr.Name(), image}
-}
-
-func computeMetrics(baseLabels []string, metrics []*containerMetric, metricName string) []*types.Metric {
-	if metricName != "" {
-		baseLabels = append(baseLabels, metricName)
-	}
-
+// ComputeSandboxMetrics computes the metrics for both pod and container sandbox.
+func computeSandboxMetrics(sb *sandbox.Sandbox, metrics []*containerMetric, metricName string) []*types.Metric {
+	baseLabels := append(sandboxBaseLabelValues(sb), metricName)
 	calculatedMetrics := make([]*types.Metric, 0, len(metrics))
 
 	for _, m := range metrics {

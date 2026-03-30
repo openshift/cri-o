@@ -26,7 +26,6 @@ import (
 )
 
 type (
-	// DefaultValidatorConfig is an alias for DefaultValidatorConfig from main package.
 	DefaultValidatorConfig = validator.DefaultValidatorConfig
 )
 

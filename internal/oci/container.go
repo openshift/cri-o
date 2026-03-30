@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,11 +13,11 @@ import (
 	"time"
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
-	json "github.com/goccy/go-json"
+	"github.com/containers/common/pkg/signal"
+	"github.com/containers/storage/pkg/idtools"
+	json "github.com/json-iterator/go"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
-	"go.podman.io/common/pkg/signal"
-	"go.podman.io/storage/pkg/idtools"
 	"golang.org/x/sys/unix"
 	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/fields"
@@ -29,7 +28,7 @@ import (
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/storage"
 	"github.com/cri-o/cri-o/internal/storage/references"
-	v2 "github.com/cri-o/cri-o/pkg/annotations/v2"
+	ann "github.com/cri-o/cri-o/pkg/annotations"
 )
 
 const defaultStopSignalInt = 15
@@ -60,8 +59,7 @@ type Container struct {
 	conmonCgroupfsPath string
 	crioAnnotations    fields.Set
 	state              *ContainerState
-	opLock             sync.RWMutex // For handling the container OCI runtime state transitions (i.e: anything that needs to call OCI runtime)
-	metaLock           sync.RWMutex // For handling the internal oci.Container metadata. Currently only used for Spec and Resources fields
+	opLock             sync.RWMutex
 	spec               *specs.Spec
 	idMappings         *idtools.IDMappings
 	terminal           bool
@@ -118,10 +116,9 @@ type ContainerVolume struct {
 // ContainerState represents the status of a container.
 type ContainerState struct {
 	specs.State
-
 	Created       time.Time `json:"created"`
-	Started       time.Time `json:"started"`
-	Finished      time.Time `json:"finished"`
+	Started       time.Time `json:"started,omitempty"`
+	Finished      time.Time `json:"finished,omitempty"`
 	ExitCode      *int32    `json:"exitCode,omitempty"`
 	OOMKilled     bool      `json:"oomKilled,omitempty"`
 	SeccompKilled bool      `json:"seccompKilled,omitempty"`
@@ -132,7 +129,7 @@ type ContainerState struct {
 	// is the same as the corresponding PID on the host.
 	InitStartTime string `json:"initStartTime,omitempty"`
 	// Checkpoint/Restore related states
-	CheckpointedAt time.Time `json:"checkpointedTime"`
+	CheckpointedAt time.Time `json:"checkpointedTime,omitempty"`
 	// ContainerMonitorProcess is used to check the liveness of the container monitor.
 	// This is supposed to be immutable once set.
 	ContainerMonitorProcess *ContainerMonitorProcess `json:"containerMonitorProcess,omitempty"`
@@ -218,7 +215,7 @@ func NewSpoofedContainer(id, name string, labels map[string]string, sandbox stri
 			PodSandboxId: sandbox,
 			Metadata:     &types.ContainerMetadata{},
 			Annotations: map[string]string{
-				v2.Spoofed: "true",
+				ann.SpoofedContainer: "true",
 			},
 			Image: &types.ImageSpec{},
 		},
@@ -258,9 +255,6 @@ func (c *Container) CRIContainer() *types.Container {
 
 // SetSpec loads the OCI spec in the container struct.
 func (c *Container) SetSpec(s *specs.Spec) {
-	c.metaLock.Lock()
-	defer c.metaLock.Unlock()
-
 	c.spec = s
 	c.SetResources(s)
 	c.SetRuntimeUser(s)
@@ -268,9 +262,6 @@ func (c *Container) SetSpec(s *specs.Spec) {
 
 // Spec returns a copy of the spec for the container.
 func (c *Container) Spec() specs.Spec {
-	c.metaLock.RLock()
-	defer c.metaLock.RUnlock()
-
 	if c.spec != nil {
 		return *c.spec
 	}
@@ -830,7 +821,9 @@ func (c *Container) SetResources(s *specs.Spec) {
 		}
 
 		resourceStatus.Linux.Unified = make(map[string]string)
-		maps.Copy(resourceStatus.GetLinux().GetUnified(), linuxResources.Unified)
+		for key, value := range linuxResources.Unified {
+			resourceStatus.Linux.Unified[key] = value
+		}
 
 		resourceStatus.Linux.HugepageLimits = []*types.HugepageLimit{}
 		for _, entry := range linuxResources.HugepageLimits {
@@ -846,9 +839,6 @@ func (c *Container) SetResources(s *specs.Spec) {
 
 // GetResources returns a copy of the Linux resources from Container.
 func (c *Container) GetResources() *types.ContainerResources {
-	c.metaLock.RLock()
-	defer c.metaLock.RUnlock()
-
 	return c.resources
 }
 
@@ -866,33 +856,24 @@ func (c *Container) RuntimePathForPlatform(r *runtimeOCI) string {
 	return c.runtimePath
 }
 
-// StartExecCmd atomically starts an exec command and registers its PID.
-func (c *Container) StartExecCmd(cmd ExecStarter, shouldKill bool) (int, error) {
+// AddExecPID registers a PID associated with an exec session.
+// It is tracked so exec sessions can be cancelled when the container is being stopped.
+// If the PID is conmon, shouldKill should be false, as we should not call SIGKILL on conmon.
+// If it is an exec session, shouldKill should be true, as we can't guarantee the exec process
+// will have a SIGINT handler.
+func (c *Container) AddExecPID(pid int, shouldKill bool) error {
 	c.stopLock.Lock()
 	defer c.stopLock.Unlock()
 
-	// Check before starting - if kill loop has begun, don't start new execs
-	if c.stopKillLoopBegun {
-		return 0, errors.New("cannot start exec: container is being killed")
+	logrus.Debugf("Starting to track exec PID %d for container %s (should kill = %t) ...", pid, c.ID(), shouldKill)
+
+	if c.stopping {
+		return errors.New("cannot register an exec PID: container is stopping")
 	}
 
-	// Start the command while holding the lock
-	if err := cmd.Start(); err != nil {
-		return 0, err
-	}
-
-	pid := cmd.GetPid()
-	logrus.Debugf("Started and tracking exec PID %d for container %s (should kill = %t) ...", pid, c.ID(), shouldKill)
 	c.execPIDs[pid] = shouldKill
 
-	return pid, nil
-}
-
-// ExecStarter is an interface for starting exec commands.
-// This abstraction allows for easier testing and decouples from exec.Cmd.
-type ExecStarter interface {
-	Start() error
-	GetPid() int
+	return nil
 }
 
 // DeleteExecPID is for deregistering a pid after it has exited.

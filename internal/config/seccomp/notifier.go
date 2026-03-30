@@ -14,14 +14,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	json "github.com/goccy/go-json"
+	"github.com/containers/common/pkg/seccomp"
+	json "github.com/json-iterator/go"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	libseccomp "github.com/seccomp/libseccomp-golang"
-	"go.podman.io/common/pkg/seccomp"
 	"golang.org/x/sys/unix"
 
 	"github.com/cri-o/cri-o/internal/log"
-	v2 "github.com/cri-o/cri-o/pkg/annotations/v2"
+	"github.com/cri-o/cri-o/pkg/annotations"
 )
 
 // Notifier wraps a seccomp notifier instance for a container.
@@ -113,7 +113,7 @@ func (c *Config) injectNotifier(
 	if containerID == "" || sandboxAnnotations == nil || msgChan == nil {
 		return nil, nil
 	}
-	if _, ok := v2.GetAnnotationValue(sandboxAnnotations, v2.SeccompNotifierAction); !ok {
+	if _, ok := sandboxAnnotations[annotations.SeccompNotifierActionAnnotation]; !ok {
 		return nil, nil
 	}
 
@@ -208,9 +208,9 @@ func NewNotifier(
 		}
 	}()
 
-	action, ok := v2.GetAnnotationValue(annotationMap, v2.SeccompNotifierAction)
+	action, ok := annotationMap[annotations.SeccompNotifierActionAnnotation]
 	if !ok {
-		return nil, fmt.Errorf("%s annotation not set on container", v2.SeccompNotifierAction)
+		return nil, fmt.Errorf("%s annotation not set on container", annotations.SeccompNotifierActionAnnotation)
 	}
 
 	return &Notifier{
@@ -218,7 +218,7 @@ func NewNotifier(
 		syscalls:       sync.Map{},
 		timer:          nil,
 		timeLock:       sync.Mutex{},
-		stopContainers: action == v2.SeccompNotifierActionStop,
+		stopContainers: action == annotations.SeccompNotifierActionStop,
 	}, nil
 }
 

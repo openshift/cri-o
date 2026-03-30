@@ -7,12 +7,13 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"syscall"
 
+	"github.com/containers/common/pkg/resize"
 	conmonClient "github.com/containers/conmon-rs/pkg/client"
 	conmonconfig "github.com/containers/conmon/runner/config"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
-	"go.podman.io/common/pkg/resize"
 	"k8s.io/client-go/tools/remotecommand"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
@@ -301,8 +302,8 @@ func (r *runtimePod) ContainerStats(ctx context.Context, c *Container, cgroup st
 	return r.oci.ContainerStats(ctx, c, cgroup)
 }
 
-func (r *runtimePod) DiskStats(ctx context.Context, c *Container, cgroup string) (*DiskMetrics, error) {
-	return r.oci.DiskStats(ctx, c, cgroup)
+func (r *runtimePod) SignalContainer(ctx context.Context, c *Container, sig syscall.Signal) error {
+	return r.oci.SignalContainer(ctx, c, sig)
 }
 
 func (r *runtimePod) AttachContainer(ctx context.Context, c *Container, inputStream io.Reader, outputStream, errorStream io.WriteCloser, tty bool, resizeChan <-chan remotecommand.TerminalSize) error {

@@ -4,10 +4,15 @@ import (
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	"github.com/cri-o/cri-o/internal/config/cgmgr"
+	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/oci"
 )
 
-func generateContainerMemoryMetrics(ctr *oci.Container, mem *cgmgr.MemoryStats) []*types.Metric {
+// Size after which we consider memory to be "unlimited". This is not
+// MaxInt64 due to rounding by the kernel.
+const maxMemorySize = uint64(1 << 62)
+
+func generateSandboxMemoryMetrics(sb *sandbox.Sandbox, mem *cgmgr.MemoryStats) []*types.Metric {
 	memoryMetrics := []*containerMetric{
 		{
 			desc: containerMemoryCache,
@@ -37,6 +42,20 @@ func generateContainerMemoryMetrics(ctr *oci.Container, mem *cgmgr.MemoryStats) 
 			desc: containerMemorySwap,
 			valueFunc: func() metricValues {
 				return metricValues{{value: mem.SwapUsage, metricType: types.MetricType_GAUGE}}
+			},
+		},
+		{
+			desc: containerSpecMemoryLimitBytes,
+			valueFunc: func() metricValues {
+				// For consistency with cAdvisor and Kubernetes, consider memory to be "unlimited"
+				// when above a certain threshold (2^62) and report it as 0 in the metrics.
+				// This approach is more useful for monitoring tools than reporting the physical limit.
+				limit := mem.Limit
+				if limit > maxMemorySize {
+					return metricValues{{value: 0, metricType: types.MetricType_GAUGE}}
+				}
+
+				return metricValues{{value: limit, metricType: types.MetricType_GAUGE}}
 			},
 		},
 		{
@@ -105,10 +124,10 @@ func generateContainerMemoryMetrics(ctr *oci.Container, mem *cgmgr.MemoryStats) 
 		},
 	}
 
-	return computeContainerMetrics(ctr, memoryMetrics, "memory")
+	return computeSandboxMetrics(sb, memoryMetrics, "memory")
 }
 
-func GenerateContainerOOMMetrics(ctr *oci.Container, oomCount uint64) []*types.Metric {
+func GenerateSandboxOOMMetrics(sb *sandbox.Sandbox, c *oci.Container, oomCount uint64) []*types.Metric {
 	oomMetrics := []*containerMetric{
 		{
 			desc: containerOomEventsTotal,
@@ -118,5 +137,5 @@ func GenerateContainerOOMMetrics(ctr *oci.Container, oomCount uint64) []*types.M
 		},
 	}
 
-	return computeContainerMetrics(ctr, oomMetrics, "oom")
+	return computeSandboxMetrics(sb, oomMetrics, "oom")
 }

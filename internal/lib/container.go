@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	cstorage "go.podman.io/storage"
+	cstorage "github.com/containers/storage"
 
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/oci"

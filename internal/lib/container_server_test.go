@@ -12,9 +12,9 @@ import (
 	"go.uber.org/mock/gomock"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
-	"github.com/cri-o/cri-o/internal/annotations"
 	"github.com/cri-o/cri-o/internal/lib"
 	"github.com/cri-o/cri-o/internal/oci"
+	"github.com/cri-o/cri-o/pkg/annotations"
 	libconfig "github.com/cri-o/cri-o/pkg/config"
 )
 
@@ -355,7 +355,7 @@ var _ = t.Describe("ContainerServer", func() {
 		It("should fail with invalid metadata", func() {
 			// Given
 			manifest := bytes.Replace(testManifest,
-				[]byte(`"io.kubernetes.cri-o.Metadata": "{\"name\":\"testpod\",\"namespace\":\"default\",\"uid\":\"test-uid-123\",\"attempt\":0}",`),
+				[]byte(`"io.kubernetes.cri-o.Metadata": "{}",`),
 				[]byte(`"io.kubernetes.cri-o.Metadata": "",`), 1,
 			)
 			gomock.InOrder(
@@ -428,26 +428,6 @@ var _ = t.Describe("ContainerServer", func() {
 			Expect(err).To(HaveOccurred())
 		})
 
-		It("should fail with empty namespace", func() {
-			// Given
-			manifest := bytes.Replace(testManifest,
-				[]byte(`"io.kubernetes.cri-o.Namespace": "default",`),
-				[]byte(`"io.kubernetes.cri-o.Namespace": "",`), 1,
-			)
-			gomock.InOrder(
-				storeMock.EXPECT().
-					FromContainerDirectory(gomock.Any(), gomock.Any()).
-					Return(manifest, nil),
-			)
-
-			// When
-			sb, err := sut.LoadSandbox(context.Background(), "id")
-
-			// Then
-			Expect(sb).To(BeNil())
-			Expect(err).To(HaveOccurred())
-		})
-
 		It("should fail with wrong PodLinuxOverhead", func() {
 			// Given
 			manifest := bytes.Replace(testManifest,
@@ -473,66 +453,6 @@ var _ = t.Describe("ContainerServer", func() {
 			manifest := bytes.Replace(testManifest,
 				[]byte(`"io.kubernetes.cri-o.PodLinuxResources": "{}",`),
 				[]byte(`"io.kubernetes.cri-o.PodLinuxResources": "wrong",`), 1,
-			)
-			gomock.InOrder(
-				storeMock.EXPECT().
-					FromContainerDirectory(gomock.Any(), gomock.Any()).
-					Return(manifest, nil),
-			)
-
-			// When
-			sb, err := sut.LoadSandbox(context.Background(), "id")
-
-			// Then
-			Expect(sb).To(BeNil())
-			Expect(err).To(HaveOccurred())
-		})
-
-		It("should fail with empty name annotation", func() {
-			// Given
-			manifest := bytes.Replace(testManifest,
-				[]byte(`"io.kubernetes.cri-o.Name": "name",`),
-				[]byte(`"io.kubernetes.cri-o.Name": "",`), 1,
-			)
-			gomock.InOrder(
-				storeMock.EXPECT().
-					FromContainerDirectory(gomock.Any(), gomock.Any()).
-					Return(manifest, nil),
-			)
-
-			// When
-			sb, err := sut.LoadSandbox(context.Background(), "id")
-
-			// Then
-			Expect(sb).To(BeNil())
-			Expect(err).To(HaveOccurred())
-		})
-
-		It("should fail with empty metadata name", func() {
-			// Given
-			manifest := bytes.Replace(testManifest,
-				[]byte(`"io.kubernetes.cri-o.Metadata": "{\"name\":\"testpod\",\"namespace\":\"default\",\"uid\":\"test-uid-123\",\"attempt\":0}",`),
-				[]byte(`"io.kubernetes.cri-o.Metadata": "{\"namespace\":\"default\",\"uid\":\"abc123\"}",`), 1,
-			)
-			gomock.InOrder(
-				storeMock.EXPECT().
-					FromContainerDirectory(gomock.Any(), gomock.Any()).
-					Return(manifest, nil),
-			)
-
-			// When
-			sb, err := sut.LoadSandbox(context.Background(), "id")
-
-			// Then
-			Expect(sb).To(BeNil())
-			Expect(err).To(HaveOccurred())
-		})
-
-		It("should fail with empty metadata uid", func() {
-			// Given
-			manifest := bytes.Replace(testManifest,
-				[]byte(`"io.kubernetes.cri-o.Metadata": "{\"name\":\"testpod\",\"namespace\":\"default\",\"uid\":\"test-uid-123\",\"attempt\":0}",`),
-				[]byte(`"io.kubernetes.cri-o.Metadata": "{\"name\":\"test\",\"namespace\":\"default\"}",`), 1,
 			)
 			gomock.InOrder(
 				storeMock.EXPECT().
@@ -692,8 +612,8 @@ var _ = t.Describe("ContainerServer", func() {
 			// Given
 			manifest := bytes.Replace(testManifest,
 				[]byte(`"io.kubernetes.cri-o.Annotations": "{}",`),
-				fmt.Appendf(nil, "%q: %q,", annotations.ContainerManager,
-					annotations.ContainerManagerLibpod), 1,
+				[]byte(fmt.Sprintf("%q: %q,", annotations.ContainerManager,
+					annotations.ContainerManagerLibpod)), 1,
 			)
 			gomock.InOrder(
 				storeMock.EXPECT().
@@ -904,11 +824,13 @@ var _ = t.Describe("ContainerServer", func() {
 
 			// When
 			sandboxes := sut.ListSandboxes()
-			returnTrue := func(container *oci.Container) bool {
-				return true
-			}
-			//nolint:gocritic // dupOption is expected here as both filters are intentionally the same in this test
-			containers, err := sut.ListContainers(returnTrue, returnTrue)
+			containers, err := sut.ListContainers(
+				func(container *oci.Container) bool {
+					return true
+				},
+				func(container *oci.Container) bool {
+					return true
+				})
 
 			// Then
 			Expect(err).ToNot(HaveOccurred())

@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
+	imageTypes "github.com/containers/image/v5/types"
+	"github.com/containers/storage/pkg/idtools"
+	storageTypes "github.com/containers/storage/types"
 	"github.com/fsnotify/fsnotify"
-	imageTypes "go.podman.io/image/v5/types"
-	"go.podman.io/storage/pkg/idtools"
-	storageTypes "go.podman.io/storage/types"
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -56,24 +56,20 @@ var errSandboxNotCreated = errors.New("sandbox not created")
 
 // StreamService implements streaming.Runtime.
 type StreamService struct {
-	streaming.Runtime
-
 	ctx                 context.Context
 	runtimeServer       *Server // needed by Exec() endpoint
 	streamServer        streaming.Server
 	streamServerCloseCh chan struct{}
+	streaming.Runtime
 }
 
 // Server implements the RuntimeService and ImageService.
 type Server struct {
-	*lib.ContainerServer
-	types.UnsafeImageServiceServer
-	types.UnsafeRuntimeServiceServer
-
 	config          libconfig.Config
 	stream          *StreamService
 	hostportManager hostport.HostPortManager
 
+	*lib.ContainerServer
 	monitorsChan        chan struct{}
 	defaultIDMappings   *idtools.IDMappings
 	ContainerEventsChan chan types.ContainerEventResponse
@@ -99,7 +95,8 @@ type Server struct {
 	// hooksRetriever allows getting the runtime hooks for the sandboxes.
 	hooksRetriever *runtimehandlerhooks.HooksRetriever
 
-	artifactStore *ociartifact.Store
+	types.UnsafeImageServiceServer
+	types.UnsafeRuntimeServiceServer
 }
 
 // pullArguments are used to identify a pullOperation via an input image name and
@@ -118,8 +115,9 @@ type pullOperation struct {
 	// wg allows for Goroutines trying to pull the same image to wait until the
 	// currently running pull operation has finished.
 	wg sync.WaitGroup
-	// imageRef is the resolved image ID to return in the CRI PullImageResponse
-	imageRef string
+	// imageRef is the reference of the actually pulled image; it is always
+	// in a full repo@digest format, resolving short names and tags
+	imageRef storage.RegistryImageReference
 	// err is the error indicating if the pull operation has succeeded or not.
 	err error
 }
@@ -457,11 +455,6 @@ func New(
 		os.Unsetenv("DBUS_SESSION_BUS_ADDRESS")
 	}
 
-	artifactStore, err := ociartifact.NewStore(containerServer.Store().GraphRoot(), config.AdditionalArtifactStores, config.SystemContext, containerServer.StorageImageServer().PinnedImageRegexps())
-	if err != nil {
-		return nil, err
-	}
-
 	s := &Server{
 		ContainerServer:          containerServer,
 		hostportManager:          hostportManager,
@@ -474,7 +467,6 @@ func New(
 		pullOperationsInProgress: make(map[pullArguments]*pullOperation),
 		resourceStore:            resourcestore.New(),
 		hooksRetriever:           runtimehandlerhooks.NewHooksRetriever(ctx, config),
-		artifactStore:            artifactStore,
 	}
 
 	if s.config.EnablePodEvents {
@@ -532,7 +524,7 @@ func New(
 	if config.StreamEnableTLS {
 		log.Debugf(ctx, "TLS enabled for streaming server")
 
-		certConf, err := cert.NewCertConfig(ctx, s.stream.streamServerCloseCh, config.StreamTLSCert, config.StreamTLSKey, config.StreamTLSCA, config.GetTLSMinVersion(), config.GetTLSCipherSuites())
+		certConf, err := cert.NewCertConfig(ctx, s.stream.streamServerCloseCh, config.StreamTLSCert, config.StreamTLSKey, config.StreamTLSCA)
 		if err != nil {
 			return nil, err
 		}
@@ -544,12 +536,10 @@ func New(
 			return nil, fmt.Errorf("load stream server x509 key pair: %w", err)
 		}
 
-		// #nosec G402 -- GetTLSMinVersion returns the validated TLS version. Any version older than TLS 1.2 will be rejected in config validation.
 		streamServerConfig.TLSConfig = &tls.Config{
 			GetConfigForClient: certConf.GetConfigForClient,
 			Certificates:       []tls.Certificate{certificate},
-			MinVersion:         config.GetTLSMinVersion(),
-			CipherSuites:       config.GetTLSCipherSuites(),
+			MinVersion:         tls.VersionTLS12,
 		}
 
 		log.Debugf(ctx, "Applying stream server TLS configuration")
@@ -580,7 +570,7 @@ func New(
 	}
 	// Start the metrics server if configured to be enabled
 	if s.config.EnableMetrics {
-		if err := metrics.New(&s.config.MetricsConfig, &s.config.APIConfig).Start(ctx, s.monitorsChan); err != nil {
+		if err := metrics.New(&s.config.MetricsConfig).Start(ctx, s.monitorsChan); err != nil {
 			return nil, err
 		}
 	} else {
@@ -634,7 +624,6 @@ func (s *Server) startReloadWatcher(ctx context.Context) {
 			// ImageServer compiles the list with regex for both
 			// pinned and sandbox/pause images, we need to update them
 			s.ContainerServer.StorageImageServer().UpdatePinnedImagesList(append(s.config.PinnedImages, s.config.PauseImage))
-			s.artifactStore.SetPinnedImageRegexps(s.ContainerServer.StorageImageServer().PinnedImageRegexps())
 			log.Infof(ctx, "Configuration reload completed")
 			// Print the current configuration.
 			tomlConfig, err := s.config.ToString()
@@ -928,9 +917,9 @@ func (s *Server) getContainerStatuses(ctx context.Context, sandboxUID string) ([
 		return []*types.ContainerStatus{}, err
 	}
 
-	containerStatuses := make([]*types.ContainerStatus, 0, len(containers.GetContainers()))
+	containerStatuses := make([]*types.ContainerStatus, len(containers.GetContainers()))
 
-	for _, cc := range containers.GetContainers() {
+	for i, cc := range containers.GetContainers() {
 		containerStatusRequest := &types.ContainerStatusRequest{ContainerId: cc.GetId()}
 
 		resp, err := s.ContainerStatus(ctx, containerStatusRequest)
@@ -942,7 +931,7 @@ func (s *Server) getContainerStatuses(ctx context.Context, sandboxUID string) ([
 			return []*types.ContainerStatus{}, err
 		}
 
-		containerStatuses = append(containerStatuses, resp.GetStatus())
+		containerStatuses[i] = resp.GetStatus()
 	}
 
 	return containerStatuses, nil
@@ -956,9 +945,9 @@ func (s *Server) getContainerStatusesFromSandboxID(ctx context.Context, sandboxI
 		return []*types.ContainerStatus{}, err
 	}
 
-	containerStatuses := make([]*types.ContainerStatus, 0, len(containers.GetContainers()))
+	containerStatuses := make([]*types.ContainerStatus, len(containers.GetContainers()))
 
-	for _, cc := range containers.GetContainers() {
+	for i, cc := range containers.GetContainers() {
 		containerStatusRequest := &types.ContainerStatusRequest{ContainerId: cc.GetId(), Verbose: false}
 
 		resp, err := s.ContainerStatus(ctx, containerStatusRequest)
@@ -970,7 +959,7 @@ func (s *Server) getContainerStatusesFromSandboxID(ctx context.Context, sandboxI
 			return []*types.ContainerStatus{}, err
 		}
 
-		containerStatuses = append(containerStatuses, resp.GetStatus())
+		containerStatuses[i] = resp.GetStatus()
 	}
 
 	return containerStatuses, nil
@@ -1119,5 +1108,5 @@ func (s *Server) watchAndReloadMirrorRegistriesConfiguration(ctx context.Context
 
 // ArtifactStore returns a new artifact store instance.
 func (s *Server) ArtifactStore() *ociartifact.Store {
-	return s.artifactStore
+	return ociartifact.NewStore(s.Store().GraphRoot(), s.Config().SystemContext)
 }

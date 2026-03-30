@@ -178,9 +178,6 @@ type Stub interface {
 	// This is the default timeout if the plugin has not been started or
 	// the timeout received in the Configure request otherwise.
 	RequestTimeout() time.Duration
-
-	// Logger returns the logger used by the stub.
-	Logger() nrilog.Logger
 }
 
 const (
@@ -191,6 +188,9 @@ const (
 )
 
 var (
+	// Logger for messages generated internally by the stub itself.
+	log = nrilog.Get()
+
 	// Used instead of a nil Context in logging.
 	noCtx = context.TODO()
 
@@ -268,14 +268,6 @@ func WithTTRPCOptions(clientOpts []ttrpc.ClientOpts, serverOpts []ttrpc.ServerOp
 	}
 }
 
-// WithLogger sets the logger to be used by the stub.
-func WithLogger(logger nrilog.Logger) Option {
-	return func(s *stub) error {
-		s.logger = logger
-		return nil
-	}
-}
-
 // stub implements Stub.
 type stub struct {
 	sync.Mutex
@@ -303,7 +295,6 @@ type stub struct {
 
 	registrationTimeout time.Duration
 	requestTimeout      time.Duration
-	logger              nrilog.Logger
 }
 
 // Handlers for NRI plugin event and request.
@@ -338,7 +329,6 @@ func New(p interface{}, opts ...Option) (Stub, error) {
 
 		registrationTimeout: DefaultRegistrationTimeout,
 		requestTimeout:      DefaultRequestTimeout,
-		logger:              nrilog.Get(),
 	}
 
 	for _, o := range opts {
@@ -355,7 +345,7 @@ func New(p interface{}, opts ...Option) (Stub, error) {
 		return nil, err
 	}
 
-	stub.logger.Infof(noCtx, "Created plugin %s (%s, handles %s)", stub.Name(),
+	log.Infof(noCtx, "Created plugin %s (%s, handles %s)", stub.Name(),
 		filepath.Base(os.Args[0]), stub.events.PrettyString())
 
 	return stub, nil
@@ -450,7 +440,7 @@ func (stub *stub) Start(ctx context.Context) (retErr error) {
 		return err
 	}
 
-	stub.logger.Infof(ctx, "Started plugin %s...", stub.Name())
+	log.Infof(ctx, "Started plugin %s...", stub.Name())
 
 	stub.started = true
 	return nil
@@ -458,7 +448,7 @@ func (stub *stub) Start(ctx context.Context) (retErr error) {
 
 // Stop the plugin.
 func (stub *stub) Stop() {
-	stub.logger.Infof(noCtx, "Stopping plugin %s...", stub.Name())
+	log.Infof(noCtx, "Stopping plugin %s...", stub.Name())
 
 	stub.Lock()
 	defer stub.Unlock()
@@ -514,7 +504,7 @@ func (stub *stub) Run(ctx context.Context) error {
 
 	err = <-stub.srvErrC
 	if err == ttrpc.ErrServerClosed {
-		stub.logger.Infof(noCtx, "ttrpc server closed %s : %v", stub.Name(), err)
+		log.Infof(noCtx, "ttrpc server closed %s : %v", stub.Name(), err)
 	}
 
 	return err
@@ -532,10 +522,6 @@ func (stub *stub) Name() string {
 	return stub.idx + "-" + stub.name
 }
 
-func (stub *stub) Logger() nrilog.Logger {
-	return stub.logger
-}
-
 func (stub *stub) RegistrationTimeout() time.Duration {
 	return stub.registrationTimeout
 }
@@ -547,12 +533,12 @@ func (stub *stub) RequestTimeout() time.Duration {
 // Connect the plugin to NRI.
 func (stub *stub) connect() error {
 	if stub.conn != nil {
-		stub.logger.Infof(noCtx, "Using given plugin connection...")
+		log.Infof(noCtx, "Using given plugin connection...")
 		return nil
 	}
 
 	if env := os.Getenv(api.PluginSocketEnvVar); env != "" {
-		stub.logger.Infof(noCtx, "Using connection %q from environment...", env)
+		log.Infof(noCtx, "Using connection %q from environment...", env)
 
 		fd, err := strconv.Atoi(env)
 		if err != nil {
@@ -580,7 +566,7 @@ func (stub *stub) connect() error {
 
 // Register the plugin with NRI.
 func (stub *stub) register(ctx context.Context) error {
-	stub.logger.Infof(ctx, "Registering plugin %s...", stub.Name())
+	log.Infof(ctx, "Registering plugin %s...", stub.Name())
 
 	ctx, cancel := context.WithTimeout(ctx, stub.registrationTimeout)
 	defer cancel()
@@ -635,7 +621,7 @@ func (stub *stub) Configure(ctx context.Context, req *api.ConfigureRequest) (rpl
 		err    error
 	)
 
-	stub.logger.Infof(ctx, "Configuring plugin %s for runtime %s/%s...", stub.Name(),
+	log.Infof(ctx, "Configuring plugin %s for runtime %s/%s...", stub.Name(),
 		req.RuntimeName, req.RuntimeVersion)
 
 	stub.registrationTimeout = time.Duration(req.RegistrationTimeout * int64(time.Millisecond))
@@ -650,7 +636,7 @@ func (stub *stub) Configure(ctx context.Context, req *api.ConfigureRequest) (rpl
 	} else {
 		events, err = handler(ctx, req.Config, req.RuntimeName, req.RuntimeVersion)
 		if err != nil {
-			stub.logger.Errorf(ctx, "Plugin configuration failed: %v", err)
+			log.Errorf(ctx, "Plugin configuration failed: %v", err)
 			return nil, err
 		}
 
@@ -660,13 +646,13 @@ func (stub *stub) Configure(ctx context.Context, req *api.ConfigureRequest) (rpl
 
 		// Only allow plugins to subscribe to events they can handle.
 		if extra := events & ^stub.events; extra != 0 {
-			stub.logger.Errorf(ctx, "Plugin subscribed for unhandled events %s (0x%x)",
+			log.Errorf(ctx, "Plugin subscribed for unhandled events %s (0x%x)",
 				extra.PrettyString(), extra)
 			return nil, fmt.Errorf("internal error: unhandled events %s (0x%x)",
 				extra.PrettyString(), extra)
 		}
 
-		stub.logger.Infof(ctx, "Subscribing plugin %s (%s) for events %s", stub.Name(),
+		log.Infof(ctx, "Subscribing plugin %s (%s) for events %s", stub.Name(),
 			filepath.Base(os.Args[0]), events.PrettyString())
 	}
 
@@ -693,7 +679,7 @@ func (stub *stub) collectSync(req *api.SynchronizeRequest) (*api.SynchronizeResp
 	stub.Lock()
 	defer stub.Unlock()
 
-	stub.logger.Debugf(noCtx, "collecting sync req with %d pods, %d containers...",
+	log.Debugf(noCtx, "collecting sync req with %d pods, %d containers...",
 		len(req.Pods), len(req.Containers))
 
 	if stub.syncReq == nil {

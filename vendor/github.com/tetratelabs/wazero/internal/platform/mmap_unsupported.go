@@ -13,7 +13,11 @@ func munmapCodeSegment(code []byte) error {
 	panic(errUnsupported)
 }
 
-func mmapCodeSegment(size int) ([]byte, error) {
+func mmapCodeSegmentAMD64(size int) ([]byte, error) {
+	panic(errUnsupported)
+}
+
+func mmapCodeSegmentARM64(size int) ([]byte, error) {
 	panic(errUnsupported)
 }
 

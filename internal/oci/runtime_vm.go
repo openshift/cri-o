@@ -41,9 +41,9 @@ import (
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	utilexec "k8s.io/utils/exec"
 
-	"github.com/cri-o/cri-o/internal/annotations"
 	"github.com/cri-o/cri-o/internal/config/cgmgr"
 	"github.com/cri-o/cri-o/internal/log"
+	"github.com/cri-o/cri-o/pkg/annotations"
 	"github.com/cri-o/cri-o/pkg/config"
 	"github.com/cri-o/cri-o/server/metrics"
 	"github.com/cri-o/cri-o/utils"
@@ -53,8 +53,6 @@ import (
 // runtimeVM is the Runtime interface implementation that is more appropriate
 // for VM based container runtimes.
 type runtimeVM struct {
-	sync.Mutex
-
 	path       string
 	fifoDir    string
 	configPath string
@@ -63,8 +61,8 @@ type runtimeVM struct {
 	ctx        context.Context
 	client     *ttrpc.Client
 	task       task.TaskService
-	handler    *config.RuntimeHandler
 
+	sync.Mutex
 	ctrs map[string]containerInfo
 }
 
@@ -105,14 +103,8 @@ func newRuntimeVM(handler *config.RuntimeHandler, exitsPath string) RuntimeImpl 
 		pullImage:  handler.RuntimePullImage,
 		fifoDir:    filepath.Join(handler.RuntimeRoot, "crio", "fifo"),
 		ctx:        context.Background(),
-		handler:    handler,
 		ctrs:       make(map[string]containerInfo),
 	}
-}
-
-// getFIFOPath returns the FIFO path for the container.
-func (r *runtimeVM) getFIFOPath() string {
-	return filepath.Join(r.handler.RuntimeRoot, "crio", "fifo")
 }
 
 func addVolumeMountsToCreateRequest(ctx context.Context, request *task.CreateTaskRequest, c *Container) error {
@@ -159,18 +151,15 @@ func (r *runtimeVM) CreateContainer(ctx context.Context, c *Container, cgroupPar
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
 
-	// Get the container create timeout for this runtime handler
-	timeout := time.Duration(r.handler.ContainerCreateTimeout) * time.Second
-
 	// Lets ensure we're able to properly get construct the Options
 	// that we'll pass to the ContainerCreateTask, as admins can set
 	// the runtime_config_path to an arbitrary location.  Also, lets
 	// fail early if something goes wrong.
 	var opts *anypb.Any = nil
 
-	if r.handler.RuntimeConfigPath != "" {
+	if r.configPath != "" {
 		runtimeOptions := &runtimeoptions.Options{
-			ConfigPath: r.handler.RuntimeConfigPath,
+			ConfigPath: r.configPath,
 		}
 
 		marshaledOtps, err := typeurl.MarshalAny(runtimeOptions)
@@ -186,7 +175,7 @@ func (r *runtimeVM) CreateContainer(ctx context.Context, c *Container, cgroupPar
 		return err
 	}
 
-	containerIO, err := r.createContainerIO(ctx, c, cio.WithNewFIFOs(r.getFIFOPath(), c.terminal, c.stdin))
+	containerIO, err := r.createContainerIO(ctx, c, cio.WithNewFIFOs(r.fifoDir, c.terminal, c.stdin))
 	if err != nil {
 		return err
 	}
@@ -216,23 +205,18 @@ func (r *runtimeVM) CreateContainer(ctx context.Context, c *Container, cgroupPar
 		Options:  opts,
 	}
 
-	if r.handler.RuntimePullImage {
+	if r.pullImage {
 		err := addVolumeMountsToCreateRequest(ctx, request, c)
 		if err != nil {
 			log.Warnf(ctx, "Failed to add KataVirtualVolume information to CreateContainer: %v", err)
 		}
 	}
 
-	// Use buffered channel to allow goroutine to complete asynchronously without blocking
-	createdCh := make(chan error, 1)
-
-	// Create a context with timeout for the task creation
-	taskCtx, taskCancel := context.WithTimeout(ctx, timeout)
-	defer taskCancel()
+	createdCh := make(chan error)
 
 	go func() {
 		// Create the container
-		if resp, err := r.task.Create(taskCtx, request); err != nil {
+		if resp, err := r.task.Create(r.ctx, request); err != nil {
 			createdCh <- errdefs.FromGRPC(err)
 		} else if err := c.state.SetInitPid(int(resp.GetPid())); err != nil {
 			createdCh <- err
@@ -246,12 +230,14 @@ func (r *runtimeVM) CreateContainer(ctx context.Context, c *Container, cgroupPar
 		if err != nil {
 			return fmt.Errorf("CreateContainer failed: %w", err)
 		}
-	case <-taskCtx.Done():
+	case <-time.After(ContainerCreateTimeout):
 		if err := r.remove(c.ID(), ""); err != nil {
-			log.Warnf(ctx, "Failed to cleanup container %s after timeout (%v): %v", c.ID(), timeout, err)
+			return err
 		}
 
-		return fmt.Errorf("Container creation timeout (%v)", timeout)
+		<-createdCh
+
+		return fmt.Errorf("CreateContainer timeout (%v)", ContainerCreateTimeout)
 	}
 
 	return nil
@@ -277,7 +263,7 @@ func (r *runtimeVM) startRuntimeDaemon(ctx context.Context, c *Container) error 
 	cmd, err := client.Command(
 		r.ctx,
 		&client.CommandConfig{
-			Runtime: r.handler.RuntimePath,
+			Runtime: r.path,
 			Path:    c.BundlePath(),
 			Args:    args,
 		},
@@ -482,7 +468,7 @@ func (r *runtimeVM) execContainerCommon(ctx context.Context, c *Container, cmd [
 	}
 
 	// Create IO fifos
-	execIO, err := cio.NewExecIO(c.ID(), r.getFIFOPath(), tty, stdin != nil)
+	execIO, err := cio.NewExecIO(c.ID(), r.fifoDir, tty, stdin != nil)
 	if err != nil {
 		return execError, errdefs.FromGRPC(err)
 	}
@@ -590,14 +576,14 @@ func (r *runtimeVM) execContainerCommon(ctx context.Context, c *Container, cmd [
 	select {
 	case err = <-execCh:
 		if err != nil {
-			if killErr := r.kill(c.ID(), execID, syscall.SIGKILL); killErr != nil {
+			if killErr := r.kill(c.ID(), execID, syscall.SIGKILL, false); killErr != nil {
 				return execError, killErr
 			}
 
 			return execError, err
 		}
 	case <-timeoutCh:
-		if killErr := r.kill(c.ID(), execID, syscall.SIGKILL); killErr != nil {
+		if killErr := r.kill(c.ID(), execID, syscall.SIGKILL, false); killErr != nil {
 			return execError, killErr
 		}
 
@@ -680,7 +666,7 @@ func (r *runtimeVM) StopContainer(ctx context.Context, c *Container, timeout int
 	if timeout > 0 {
 		sig = c.StopSignal()
 		// Send a stopping signal to the container
-		if err := r.kill(c.ID(), "", sig); err != nil {
+		if err := r.kill(c.ID(), "", sig, false); err != nil {
 			return err
 		}
 
@@ -698,7 +684,7 @@ func (r *runtimeVM) StopContainer(ctx context.Context, c *Container, timeout int
 
 	sig = syscall.SIGKILL
 	// Send a SIGKILL signal to the container
-	if err := r.kill(c.ID(), "", sig); err != nil {
+	if err := r.kill(c.ID(), "", sig, false); err != nil {
 		return err
 	}
 
@@ -916,7 +902,7 @@ func (r *runtimeVM) restoreContainerIO(ctx context.Context, c *Container, state 
 		Stderr:   state.GetStderr(),
 	}
 	// The existing fifos is created by NewFIFOSetInDir. stdin, stdout, stderr should exist
-	// in a same temporary directory under the fifo directory. crio is responsible for removing these
+	// in a same temporary directory under r.fifoDir. crio is responsible for removing these
 	// files after container io is closed.
 	var iofiles []string
 	if cioCfg.Stdin != "" {
@@ -1072,7 +1058,6 @@ func (r *runtimeVM) ContainerStats(ctx context.Context, c *Container, _ string) 
 	// We can't assume the version of metrics we will get based on the host system,
 	// because the guest VM may be using a different version.
 	// Trying to retrieve the V1 metrics first, and if it fails, try the v2
-
 	m, ok := stats.(*cgroupsV1.Metrics)
 	if ok {
 		return metricsV1ToCgroupStats(ctx, m), nil
@@ -1080,14 +1065,10 @@ func (r *runtimeVM) ContainerStats(ctx context.Context, c *Container, _ string) 
 		m, ok := stats.(*cgroupsV2.Metrics)
 		if ok {
 			return metricsV2ToCgroupStats(ctx, m), nil
-		} else {
-			return nil, fmt.Errorf("unknown stats type %T", stats)
 		}
 	}
-}
 
-func (r *runtimeVM) DiskStats(ctx context.Context, c *Container, _ string) (*DiskMetrics, error) {
-	return &DiskMetrics{}, nil
+	return nil, fmt.Errorf("unknown stats type %T", stats)
 }
 
 func metricsV1ToCgroupStats(ctx context.Context, m *cgroupsV1.Metrics) *cgmgr.CgroupStats {
@@ -1218,6 +1199,18 @@ func metricsV2ToCgroupStats(ctx context.Context, m *cgroupsV2.Metrics) *cgmgr.Cg
 	}
 }
 
+// SignalContainer sends a signal to a container process.
+func (r *runtimeVM) SignalContainer(ctx context.Context, c *Container, sig syscall.Signal) error {
+	log.Debugf(ctx, "RuntimeVM.SignalContainer() start")
+	defer log.Debugf(ctx, "RuntimeVM.SignalContainer() end")
+
+	// Lock the container
+	c.opLock.Lock()
+	defer c.opLock.Unlock()
+
+	return r.kill(c.ID(), "", sig, true)
+}
+
 // AttachContainer attaches IO to a running container.
 func (r *runtimeVM) AttachContainer(ctx context.Context, c *Container, inputStream io.Reader, outputStream, errorStream io.WriteCloser, tty bool, resizeChan <-chan remotecommand.TerminalSize) error {
 	log.Debugf(ctx, "RuntimeVM.AttachContainer() start")
@@ -1251,7 +1244,7 @@ func (r *runtimeVM) AttachContainer(ctx context.Context, c *Container, inputStre
 		},
 	}
 
-	cInfo.cio.Attach(ctx, opts)
+	cInfo.cio.Attach(opts)
 
 	return nil
 }
@@ -1322,12 +1315,12 @@ func (r *runtimeVM) wait(ctrID, execID string) (int32, error) {
 	return int32(resp.GetExitStatus()), nil
 }
 
-func (r *runtimeVM) kill(ctrID, execID string, signal syscall.Signal) error {
+func (r *runtimeVM) kill(ctrID, execID string, signal syscall.Signal, all bool) error {
 	if _, err := r.task.Kill(r.ctx, &task.KillRequest{
 		ID:     ctrID,
 		ExecID: execID,
 		Signal: uint32(signal),
-		All:    false,
+		All:    all,
 	}); err != nil {
 		return errdefs.FromGRPC(err)
 	}
@@ -1402,7 +1395,7 @@ func EncodeKataVirtualVolumeToBase64(ctx context.Context, volume *katavolume.Kat
 }
 
 func (r *runtimeVM) IsContainerAlive(c *Container) bool {
-	return r.kill(c.ID(), "", 0) == nil
+	return r.kill(c.ID(), "", 0, false) == nil
 }
 
 func (r *runtimeVM) ProbeMonitor(ctx context.Context, c *Container) error {

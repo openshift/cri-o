@@ -36,9 +36,7 @@ func openFile(path string, oflag sys.Oflag, perm fs.FileMode) (*os.File, sys.Err
 	// To match expectations of WASI, e.g. TinyGo TestStatBadDir, return
 	// ENOENT, not ENOTDIR.
 	case sys.ENOTDIR:
-		if !strings.HasSuffix(path, "/") {
-			errno = sys.ENOENT
-		}
+		errno = sys.ENOENT
 	case sys.ENOENT:
 		if isSymlink(path) {
 			// Either symlink or hard link not found. We change the returned

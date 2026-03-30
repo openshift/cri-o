@@ -3,15 +3,14 @@ package storage
 import (
 	"context"
 	"errors"
-	"slices"
 	"time"
 
-	json "github.com/goccy/go-json"
+	istorage "github.com/containers/image/v5/storage"
+	"github.com/containers/image/v5/types"
+	"github.com/containers/storage"
+	json "github.com/json-iterator/go"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
-	istorage "go.podman.io/image/v5/storage"
-	"go.podman.io/image/v5/types"
-	"go.podman.io/storage"
 
 	"github.com/cri-o/cri-o/internal/log"
 )
@@ -411,12 +410,14 @@ func (r *runtimeService) deleteLayerIfMapped(imageID, layerID string) {
 		return
 	}
 
-	if slices.Contains(image.MappedTopLayers, layerID) {
-		// if the layer is used by other containers, DeleteLayer
-		// will fail.
-		store.DeleteLayer(layerID) //nolint: errcheck
+	for _, ml := range image.MappedTopLayers {
+		if ml == layerID {
+			// if the layer is used by other containers, DeleteLayer
+			// will fail.
+			store.DeleteLayer(layerID) //nolint: errcheck
 
-		return
+			return
+		}
 	}
 }
 

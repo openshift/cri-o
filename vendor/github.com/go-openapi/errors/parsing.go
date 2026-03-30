@@ -30,24 +30,6 @@ type ParseError struct {
 	message string
 }
 
-// NewParseError creates a new parse error
-func NewParseError(name, in, value string, reason error) *ParseError {
-	var msg string
-	if in == "" {
-		msg = fmt.Sprintf(parseErrorTemplContentNoIn, name, value, reason)
-	} else {
-		msg = fmt.Sprintf(parseErrorTemplContent, name, in, value, reason)
-	}
-	return &ParseError{
-		code:    http.StatusBadRequest,
-		Name:    name,
-		In:      in,
-		Value:   value,
-		Reason:  reason,
-		message: msg,
-	}
-}
-
 func (e *ParseError) Error() string {
 	return e.message
 }
@@ -77,3 +59,21 @@ const (
 	parseErrorTemplContent     = `parsing %s %s from %q failed, because %s`
 	parseErrorTemplContentNoIn = `parsing %s from %q failed, because %s`
 )
+
+// NewParseError creates a new parse error
+func NewParseError(name, in, value string, reason error) *ParseError {
+	var msg string
+	if in == "" {
+		msg = fmt.Sprintf(parseErrorTemplContentNoIn, name, value, reason)
+	} else {
+		msg = fmt.Sprintf(parseErrorTemplContent, name, in, value, reason)
+	}
+	return &ParseError{
+		code:    http.StatusBadRequest,
+		Name:    name,
+		In:      in,
+		Value:   value,
+		Reason:  reason,
+		message: msg,
+	}
+}

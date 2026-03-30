@@ -243,17 +243,17 @@ func RegisterHostFunctionsService(srv *ttrpc.Server, svc HostFunctionsService) {
 	})
 }
 
-type hostfunctionsClient struct {
+type hostFunctionsClient struct {
 	client *ttrpc.Client
 }
 
 func NewHostFunctionsClient(client *ttrpc.Client) HostFunctionsService {
-	return &hostfunctionsClient{
+	return &hostFunctionsClient{
 		client: client,
 	}
 }
 
-func (c *hostfunctionsClient) Log(ctx context.Context, req *LogRequest) (*Empty, error) {
+func (c *hostFunctionsClient) Log(ctx context.Context, req *LogRequest) (*Empty, error) {
 	var resp Empty
 	if err := c.client.Call(ctx, "nri.pkg.api.v1alpha1.HostFunctions", "Log", req, &resp); err != nil {
 		return nil, err

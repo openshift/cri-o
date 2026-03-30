@@ -381,22 +381,13 @@ func (r *DefaultReporter) emitTimeline(indent uint, report types.SpecReport, tim
 	cursor := 0
 	for _, entry := range timeline {
 		tl := entry.GetTimelineLocation()
-
-		end := tl.Offset
-		if end > len(gw) {
-			end = len(gw)
-		}
-		if end < cursor {
-			end = cursor
-		}
-		if cursor < end && cursor <= len(gw) && end <= len(gw) {
-			r.emit(r.fi(indent, "%s", gw[cursor:end]))
-			cursor = end
-		} else if cursor < len(gw) && end == len(gw) {
+		if tl.Offset < len(gw) {
+			r.emit(r.fi(indent, "%s", gw[cursor:tl.Offset]))
+			cursor = tl.Offset
+		} else if cursor < len(gw) {
 			r.emit(r.fi(indent, "%s", gw[cursor:]))
 			cursor = len(gw)
 		}
-
 		switch x := entry.(type) {
 		case types.Failure:
 			if isVeryVerbose {
@@ -413,7 +404,7 @@ func (r *DefaultReporter) emitTimeline(indent uint, report types.SpecReport, tim
 		case types.ReportEntry:
 			r.emitReportEntry(indent, x)
 		case types.ProgressReport:
-			r.emitProgressReport(indent, false, isVeryVerbose, x)
+			r.emitProgressReport(indent, false, false, x)
 		case types.SpecEvent:
 			if isVeryVerbose || !x.IsOnlyVisibleAtVeryVerbose() || r.conf.ShowNodeEvents {
 				r.emitSpecEvent(indent, x, isVeryVerbose)

@@ -16,7 +16,6 @@ type PluginOption func(*plugin)
 
 type plugin struct {
 	sync.Mutex
-
 	namespace string
 	options   []stub.Option
 	stub      stub.Stub

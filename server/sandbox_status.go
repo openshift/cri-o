@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	json "github.com/goccy/go-json"
+	json "github.com/json-iterator/go"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -96,7 +96,7 @@ func createSandboxInfo(c *oci.Container) (map[string]string, error) {
 	var info any
 	if c.Spoofed() {
 		info = struct {
-			RuntimeSpec spec.Spec `json:"runtimeSpec"`
+			RuntimeSpec spec.Spec `json:"runtimeSpec,omitempty"`
 		}{
 			c.Spec(),
 		}
@@ -104,7 +104,7 @@ func createSandboxInfo(c *oci.Container) (map[string]string, error) {
 		info = struct {
 			Image       string    `json:"image"`
 			Pid         int       `json:"pid"`
-			RuntimeSpec spec.Spec `json:"runtimeSpec"`
+			RuntimeSpec spec.Spec `json:"runtimeSpec,omitempty"`
 		}{
 			c.UserRequestedImage(),
 			c.State().Pid,

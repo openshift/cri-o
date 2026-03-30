@@ -77,7 +77,7 @@ var _ = t.Describe("Automated Releases", func() {
 })
 
 func getMockVersionFileContent(version string) []byte {
-	return fmt.Appendf(nil, `
+	return []byte(fmt.Sprintf(`
   package version
 
   import (
@@ -93,10 +93,10 @@ func getMockVersionFileContent(version string) []byte {
     "text/tabwriter"
 
     "github.com/blang/semver/v4"
-    "go.podman.io/common/pkg/apparmor"
-    "go.podman.io/common/pkg/seccomp"
+    "github.com/containers/common/pkg/apparmor"
+    "github.com/containers/common/pkg/seccomp"
     "github.com/google/renameio"
-    json "github.com/goccy/go-json"
+    json "github.com/json-iterator/go"
     "github.com/sirupsen/logrus"
   )
 
@@ -116,5 +116,5 @@ func getMockVersionFileContent(version string) []byte {
   func ShouldCrioWipe(versionFileName string) (bool, error) {
     return shouldCrioWipe(versionFileName, Version)
   }
-  `, version)
+  `, version))
 }

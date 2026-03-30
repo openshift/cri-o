@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/containers/image/v5/docker/reference"
+	istorage "github.com/containers/image/v5/storage"
+	"github.com/containers/image/v5/types"
+	cs "github.com/containers/storage"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	digest "github.com/opencontainers/go-digest"
-	"go.podman.io/image/v5/docker/reference"
-	istorage "go.podman.io/image/v5/storage"
-	"go.podman.io/image/v5/types"
-	cs "go.podman.io/storage"
 	"go.uber.org/mock/gomock"
 
 	"github.com/cri-o/cri-o/internal/mockutils"
@@ -67,7 +67,8 @@ var _ = t.Describe("Image", func() {
 				SystemRegistriesConfPath: t.MustTempFile("registries"),
 			},
 			ImageConfig: config.ImageConfig{
-				DefaultTransport: "docker://",
+				DefaultTransport:   "docker://",
+				InsecureRegistries: []string{},
 			},
 		}
 
@@ -103,7 +104,8 @@ var _ = t.Describe("Image", func() {
 					SystemRegistriesConfPath: "../../test/registries.conf",
 				},
 				ImageConfig: config.ImageConfig{
-					DefaultTransport: "",
+					DefaultTransport:   "",
+					InsecureRegistries: []string{},
 				},
 			}
 			imageService, err := storage.GetImageService(
@@ -281,7 +283,8 @@ var _ = t.Describe("Image", func() {
 			config := &config.Config{
 				SystemContext: ctx,
 				ImageConfig: config.ImageConfig{
-					DefaultTransport: "",
+					DefaultTransport:   "",
+					InsecureRegistries: []string{},
 				},
 			}
 			// Create an empty file for the registries config path
@@ -586,6 +589,9 @@ var _ = t.Describe("Image", func() {
 
 		It("should fail on copy image", func() {
 			// Given
+			mockutils.InOrder(
+				storeMock.EXPECT().GraphRoot().Return(""),
+			)
 			imageRef, err := references.ParseRegistryImageReferenceFromOutOfProcessData("localhost/busybox:latest")
 			Expect(err).ToNot(HaveOccurred())
 
@@ -601,6 +607,9 @@ var _ = t.Describe("Image", func() {
 
 		It("should fail on canonical copy image", func() {
 			// Given
+			mockutils.InOrder(
+				storeMock.EXPECT().GraphRoot().Return(""),
+			)
 			imageRef, err := references.ParseRegistryImageReferenceFromOutOfProcessData("localhost/busybox@sha256:" + testSHA256)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -616,6 +625,9 @@ var _ = t.Describe("Image", func() {
 
 		It("should fail on cancelled context", func() {
 			// Given
+			mockutils.InOrder(
+				storeMock.EXPECT().GraphRoot().Return(""),
+			)
 			imageRef, err := references.ParseRegistryImageReferenceFromOutOfProcessData("localhost/busybox:latest")
 			Expect(err).ToNot(HaveOccurred())
 
@@ -634,6 +646,9 @@ var _ = t.Describe("Image", func() {
 
 		It("should fail on timed out context", func() {
 			// Given
+			mockutils.InOrder(
+				storeMock.EXPECT().GraphRoot().Return(""),
+			)
 			imageRef, err := references.ParseRegistryImageReferenceFromOutOfProcessData("localhost/busybox:latest")
 			Expect(err).ToNot(HaveOccurred())
 

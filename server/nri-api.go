@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"maps"
 
 	"github.com/containerd/nri/pkg/api"
 	nrigen "github.com/containerd/nri/pkg/runtime-tools/generate"
@@ -14,7 +13,6 @@ import (
 	cri "k8s.io/cri-api/pkg/apis/runtime/v1"
 	"tags.cncf.io/container-device-interface/pkg/cdi"
 
-	"github.com/cri-o/cri-o/internal/annotations"
 	"github.com/cri-o/cri-o/internal/config/cgmgr"
 	"github.com/cri-o/cri-o/internal/config/node"
 	"github.com/cri-o/cri-o/internal/config/rdt"
@@ -22,6 +20,7 @@ import (
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/nri"
 	"github.com/cri-o/cri-o/internal/oci"
+	"github.com/cri-o/cri-o/pkg/annotations"
 )
 
 type nriAPI struct {
@@ -116,10 +115,6 @@ func (a *nriAPI) createContainer(ctx context.Context, specgen *generate.Generato
 	adjust, err := a.nri.CreateContainer(ctx, pod, ctr)
 	if err != nil {
 		return err
-	}
-
-	if adjust == nil {
-		return nil
 	}
 
 	wrapgen := nrigen.SpecGenerator(specgen,
@@ -487,7 +482,6 @@ func (a *nriAPI) EvictContainer(ctx context.Context, e *api.ContainerEviction) e
 
 type criPodSandbox struct {
 	*sandbox.Sandbox
-
 	spec *rspec.Spec
 	pid  int
 }
@@ -558,7 +552,9 @@ func (p *criPodSandbox) GetAnnotations() map[string]string {
 	}
 
 	anns := map[string]string{}
-	maps.Copy(anns, p.Annotations())
+	for key, value := range p.Annotations() {
+		anns[key] = value
+	}
 
 	return anns
 }
@@ -569,7 +565,9 @@ func (p *criPodSandbox) GetLabels() map[string]string {
 	}
 
 	labels := map[string]string{}
-	maps.Copy(labels, p.Labels())
+	for key, value := range p.Labels() {
+		labels[key] = value
+	}
 
 	return labels
 }
@@ -771,46 +769,6 @@ func (c *criContainer) GetCgroupsPath() string {
 	return c.GetSpec().Linux.CgroupsPath
 }
 
-func (c *criContainer) GetIOPriority() *api.LinuxIOPriority {
-	spec := c.GetSpec()
-	if spec.Process == nil {
-		return nil
-	}
-
-	return api.FromOCILinuxIOPriority(spec.Process.IOPriority)
-}
-
-func (c *criContainer) GetScheduler() *api.LinuxScheduler {
-	spec := c.GetSpec()
-	if spec.Process == nil || spec.Process.Scheduler == nil {
-		return nil
-	}
-
-	return api.FromOCILinuxScheduler(spec.Process.Scheduler)
-}
-
-func (c *criContainer) GetNetDevices() map[string]*api.LinuxNetDevice {
-	spec := c.GetSpec()
-	if spec.Linux == nil {
-		return nil
-	}
-
-	return api.FromOCILinuxNetDevices(spec.Linux.NetDevices)
-}
-
-func (c *criContainer) GetRdt() *api.LinuxRdt {
-	spec := c.GetSpec()
-	if spec.Linux == nil || spec.Linux.IntelRdt == nil {
-		return nil
-	}
-
-	return &api.LinuxRdt{
-		ClosId:           api.String(spec.Linux.IntelRdt.ClosID),
-		Schemata:         api.RepeatedString(spec.Linux.IntelRdt.Schemata),
-		EnableMonitoring: api.Bool(spec.Linux.IntelRdt.EnableMonitoring),
-	}
-}
-
 func (c *criContainer) GetSpec() *rspec.Spec {
 	if c.spec != nil {
 		return c.spec
@@ -859,7 +817,9 @@ func fromCRILinuxResources(c *cri.LinuxContainerResources) *api.LinuxResources {
 
 	if u := c.GetUnified(); len(u) != 0 {
 		r.Unified = make(map[string]string)
-		maps.Copy(r.GetUnified(), u)
+		for k, v := range u {
+			r.Unified[k] = v
+		}
 	}
 
 	return r
@@ -894,7 +854,9 @@ func toCRIResources(r *api.LinuxResources, oomScoreAdj int64) *cri.LinuxContaine
 
 	if u := r.GetUnified(); len(u) != 0 {
 		o.Unified = make(map[string]string)
-		maps.Copy(o.GetUnified(), u)
+		for k, v := range u {
+			o.Unified[k] = v
+		}
 	}
 
 	return o

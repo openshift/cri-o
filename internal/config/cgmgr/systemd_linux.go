@@ -10,13 +10,13 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/containers/storage/pkg/unshare"
 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
 	"github.com/godbus/dbus/v5"
 	"github.com/opencontainers/cgroups"
 	"github.com/opencontainers/cgroups/systemd"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
-	"go.podman.io/storage/pkg/unshare"
 	"golang.org/x/sys/unix"
 
 	"github.com/cri-o/cri-o/internal/config/node"
@@ -134,7 +134,12 @@ func (m *SystemdManager) ContainerCgroupStats(sbParent, containerID string) (*Cg
 		return nil, err
 	}
 
-	return statsFromLibctrMgr(cgMgr)
+	stats, err := cgMgr.GetStats()
+	if err != nil {
+		return nil, err
+	}
+
+	return libctrStatsToCgroupStats(stats), nil
 }
 
 // RemoveContainerCgManager removes the cgroup manager for the container.
@@ -280,7 +285,12 @@ func (m *SystemdManager) SandboxCgroupStats(sbParent, sbID string) (*CgroupStats
 		return nil, err
 	}
 
-	return statsFromLibctrMgr(cgMgr)
+	stats, err := cgMgr.GetStats()
+	if err != nil {
+		return nil, err
+	}
+
+	return libctrStatsToCgroupStats(stats), nil
 }
 
 // RemoveSandboxCgroupManager removes cgroup manager for the sandbox.

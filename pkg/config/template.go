@@ -64,19 +64,15 @@ func assembleTemplateString(displayAllConfig bool, c *Config) string {
 func crioTemplateString(group templateGroup, prefix string, displayAll bool, crioTemplateConfig []*templateConfigValue) string {
 	templateString := ""
 
-	var sb strings.Builder
-
 	for _, configItem := range crioTemplateConfig {
 		if group == configItem.group {
 			if !configItem.isDefaultValue || displayAll {
-				sb.WriteString(strings.ReplaceAll(configItem.templateString, "{{ $.Comment }}", ""))
+				templateString += strings.ReplaceAll(configItem.templateString, "{{ $.Comment }}", "")
 			} else {
-				sb.WriteString(configItem.templateString)
+				templateString += configItem.templateString
 			}
 		}
 	}
-
-	templateString += sb.String()
 
 	if templateString != "" {
 		templateString = prefix + templateString
@@ -208,16 +204,6 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 			isDefaultValue: simpleEqual(dc.StreamTLSCA, c.StreamTLSCA),
 		},
 		{
-			templateString: templateStringCrioAPITLSMinVersion,
-			group:          crioAPIConfig,
-			isDefaultValue: simpleEqual(dc.TLSMinVersion, c.TLSMinVersion),
-		},
-		{
-			templateString: templateStringCrioAPITLSCipherSuites,
-			group:          crioAPIConfig,
-			isDefaultValue: slices.Equal(dc.TLSCipherSuites, c.TLSCipherSuites),
-		},
-		{
 			templateString: templateStringCrioAPIGrpcMaxSendMsgSize,
 			group:          crioAPIConfig,
 			isDefaultValue: simpleEqual(dc.GRPCMaxSendMsgSize, c.GRPCMaxSendMsgSize),
@@ -241,11 +227,6 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 			templateString: templateStringCrioRuntimeDecryptionKeysPath,
 			group:          crioRuntimeConfig,
 			isDefaultValue: simpleEqual(dc.DecryptionKeysPath, c.DecryptionKeysPath),
-		},
-		{
-			templateString: templateStringCrioRuntimeAdditionalArtifactStores,
-			group:          crioRuntimeConfig,
-			isDefaultValue: slices.Equal(dc.AdditionalArtifactStores, c.AdditionalArtifactStores),
 		},
 		{
 			templateString: templateStringCrioRuntimeConmon,
@@ -659,7 +640,7 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 		},
 		{
 			templateString: templateStringCrioStatsIncludedPodMetrics,
-			group:          crioStatsConfig,
+			group:          crioNetworkConfig,
 			isDefaultValue: slices.Equal(dc.IncludedPodMetrics, c.IncludedPodMetrics),
 		},
 		{
@@ -893,28 +874,6 @@ const templateStringCrioAPIStreamTLSCa = `# Path to the x509 CA(s) file used to 
 
 `
 
-const templateStringCrioAPITLSMinVersion = `# Minimum TLS version for CRI-O's TLS servers (streaming and metrics).
-# Valid values are: "VersionTLS12" and "VersionTLS13" (matching Kubernetes conventions).
-# Default is "VersionTLS12".
-{{ $.Comment }}tls_min_version = "{{ .TLSMinVersion }}"
-
-`
-
-const templateStringCrioAPITLSCipherSuites = `# List of cipher suites for TLS 1.2 (TOML array).
-# If omitted, the default Go cipher suites will be used.
-# This has no effect on TLS 1.3 as Go manages cipher suites automatically.
-# Preferred TLS 1.2 values: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-#   TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-#   TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256.
-# Insecure values: TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
-#   TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
-#   TLS_RSA_WITH_AES_128_GCM_SHA256, TLS_RSA_WITH_AES_256_GCM_SHA384,
-#   TLS_RSA_WITH_AES_128_CBC_SHA, TLS_RSA_WITH_AES_256_CBC_SHA.
-{{ $.Comment }}tls_cipher_suites = [
-{{ range $cs := .TLSCipherSuites }}{{ $.Comment }}{{ printf "\t%q,\n" $cs }}{{ end }}{{ $.Comment }}]
-
-`
-
 const templateStringCrioAPIGrpcMaxSendMsgSize = `# Maximum grpc send message size in bytes. If not set or <=0, then CRI-O will default to 80 * 1024 * 1024.
 {{ $.Comment }}grpc_max_send_msg_size = {{ .GRPCMaxSendMsgSize }}
 
@@ -948,17 +907,6 @@ const templateStringCrioRuntimeNoPivot = `# If true, the runtime will not use pi
 const templateStringCrioRuntimeDecryptionKeysPath = `# decryption_keys_path is the path where the keys required for
 # image decryption are stored. This option supports live configuration reload.
 {{ $.Comment }}decryption_keys_path = "{{ .DecryptionKeysPath }}"
-
-`
-
-const templateStringCrioRuntimeAdditionalArtifactStores = `# A list of additional read-only OCI artifact store paths
-# (experimental, subject to change).
-# CRI-O expects an "artifacts/" subdirectory within each configured path.
-# All entries must be absolute paths. Artifacts in these stores take priority
-# over the main store. Tag re-pointing is not supported for artifacts in
-# read-only stores; remove the artifact from the store filesystem to update.
-{{ $.Comment }}additional_artifact_stores = [
-{{ range $store := .AdditionalArtifactStores }}{{ $.Comment }}{{ printf "\t%q,\n" $store }}{{ end }}{{ $.Comment }}]
 
 `
 
@@ -1309,7 +1257,6 @@ const templateStringCrioRuntimeRuntimesRuntimeHandler = `# The "crio.runtime.run
 # default_annotations = {}
 # stream_websockets = false
 # seccomp_profile = ""
-# container_create_timeout = 240
 # Where:
 # - runtime-handler: Name used to identify the runtime.
 # - runtime_path (optional, string): Absolute path to the runtime executable in
@@ -1373,11 +1320,6 @@ const templateStringCrioRuntimeRuntimesRuntimeHandler = `# The "crio.runtime.run
 #   seccomp profile for the runtime.
 #   If not specified or set to "", the runtime seccomp_profile will be used.
 #   If that is also not specified or set to "", the internal default seccomp profile will be applied.
-# - container_create_timeout (optional, int64): The timeout for container creation operations in seconds.
-#   If not set, defaults to 240 seconds. If set to a value less than 30 seconds, it will be automatically
-#   adjusted to 30 seconds (the minimum allowed value). This allows different runtime handlers to have
-#   different container creation timeouts, which is useful for VM-based runtimes that may need longer
-#   timeouts than OCI runtimes.
 #
 # Using the seccomp notifier feature:
 #
@@ -1567,7 +1509,7 @@ const templateStringCrioImageSignaturePolicyDir = `# Root path for pod namespace
 const templateStringCrioImageInsecureRegistries = `# List of registries to skip TLS verification for pulling images. Please
 # consider configuring the registries via /etc/containers/registries.conf before
 # changing them here.
-# This option is deprecated and no longer effective. Use registries.conf file instead.
+# This option is deprecated. Use registries.conf file instead.
 {{ $.Comment }}insecure_registries = [
 {{ range $opt := .InsecureRegistries }}{{ $.Comment }}{{ printf "\t%q,\n" $opt }}{{ end }}{{ $.Comment }}]
 
@@ -1714,7 +1656,6 @@ const templateStringCrioStatsCollectionPeriod = `# The number of seconds between
 `
 
 const templateStringCrioStatsIncludedPodMetrics = `# List of included pod metrics.
-# You can also specify "all" to include all available metrics. If you specify "all", it should be the only item in the list.
 {{ $.Comment }}included_pod_metrics = [
 {{ range $opt := .IncludedPodMetrics }}{{ $.Comment }}{{ printf "\t%q,\n" $opt }}{{ end }}{{ $.Comment }}]
 

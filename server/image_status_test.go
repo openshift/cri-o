@@ -3,10 +3,10 @@ package server_test
 import (
 	"context"
 
+	istorage "github.com/containers/image/v5/storage"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
-	istorage "go.podman.io/image/v5/storage"
 	"go.uber.org/mock/gomock"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
@@ -131,6 +131,7 @@ var _ = t.Describe("ImageStatus", func() {
 				imageServerMock.EXPECT().ImageStatusByName(
 					gomock.Any(), imageCandidate).
 					Return(nil, istorage.ErrNoSuchImage),
+				storeMock.EXPECT().GraphRoot().Return(""),
 			)
 
 			// When

@@ -1,19 +1,13 @@
 package cgmgr
 
 import (
-	"context"
 	"math"
-	"os"
-	"path"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/opencontainers/cgroups"
 
 	"github.com/cri-o/cri-o/internal/config/node"
-	"github.com/cri-o/cri-o/internal/log"
 )
 
 // This is a universal stats object to be used across different runtime implementations.
@@ -25,7 +19,6 @@ type CgroupStats struct {
 	CPU        *CPUStats
 	Hugetlb    map[string]HugetlbStats
 	Pid        *PidsStats
-	DiskIO     *DiskIOStats
 	SystemNano int64
 }
 
@@ -47,8 +40,6 @@ type MemoryStats struct {
 	FileMapped uint64
 	// The number of memory usage hits limits. For cgroup v1 only.
 	Failcnt uint64
-
-	PSI *PSIStats
 }
 
 type CPUStats struct {
@@ -64,8 +55,6 @@ type CPUStats struct {
 	ThrottledPeriods uint64
 	// Aggregate time the container was throttled for in nanoseconds.
 	ThrottledTime uint64
-
-	PSI *PSIStats
 }
 
 type HugetlbStats struct {
@@ -74,39 +63,8 @@ type HugetlbStats struct {
 }
 
 type PidsStats struct {
-	Current         uint64
-	Limit           uint64
-	Pids            []int
-	FileDescriptors uint64
-	Sockets         uint64
-	Threads         uint64
-	ThreadsMax      uint64
-	UlimitsSoft     uint64
-}
-
-type DiskIOStats struct {
-	IoServiceBytes []cgroups.BlkioStatEntry
-	IoServiced     []cgroups.BlkioStatEntry
-	PSI            *PSIStats
-}
-
-type PSIStats struct {
-	// PSI data for all tasks of in the cgroup.
-	Full PSIData
-	// PSI data for some tasks in the cgroup.
-	Some PSIData
-}
-
-type PSIData struct {
-	// Total is total duration for tasks in the cgroup have waited due to congestion.
-	// Unit: microseconds.
-	Total uint64
-	// The average (in %) tasks have waited due to congestion over a 10-second window.
-	Avg10 float64
-	// The average (in %) tasks have waited due to congestion over a 60-second window.
-	Avg60 float64
-	// The average (in %) tasks have waited due to congestion over a 300-second window.
-	Avg300 float64
+	Current uint64
+	Limit   uint64
 }
 
 // MemLimitGivenSystem limit returns the memory limit for a given cgroup
@@ -131,49 +89,16 @@ func MemLimitGivenSystem(cgroupLimit uint64) uint64 {
 	return cgroupLimit
 }
 
-func statsFromLibctrMgr(cgMgr cgroups.Manager) (*CgroupStats, error) {
-	stats, err := cgMgr.GetStats()
-	if err != nil {
-		return nil, err
-	}
-
-	pids, err := cgMgr.GetPids()
-	if err != nil {
-		return nil, err
-	}
-
+func libctrStatsToCgroupStats(stats *cgroups.Stats) *CgroupStats {
 	return &CgroupStats{
 		Memory:  cgroupMemStats(&stats.MemoryStats),
 		CPU:     cgroupCPUStats(&stats.CpuStats),
 		Hugetlb: cgroupHugetlbStats(stats.HugetlbStats),
-		Pid:     cgroupPidStats(stats, pids),
-		DiskIO: &DiskIOStats{
-			IoServiced:     stats.BlkioStats.IoServicedRecursive,
-			IoServiceBytes: stats.BlkioStats.IoServiceBytesRecursive,
-			PSI:            cgroupPSIStats(stats.BlkioStats.PSI),
+		Pid: &PidsStats{
+			Current: stats.PidsStats.Current,
+			Limit:   stats.PidsStats.Limit,
 		},
 		SystemNano: time.Now().UnixNano(),
-	}, nil
-}
-
-func cgroupPSIStats(psi *cgroups.PSIStats) *PSIStats {
-	if psi == nil {
-		return nil
-	}
-
-	return &PSIStats{
-		Full: PSIData{
-			Total:  psi.Full.Total,
-			Avg10:  psi.Full.Avg10,
-			Avg60:  psi.Full.Avg60,
-			Avg300: psi.Full.Avg300,
-		},
-		Some: PSIData{
-			Total:  psi.Some.Total,
-			Avg10:  psi.Some.Avg10,
-			Avg60:  psi.Some.Avg60,
-			Avg300: psi.Some.Avg300,
-		},
 	}
 }
 
@@ -249,7 +174,6 @@ func cgroupMemStats(memStats *cgroups.MemoryStats) *MemoryStats {
 		SwapLimit:       memStats.SwapUsage.Limit,
 		FileMapped:      fileMapped,
 		Failcnt:         failcnt,
-		PSI:             cgroupPSIStats(memStats.PSI),
 	}
 }
 
@@ -262,7 +186,6 @@ func cgroupCPUStats(cpuStats *cgroups.CpuStats) *CPUStats {
 		ThrottlingActivePeriods: cpuStats.ThrottlingData.Periods,
 		ThrottledPeriods:        cpuStats.ThrottlingData.ThrottledPeriods,
 		ThrottledTime:           cpuStats.ThrottlingData.ThrottledTime,
-		PSI:                     cgroupPSIStats(cpuStats.PSI),
 	}
 }
 
@@ -284,90 +207,4 @@ func isMemoryUnlimited(v uint64) bool {
 	// or the value of memory.limit_in_bytes (in cgroupv1) will be -1
 	// either way, libcontainer/cgroups will return math.MaxUint64
 	return v == math.MaxUint64
-}
-
-func cgroupPidStats(stats *cgroups.Stats, pids []int) *PidsStats {
-	var fdCount, socketCount, ulimitsSoft uint64
-
-	// This is based on the cadvisor handler: https://github.com/google/cadvisor/blob/master/container/libcontainer/handler.go
-	for _, pid := range pids {
-		addFdsForProcess(pid, &fdCount, &socketCount)
-		addUlimitsForProcess(pid, &ulimitsSoft)
-	}
-
-	return &PidsStats{
-		Current:         stats.PidsStats.Current,
-		Limit:           stats.PidsStats.Limit,
-		Pids:            pids,
-		FileDescriptors: fdCount,
-		Sockets:         socketCount,
-		Threads:         stats.PidsStats.Current,
-		ThreadsMax:      stats.PidsStats.Limit,
-		UlimitsSoft:     ulimitsSoft,
-	}
-}
-
-func addFdsForProcess(pid int, fdCount, socketCount *uint64) {
-	if fdCount == nil || socketCount == nil {
-		panic("Programming error: fdCount or socketCount should not be nil")
-	}
-
-	dirPath := path.Join("/proc", strconv.Itoa(pid), "fd")
-
-	fds, err := os.ReadDir(dirPath)
-	if err != nil {
-		log.Infof(context.Background(), "error while listing directory %q to measure fd count: %v", dirPath, err)
-
-		return
-	}
-
-	*fdCount += uint64(len(fds))
-	for _, fd := range fds {
-		fdPath := path.Join(dirPath, fd.Name())
-
-		linkName, err := os.Readlink(fdPath)
-		if err != nil {
-			log.Infof(context.Background(), "error while reading %q link: %v", fdPath, err)
-
-			continue
-		}
-
-		if strings.HasPrefix(linkName, "socket") {
-			*socketCount++
-		}
-	}
-}
-
-func addUlimitsForProcess(pid int, limits *uint64) {
-	if limits == nil {
-		panic("Programming error: limits should not be nil")
-	}
-
-	limitsPath := path.Join("/proc", strconv.Itoa(pid), "limits")
-
-	limitsData, err := os.ReadFile(limitsPath)
-	if err != nil {
-		log.Infof(context.Background(), "error while reading %q to get thread limits: %v", limitsPath, err)
-
-		return
-	}
-
-	for line := range strings.SplitSeq(string(limitsData), "\n") {
-		if !strings.HasPrefix(line, "Max open files") {
-			continue
-		}
-
-		const maxOpenFilesPrefix = "Max open files"
-
-		remainingLine := strings.TrimSpace(line[len(maxOpenFilesPrefix):])
-
-		fields := strings.Fields(remainingLine)
-		if len(fields) >= 1 {
-			if softLimit, err := strconv.ParseUint(fields[0], 10, 64); err == nil {
-				*limits = softLimit
-			}
-		}
-
-		return
-	}
 }

@@ -18,7 +18,6 @@ package api
 
 import "time"
 
-// GetCreatedAtTime returns the time the container was created at as time.Time.
 func (x *Container) GetCreatedAtTime() time.Time {
 	t := time.Time{}
 	if x != nil {
@@ -27,7 +26,6 @@ func (x *Container) GetCreatedAtTime() time.Time {
 	return t
 }
 
-// GetStartedAtTime returns the time the container was started at as time.Time.
 func (x *Container) GetStartedAtTime() time.Time {
 	t := time.Time{}
 	if x != nil {
@@ -36,7 +34,6 @@ func (x *Container) GetStartedAtTime() time.Time {
 	return t
 }
 
-// GetFinishedAtTime returns the time the container was finished at as time.Time.
 func (x *Container) GetFinishedAtTime() time.Time {
 	t := time.Time{}
 	if x != nil {

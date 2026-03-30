@@ -21,7 +21,7 @@ import (
 	"time"
 )
 
-var nowfunc = time.Now
+var nowfunc = func() time.Time { return time.Now() }
 
 // LogReduction provides a filter for consecutive identical log messages;
 // a message will be printed no more than once per interval.
