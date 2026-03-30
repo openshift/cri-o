@@ -1053,16 +1053,38 @@ func (r *runtimeOCI) StopLoopForContainer(ctx context.Context, c *Container, bm 
 	targetTime := time.Now().AddDate(+1, 0, 0) // A year from this one.
 
 	blockedTimer := time.AfterFunc(stopProcessBlockedInterval, func() {
+		pid := c.state.InitPid
 		if state, err := c.ProcessState(); err == nil && state == "D" {
 			log.Errorf(ctx,
 				"Detected process (%d) blocked in uninterruptible sleep for more than %d seconds for container %s",
-				c.state.InitPid, int(time.Since(startTime)/time.Second), c.ID(),
+				pid, int(time.Since(startTime)/time.Second), c.ID(),
 			)
 		} else {
 			log.Warnf(ctx,
-				"Detected process (%d) in state %s blocked for more than %d seconds for container %s. One of the child processes might be in uninterruptible sleep.",
-				c.state.InitPid, state, int(time.Since(startTime)/time.Second), c.ID(),
+				"Detected process (%d) in state %s blocked for more than %d seconds for container %s. Possible causes: D-state threads, frozen cgroup, or D-state ns-peer processes.",
+				pid, state, int(time.Since(startTime)/time.Second), c.ID(),
 			)
+		}
+
+		// Log a quick summary of threads and their states
+		taskDir := fmt.Sprintf("/proc/%d/task", pid)
+		if threadEntries, err := os.ReadDir(taskDir); err == nil {
+			dCount := 0
+			for _, te := range threadEntries {
+				if tStatus, err := os.ReadFile(fmt.Sprintf("%s/%s/status", taskDir, te.Name())); err == nil {
+					for _, line := range strings.Split(string(tStatus), "\n") {
+						if strings.HasPrefix(line, "State:") && (strings.Contains(line, " D ") || strings.Contains(line, "(disk sleep)")) {
+							dCount++
+							tWchan, _ := os.ReadFile(fmt.Sprintf("%s/%s/wchan", taskDir, te.Name()))
+							log.Warnf(ctx, "  D-state thread tid=%s wchan=%s", te.Name(), strings.TrimSpace(string(tWchan)))
+						}
+						break
+					}
+				}
+			}
+			if dCount > 0 {
+				log.Warnf(ctx, "  %d of %d threads in D (uninterruptible sleep) state for PID %d", dCount, len(threadEntries), pid)
+			}
 		}
 	})
 	defer blockedTimer.Stop()
@@ -1128,15 +1150,124 @@ killContainer:
 				log.Warnf(ctx, "  /proc/%d/status: %s", pid, line)
 			}
 
-			// Check child process states
-			childrenDir := fmt.Sprintf("/proc/%d/task/%d/children", pid, pid)
-			if children, err := os.ReadFile(childrenDir); err == nil {
-				for _, cpid := range strings.Fields(string(children)) {
-					cWchan, _ := os.ReadFile(fmt.Sprintf("/proc/%s/wchan", cpid))
-					cState, _ := os.ReadFile(fmt.Sprintf("/proc/%s/stat", cpid))
-					log.Warnf(ctx, "  child %s wchan=%s stat=%s", cpid,
-						strings.TrimSpace(string(cWchan)),
-						strings.TrimSpace(string(cState)))
+			// Log kernel stack trace for the main process
+			if stack, err := os.ReadFile(fmt.Sprintf("/proc/%d/stack", pid)); err == nil {
+				log.Warnf(ctx, "  /proc/%d/stack:", pid)
+				for _, line := range strings.Split(strings.TrimSpace(string(stack)), "\n") {
+					log.Warnf(ctx, "    %s", line)
+				}
+			}
+
+			// Check all threads for D-state or stuck threads
+			taskDir := fmt.Sprintf("/proc/%d/task", pid)
+			if threadEntries, err := os.ReadDir(taskDir); err == nil {
+				for _, te := range threadEntries {
+					tid := te.Name()
+					tStatus, err := os.ReadFile(fmt.Sprintf("%s/%s/status", taskDir, tid))
+					if err != nil {
+						continue
+					}
+					tWchan, _ := os.ReadFile(fmt.Sprintf("%s/%s/wchan", taskDir, tid))
+					tChildren, _ := os.ReadFile(fmt.Sprintf("%s/%s/children", taskDir, tid))
+
+					// Extract the State line from thread status
+					tState := ""
+					for _, line := range strings.Split(string(tStatus), "\n") {
+						if strings.HasPrefix(line, "State:") {
+							tState = strings.TrimSpace(line)
+							break
+						}
+					}
+
+					log.Warnf(ctx, "  thread tid=%s %s wchan=%s children=[%s]",
+						tid, tState, strings.TrimSpace(string(tWchan)),
+						strings.TrimSpace(string(tChildren)))
+
+					// Log kernel stack for threads in D (uninterruptible sleep) state
+					if strings.Contains(tState, " D ") || strings.Contains(tState, "(disk sleep)") {
+						if tStack, err := os.ReadFile(fmt.Sprintf("%s/%s/stack", taskDir, tid)); err == nil {
+							log.Warnf(ctx, "    D-state thread %s stack:", tid)
+							for _, line := range strings.Split(strings.TrimSpace(string(tStack)), "\n") {
+								log.Warnf(ctx, "      %s", line)
+							}
+						}
+					}
+				}
+			}
+
+			// Check cgroup freezer state (can silently prevent SIGKILL delivery)
+			for _, line := range strings.Split(string(cgroup), "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				// cgroup v1: parse "N:freezer:/path" entries
+				parts := strings.SplitN(line, ":", 3)
+				if len(parts) == 3 && parts[1] == "freezer" {
+					freezerState, err := os.ReadFile(filepath.Join("/sys/fs/cgroup/freezer", parts[2], "freezer.state"))
+					if err == nil {
+						state := strings.TrimSpace(string(freezerState))
+						if state != "THAWED" {
+							log.Errorf(ctx, "  cgroup freezer is %s — process cannot process SIGKILL until thawed", state)
+						} else {
+							log.Warnf(ctx, "  cgroup v1 freezer.state=%s", state)
+						}
+					}
+				}
+				// cgroup v2: parse "0::/path" unified hierarchy
+				if len(parts) == 3 && parts[1] == "" {
+					cgroupPath := filepath.Join("/sys/fs/cgroup", parts[2])
+					if freezeData, err := os.ReadFile(filepath.Join(cgroupPath, "cgroup.freeze")); err == nil {
+						val := strings.TrimSpace(string(freezeData))
+						if val == "1" {
+							log.Errorf(ctx, "  cgroup v2 cgroup.freeze=1 — process is frozen, cannot process SIGKILL until thawed")
+						} else {
+							log.Warnf(ctx, "  cgroup v2 cgroup.freeze=%s", val)
+						}
+					}
+					if eventsData, err := os.ReadFile(filepath.Join(cgroupPath, "cgroup.events")); err == nil {
+						for _, eline := range strings.Split(string(eventsData), "\n") {
+							if strings.HasPrefix(eline, "frozen") {
+								log.Warnf(ctx, "  cgroup v2 %s", strings.TrimSpace(eline))
+							}
+						}
+					}
+				}
+			}
+
+			// List all processes in the same PID namespace
+			pidNsPath := fmt.Sprintf("/proc/%d/ns/pid", pid)
+			if pidNsLink, err := os.Readlink(pidNsPath); err == nil {
+				entries, _ := os.ReadDir("/proc")
+				for _, entry := range entries {
+					if !entry.IsDir() {
+						continue
+					}
+					epid := entry.Name()
+					if epid[0] < '1' || epid[0] > '9' {
+						continue
+					}
+					if nsLink, err := os.Readlink(fmt.Sprintf("/proc/%s/ns/pid", epid)); err == nil && nsLink == pidNsLink {
+						eWchan, _ := os.ReadFile(fmt.Sprintf("/proc/%s/wchan", epid))
+						eStat, _ := os.ReadFile(fmt.Sprintf("/proc/%s/stat", epid))
+						log.Warnf(ctx, "  ns-peer pid=%s wchan=%s stat=%s", epid,
+							strings.TrimSpace(string(eWchan)),
+							strings.TrimSpace(string(eStat)))
+
+						// For ns-peer processes in D state, log their stack
+						eStatus, _ := os.ReadFile(fmt.Sprintf("/proc/%s/status", epid))
+						for _, line := range strings.Split(string(eStatus), "\n") {
+							if strings.HasPrefix(line, "State:") && (strings.Contains(line, " D ") || strings.Contains(line, "(disk sleep)")) {
+								if eStack, err := os.ReadFile(fmt.Sprintf("/proc/%s/stack", epid)); err == nil {
+									log.Warnf(ctx, "    D-state ns-peer %s stack:", epid)
+									for _, sline := range strings.Split(strings.TrimSpace(string(eStack)), "\n") {
+										log.Warnf(ctx, "      %s", sline)
+									}
+								}
+								break
+							}
+						}
+					}
 				}
 			}
 
