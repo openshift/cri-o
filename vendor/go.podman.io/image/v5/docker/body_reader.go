@@ -33,11 +33,12 @@ type bodyReader struct {
 	logURL              *url.URL // a string to use in error messages
 	firstConnectionTime time.Time
 
-	body            io.ReadCloser // The currently open connection we use to read data, or nil if there is nothing to read from / close.
-	lastRetryOffset int64         // -1 if N/A
-	lastRetryTime   time.Time     // IsZero() if N/A
-	offset          int64         // Current offset within the blob
-	lastSuccessTime time.Time     // IsZero() if N/A
+	body              io.ReadCloser // The currently open connection we use to read data, or nil if there is nothing to read from / close.
+	lastRetryOffset   int64         // -1 if N/A
+	lastRetryTime     time.Time     // IsZero() if N/A
+	offset            int64         // Current offset within the blob
+	lastSuccessTime   time.Time     // IsZero() if N/A
+	waitingFirstRead  bool          // true after reconnection, until the first successful read
 }
 
 // newBodyReader creates a bodyReader for request path in c.
@@ -145,6 +146,10 @@ func (br *bodyReader) Read(p []byte) (int, error) {
 	switch {
 	case err == nil || err == io.EOF:
 		br.lastSuccessTime = time.Now()
+		if br.waitingFirstRead {
+			logrus.Infof("First read after reconnect from %s: %d bytes, offset now %d", br.logURL.Redacted(), n, br.offset)
+			br.waitingFirstRead = false
+		}
 		return n, err // Unlike the default: case, don’t log anything.
 
 	case errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET):
@@ -163,10 +168,12 @@ func (br *bodyReader) Read(p []byte) (int, error) {
 		headers := map[string][]string{
 			"Range": {fmt.Sprintf("bytes=%d-", br.offset)},
 		}
+		logrus.Infof("Reconnecting to %s at offset %d …", redactedURL, br.offset)
 		res, err := br.c.makeRequest(br.ctx, http.MethodGet, br.path, headers, nil, v2Auth, nil)
 		if err != nil {
 			return n, fmt.Errorf("%w (while reconnecting: %v)", originalErr, err)
 		}
+		logrus.Infof("Reconnect response from %s: status=%d proto=%s", redactedURL, res.StatusCode, res.Proto)
 		consumedBody := false
 		defer func() {
 			if !consumedBody {
@@ -175,7 +182,7 @@ func (br *bodyReader) Read(p []byte) (int, error) {
 		}()
 		switch res.StatusCode {
 		case http.StatusPartialContent: // OK
-			// A client MUST inspect a 206 response's Content-Type and Content-Range field(s) to determine what parts are enclosed and whether additional requests are needed.
+			// A client MUST inspect a 206 response’s Content-Type and Content-Range field(s) to determine what parts are enclosed and whether additional requests are needed.
 			// The recipient of an invalid Content-Range MUST NOT attempt to recombine the received content with a stored representation.
 			first, last, completeLength, err := parseContentRange(res)
 			if err != nil {
@@ -193,11 +200,12 @@ func (br *bodyReader) Read(p []byte) (int, error) {
 			return n, fmt.Errorf("%w (after reconnecting, fetching blob: %v)", originalErr, err)
 		}
 
-		logrus.Debugf("Successfully reconnected to %s", redactedURL)
+		logrus.Infof("Successfully reconnected to %s at offset %d (proto=%s, content-range: %s)", redactedURL, br.offset, res.Proto, res.Header.Get("Content-Range"))
 		consumedBody = true
 		br.body = res.Body
 		br.lastRetryOffset = br.offset
 		br.lastRetryTime = time.Now()
+		br.waitingFirstRead = true
 		return n, nil
 
 	default:
