@@ -603,6 +603,11 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 			isDefaultValue: slices.Equal(dc.PluginDirs, c.PluginDirs),
 		},
 		{
+			templateString: templateStringCrioNetworkEnableCNIStatusMonitoring,
+			group:          crioNetworkConfig,
+			isDefaultValue: simpleEqual(dc.EnableCNIStatusMonitoring, c.EnableCNIStatusMonitoring),
+		},
+		{
 			templateString: templateStringCrioMetricsEnableMetrics,
 			group:          crioMetricsConfig,
 			isDefaultValue: simpleEqual(dc.EnableMetrics, c.EnableMetrics),
@@ -1641,6 +1646,15 @@ const templateStringCrioNetworkNetworkDir = `# Path to the directory where CNI c
 const templateStringCrioNetworkPluginDirs = `# Paths to directories where CNI plugin binaries are located.
 {{ $.Comment }}plugin_dirs = [
 {{ range $opt := .PluginDirs }}{{ $.Comment }}{{ printf "\t%q,\n" $opt }}{{ end }}{{ $.Comment }}]
+
+`
+
+const templateStringCrioNetworkEnableCNIStatusMonitoring = `# Enable continuous background polling of CNI STATUS to detect plugin
+# health changes at runtime. When false (default), plugin health is
+# checked at startup and on each CRI Status call. When true, a background
+# goroutine polls the plugin and can mark the node not-ready if the
+# plugin becomes unhealthy (subject to cni_status_grace_period).
+{{ $.Comment }}enable_cni_status_monitoring = {{ .EnableCNIStatusMonitoring }}
 
 `
 
