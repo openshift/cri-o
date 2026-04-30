@@ -399,6 +399,17 @@ type RuntimeConfig struct {
 	// container image spec or in the container runtime configuration.
 	DefaultEnv []string `toml:"default_env"`
 
+	// MinInjectedGOMAXPROCS enables GOMAXPROCS injection for burstable and
+	// best-effort pod containers. This value acts as a minimum floor.
+	// For burstable pods with a CPU request, GOMAXPROCS is auto-calculated
+	// from the request; the calculated value is only used if it exceeds
+	// this configured floor. For best-effort pods (no CPU request), this
+	// value is used directly. Guaranteed pods are skipped (they get
+	// exclusive CPUs via CPU Manager). The value is only injected if the
+	// container does not already have GOMAXPROCS set via the image or pod
+	// spec. Set to 0 to disable. Defaults to 0 (disabled).
+	MinInjectedGOMAXPROCS int64 `toml:"min_injected_gomaxprocs"`
+
 	// Sysctls to add to all containers.
 	DefaultSysctls []string `toml:"default_sysctls"`
 
@@ -705,6 +716,21 @@ type NetworkConfig struct {
 
 	// PluginDirs is where CNI plugin binaries are stored.
 	PluginDirs []string `toml:"plugin_dirs"`
+
+	// CNIStatusGracePeriod is the duration to wait before reporting the CNI
+	// plugin as unhealthy after a status check failure. This tolerates brief
+	// CNI disruptions during plugin upgrades (e.g. OVN-K daemonset rollout).
+	// Set to 0 for immediate reporting. Only effective when
+	// enable_cni_status_monitoring is true.
+	CNIStatusGracePeriod time.Duration `toml:"cni_status_grace_period"`
+
+	// EnableCNIStatusMonitoring enables continuous background polling of
+	// the CNI STATUS verb to detect plugin health changes at runtime.
+	// When false (default), plugin health is checked at startup and on
+	// each CRI Status call. When true, a background goroutine polls the
+	// plugin every 5 seconds and applies the grace period before marking
+	// the node not-ready.
+	EnableCNIStatusMonitoring bool `toml:"enable_cni_status_monitoring"`
 
 	// cniManager manages the internal ocicni plugin
 	cniManager *cnimgr.CNIManager
@@ -1087,8 +1113,9 @@ func DefaultConfig() (*Config, error) {
 			NamespacedAuthDir:       cpConfig.AuthDir,
 		},
 		NetworkConfig: NetworkConfig{
-			NetworkDir: cniConfigDir,
-			PluginDirs: []string{cniBinDir},
+			NetworkDir:           cniConfigDir,
+			PluginDirs:           []string{cniBinDir},
+			CNIStatusGracePeriod: 60 * time.Second,
 		},
 		MetricsConfig: MetricsConfig{
 			MetricsHost:       "127.0.0.1",
@@ -1336,6 +1363,10 @@ func (c *RootConfig) CleanShutdownSupportedFileName() string {
 // execution checks. It returns an `error` on validation failure, otherwise
 // `nil`.
 func (c *RuntimeConfig) Validate(systemContext *types.SystemContext, onExecution bool) error {
+	if c.MinInjectedGOMAXPROCS < 0 {
+		return fmt.Errorf("min_injected_gomaxprocs must be >= 0, got %d", c.MinInjectedGOMAXPROCS)
+	}
+
 	for _, p := range c.AdditionalArtifactStores {
 		if !filepath.IsAbs(p) {
 			return fmt.Errorf("additional_artifact_stores entry must be absolute: %q", p)
@@ -1900,7 +1931,7 @@ func (c *NetworkConfig) Validate(onExecution bool) error {
 
 		// Init CNI plugin
 		cniManager, err := cnimgr.New(
-			c.CNIDefaultNetwork, c.NetworkDir, c.PluginDirs...,
+			c.CNIDefaultNetwork, c.NetworkDir, c.CNIStatusGracePeriod, c.EnableCNIStatusMonitoring, c.PluginDirs...,
 		)
 		if err != nil {
 			return fmt.Errorf("initialize CNI plugin: %w", err)
@@ -2255,6 +2286,7 @@ func (c *NetworkConfig) CNIPlugin() ocicni.CNIPlugin {
 func (c *NetworkConfig) CNIPluginReadyOrError() error {
 	return c.cniManager.ReadyOrError()
 }
+
 
 // CNIPluginAddWatcher returns the network configuration CNI plugin.
 func (c *NetworkConfig) CNIPluginAddWatcher() chan bool {

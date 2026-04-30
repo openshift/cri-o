@@ -118,9 +118,8 @@ type pullOperation struct {
 	// wg allows for Goroutines trying to pull the same image to wait until the
 	// currently running pull operation has finished.
 	wg sync.WaitGroup
-	// imageRef is the reference of the actually pulled image; it is always
-	// in a full repo@digest format, resolving short names and tags
-	imageRef storage.RegistryImageReference
+	// imageRef is the resolved image ID to return in the CRI PullImageResponse
+	imageRef string
 	// err is the error indicating if the pull operation has succeeded or not.
 	err error
 }
@@ -458,7 +457,7 @@ func New(
 		os.Unsetenv("DBUS_SESSION_BUS_ADDRESS")
 	}
 
-	artifactStore, err := ociartifact.NewStore(containerServer.Store().GraphRoot(), config.AdditionalArtifactStores, config.SystemContext)
+	artifactStore, err := ociartifact.NewStore(containerServer.Store().GraphRoot(), config.AdditionalArtifactStores, config.SystemContext, containerServer.StorageImageServer().PinnedImageRegexps())
 	if err != nil {
 		return nil, err
 	}
@@ -632,9 +631,13 @@ func (s *Server) startReloadWatcher(ctx context.Context) {
 
 				continue
 			}
+
+			metrics.Instance().MetricDefaultRuntimeSet(s.config.DefaultRuntime)
+
 			// ImageServer compiles the list with regex for both
 			// pinned and sandbox/pause images, we need to update them
 			s.ContainerServer.StorageImageServer().UpdatePinnedImagesList(append(s.config.PinnedImages, s.config.PauseImage))
+			s.artifactStore.SetPinnedImageRegexps(s.ContainerServer.StorageImageServer().PinnedImageRegexps())
 			log.Infof(ctx, "Configuration reload completed")
 			// Print the current configuration.
 			tomlConfig, err := s.config.ToString()

@@ -285,6 +285,10 @@ func mergeRuntimeConfig(config *libconfig.Config, ctx *cli.Context) error {
 		config.DefaultEnv = StringSliceTrySplit(ctx, "default-env")
 	}
 
+	if ctx.IsSet("min-injected-gomaxprocs") {
+		config.MinInjectedGOMAXPROCS = ctx.Int64("min-injected-gomaxprocs")
+	}
+
 	if ctx.IsSet("default-sysctls") {
 		config.DefaultSysctls = StringSliceTrySplit(ctx, "default-sysctls")
 	}
@@ -522,6 +526,14 @@ func mergeNetworkConfig(config *libconfig.Config, ctx *cli.Context) {
 
 	if ctx.IsSet("cni-plugin-dir") {
 		config.PluginDirs = StringSliceTrySplit(ctx, "cni-plugin-dir")
+	}
+
+	if ctx.IsSet("cni-status-grace-period") {
+		config.CNIStatusGracePeriod = ctx.Duration("cni-status-grace-period")
+	}
+
+	if ctx.IsSet("enable-cni-status-monitoring") {
+		config.EnableCNIStatusMonitoring = ctx.Bool("enable-cni-status-monitoring")
 	}
 }
 
@@ -1018,6 +1030,18 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			Usage:   "CNI plugin binaries directory.",
 			EnvVars: []string{"CONTAINER_CNI_PLUGIN_DIR"},
 		},
+		&cli.DurationFlag{
+			Name:    "cni-status-grace-period",
+			Usage:   "Duration to wait before reporting CNI plugin as unhealthy after a status check failure. Tolerates brief CNI disruptions during plugin upgrades. Set to 0 for immediate reporting. Only effective when --enable-cni-status-monitoring is true.",
+			Value:   defConf.CNIStatusGracePeriod,
+			EnvVars: []string{"CNI_STATUS_GRACE_PERIOD"},
+		},
+		&cli.BoolFlag{
+			Name:    "enable-cni-status-monitoring",
+			Usage:   "Enable continuous background polling of CNI STATUS to detect plugin health changes at runtime. When disabled (default), plugin health is checked at startup and on each CRI Status call.",
+			Value:   defConf.EnableCNIStatusMonitoring,
+			EnvVars: []string{"ENABLE_CNI_STATUS_MONITORING"},
+		},
 		&cli.StringFlag{
 			Name:  "image-volumes",
 			Value: string(libconfig.ImageVolumesMkdir),
@@ -1330,6 +1354,12 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			Value:   cli.NewStringSlice(defConf.DefaultEnv...),
 			Usage:   "Additional environment variables to set for all containers.",
 			EnvVars: []string{"CONTAINER_DEFAULT_ENV"},
+		},
+		&cli.Int64Flag{
+			Name:    "min-injected-gomaxprocs",
+			Value:   defConf.MinInjectedGOMAXPROCS,
+			Usage:   "Enable GOMAXPROCS injection. Burstable pods auto-calculate from CPU request, with this value as the minimum floor. Best-effort pods use this value directly. 0 to disable.",
+			EnvVars: []string{"CONTAINER_INJECT_GOMAXPROCS"},
 		},
 		&cli.StringFlag{
 			Name:      "container-attach-socket-dir",

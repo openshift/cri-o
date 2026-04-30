@@ -268,6 +268,11 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 			isDefaultValue: slices.Equal(dc.DefaultEnv, c.DefaultEnv),
 		},
 		{
+			templateString: templateStringCrioRuntimeMinInjectedGOMAXPROCS,
+			group:          crioRuntimeConfig,
+			isDefaultValue: simpleEqual(dc.MinInjectedGOMAXPROCS, c.MinInjectedGOMAXPROCS),
+		},
+		{
 			templateString: templateStringCrioRuntimeSelinux,
 			group:          crioRuntimeConfig,
 			isDefaultValue: simpleEqual(dc.SELinux, c.SELinux),
@@ -596,6 +601,11 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 			templateString: templateStringCrioNetworkPluginDirs,
 			group:          crioNetworkConfig,
 			isDefaultValue: slices.Equal(dc.PluginDirs, c.PluginDirs),
+		},
+		{
+			templateString: templateStringCrioNetworkEnableCNIStatusMonitoring,
+			group:          crioNetworkConfig,
+			isDefaultValue: simpleEqual(dc.EnableCNIStatusMonitoring, c.EnableCNIStatusMonitoring),
 		},
 		{
 			templateString: templateStringCrioMetricsEnableMetrics,
@@ -988,6 +998,17 @@ const templateStringCrioRuntimeDefaultEnv = `# Additional environment variables 
 # container image spec or in the container runtime configuration.
 {{ $.Comment }}default_env = [
 {{ range $env := .DefaultEnv }}{{ $.Comment }}{{ printf "\t%q,\n" $env }}{{ end }}{{ $.Comment }}]
+
+`
+
+const templateStringCrioRuntimeMinInjectedGOMAXPROCS = `# Enables GOMAXPROCS injection for burstable and best-effort pod containers.
+# This value acts as a minimum floor. For burstable pods with a CPU request,
+# GOMAXPROCS is auto-calculated from the request; the calculated value is only
+# used if it exceeds this floor. For best-effort pods (no CPU request), this
+# value is used directly. Guaranteed pods are skipped. The value is only
+# injected if the container does not already have GOMAXPROCS set via the image
+# or pod spec. Set to 0 to disable (default).
+{{ $.Comment }}min_injected_gomaxprocs = {{ .MinInjectedGOMAXPROCS }}
 
 `
 
@@ -1625,6 +1646,15 @@ const templateStringCrioNetworkNetworkDir = `# Path to the directory where CNI c
 const templateStringCrioNetworkPluginDirs = `# Paths to directories where CNI plugin binaries are located.
 {{ $.Comment }}plugin_dirs = [
 {{ range $opt := .PluginDirs }}{{ $.Comment }}{{ printf "\t%q,\n" $opt }}{{ end }}{{ $.Comment }}]
+
+`
+
+const templateStringCrioNetworkEnableCNIStatusMonitoring = `# Enable continuous background polling of CNI STATUS to detect plugin
+# health changes at runtime. When false (default), plugin health is
+# checked at startup and on each CRI Status call. When true, a background
+# goroutine polls the plugin and can mark the node not-ready if the
+# plugin becomes unhealthy (subject to cni_status_grace_period).
+{{ $.Comment }}enable_cni_status_monitoring = {{ .EnableCNIStatusMonitoring }}
 
 `
 

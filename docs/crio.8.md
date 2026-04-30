@@ -84,6 +84,7 @@ crio
 [--metrics-key]=[value]
 [--metrics-port]=[value]
 [--metrics-socket]=[value]
+[--min-injected-gomaxprocs]=[value]
 [--minimum-mappable-gid]=[value]
 [--minimum-mappable-uid]=[value]
 [--namespaces-dir]=[value]
@@ -350,7 +351,7 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 
 **--metrics-cert**="": Certificate for the secure metrics endpoint.
 
-**--metrics-collectors**="": Enabled metrics collectors. (default: "image_pulls_layer_size", "containers_events_dropped_total", "containers_oom_total", "processes_defunct", "operations_total", "operations_latency_seconds", "operations_latency_seconds_total", "operations_errors_total", "image_pulls_bytes_total", "image_pulls_skipped_bytes_total", "image_pulls_failure_total", "image_pulls_success_total", "image_layer_reuse_total", "containers_oom_count_total", "containers_seccomp_notifier_count_total", "resources_stalled_at_stage", "containers_stopped_monitor_count")
+**--metrics-collectors**="": Enabled metrics collectors. (default: "image_pulls_layer_size", "containers_events_dropped_total", "containers_oom_total", "processes_defunct", "operations_total", "operations_latency_seconds", "operations_latency_seconds_total", "operations_errors_total", "image_pulls_bytes_total", "image_pulls_skipped_bytes_total", "image_pulls_failure_total", "image_pulls_success_total", "image_layer_reuse_total", "containers_oom_count_total", "containers_seccomp_notifier_count_total", "resources_stalled_at_stage", "containers_stopped_monitor_count", "default_runtime")
 
 **--metrics-host**="": Host for the metrics endpoint. (default: "127.0.0.1")
 
@@ -359,6 +360,8 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 **--metrics-port**="": Port for the metrics endpoint. (default: 9090)
 
 **--metrics-socket**="": Socket for the metrics endpoint.
+
+**--min-injected-gomaxprocs**="": Enable GOMAXPROCS injection. Burstable pods auto-calculate from CPU request, with this value as the minimum floor. Best-effort pods use this value directly. 0 to disable. (default: 0)
 
 **--minimum-mappable-gid**="": Specify the lowest host GID which can be specified in mappings for a pod that will be run as a UID other than 0. This option is deprecated, and will be replaced with Kubernetes user namespace support (KEP-127) in the future. (default: -1)
 
