@@ -1,0 +1,110 @@
+name: Upstream Sync
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/cri-o/cri-o.git
+          git fetch upstream main
+
+      - name: Check for new upstream commits
+        id: check
+        run: |
+          LOCAL=$(git rev-parse origin/main)
+          UPSTREAM=$(git rev-parse upstream/main)
+          if [ "$LOCAL" = "$UPSTREAM" ]; then
+            echo "No new upstream commits. Exiting."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            AHEAD=$(git rev-list origin/main..upstream/main --count)
+            echo "$AHEAD new upstream commit(s) found."
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            echo "commit_count=$AHEAD" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for existing sync PR
+        if: steps.check.outputs.has_changes == 'true'
+        id: existing_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXISTING=$(gh pr list --head "sync/upstream" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "Sync PR #$EXISTING already open. Exiting."
+            echo "pr_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pr_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create sync branch and rebase
+        if: steps.check.outputs.has_changes == 'true' && steps.existing_pr.outputs.pr_exists == 'false'
+        run: |
+          git checkout -b sync/upstream origin/main
+          if ! git rebase upstream/main; then
+            echo "::error::Rebase of upstream/main onto origin/main failed."
+            echo ""
+            echo "=== Conflicting files ==="
+            git diff --name-only --diff-filter=U || true
+            echo ""
+            echo "=== Rebase status ==="
+            git status || true
+            echo ""
+            echo "=== Last 10 upstream commits ==="
+            git log upstream/main --oneline -10 || true
+            git rebase --abort || true
+            exit 1
+          fi
+
+      - name: Push sync branch
+        if: steps.check.outputs.has_changes == 'true' && steps.existing_pr.outputs.pr_exists == 'false'
+        run: |
+          git push --force origin sync/upstream
+
+      - name: Generate PR body
+        if: steps.check.outputs.has_changes == 'true' && steps.existing_pr.outputs.pr_exists == 'false'
+        run: |
+          {
+            echo '## Automated Upstream Sync'
+            echo ''
+            echo 'This PR rebases `main` onto upstream `cri-o/cri-o:main`.'
+            echo ''
+            echo '### Upstream commits included'
+            echo ''
+            echo '```'
+            git log --format='%h %s' --no-merges origin/main..HEAD | head -30
+            echo '```'
+          } > /tmp/pr-body.md
+
+      - name: Open PR
+        if: steps.check.outputs.has_changes == 'true' && steps.existing_pr.outputs.pr_exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --title "sync: rebase main onto upstream cri-o/cri-o" \
+            --body-file /tmp/pr-body.md \
+            --base main \
+            --head sync/upstream
