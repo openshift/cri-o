@@ -382,6 +382,8 @@ func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container,
 			return nil, nil, nil, errors.New("idmap mounts specified but OCI runtime does not support them. Perhaps the OCI runtime is too old")
 		}
 
+		options = append(options, m.GetMountOptions()...)
+
 		ociMounts = append(ociMounts, rspec.Mount{
 			Source:      src,
 			Destination: dest,
