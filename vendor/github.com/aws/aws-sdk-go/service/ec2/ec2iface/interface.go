@@ -340,6 +340,10 @@ type EC2API interface {
 	CreateImageWithContext(aws.Context, *ec2.CreateImageInput, ...request.Option) (*ec2.CreateImageOutput, error)
 	CreateImageRequest(*ec2.CreateImageInput) (*request.Request, *ec2.CreateImageOutput)
 
+	CreateInstanceConnectEndpoint(*ec2.CreateInstanceConnectEndpointInput) (*ec2.CreateInstanceConnectEndpointOutput, error)
+	CreateInstanceConnectEndpointWithContext(aws.Context, *ec2.CreateInstanceConnectEndpointInput, ...request.Option) (*ec2.CreateInstanceConnectEndpointOutput, error)
+	CreateInstanceConnectEndpointRequest(*ec2.CreateInstanceConnectEndpointInput) (*request.Request, *ec2.CreateInstanceConnectEndpointOutput)
+
 	CreateInstanceEventWindow(*ec2.CreateInstanceEventWindowInput) (*ec2.CreateInstanceEventWindowOutput, error)
 	CreateInstanceEventWindowWithContext(aws.Context, *ec2.CreateInstanceEventWindowInput, ...request.Option) (*ec2.CreateInstanceEventWindowOutput, error)
 	CreateInstanceEventWindowRequest(*ec2.CreateInstanceEventWindowInput) (*request.Request, *ec2.CreateInstanceEventWindowOutput)
@@ -643,6 +647,10 @@ type EC2API interface {
 	DeleteFpgaImage(*ec2.DeleteFpgaImageInput) (*ec2.DeleteFpgaImageOutput, error)
 	DeleteFpgaImageWithContext(aws.Context, *ec2.DeleteFpgaImageInput, ...request.Option) (*ec2.DeleteFpgaImageOutput, error)
 	DeleteFpgaImageRequest(*ec2.DeleteFpgaImageInput) (*request.Request, *ec2.DeleteFpgaImageOutput)
+
+	DeleteInstanceConnectEndpoint(*ec2.DeleteInstanceConnectEndpointInput) (*ec2.DeleteInstanceConnectEndpointOutput, error)
+	DeleteInstanceConnectEndpointWithContext(aws.Context, *ec2.DeleteInstanceConnectEndpointInput, ...request.Option) (*ec2.DeleteInstanceConnectEndpointOutput, error)
+	DeleteInstanceConnectEndpointRequest(*ec2.DeleteInstanceConnectEndpointInput) (*request.Request, *ec2.DeleteInstanceConnectEndpointOutput)
 
 	DeleteInstanceEventWindow(*ec2.DeleteInstanceEventWindowInput) (*ec2.DeleteInstanceEventWindowOutput, error)
 	DeleteInstanceEventWindowWithContext(aws.Context, *ec2.DeleteInstanceEventWindowInput, ...request.Option) (*ec2.DeleteInstanceEventWindowOutput, error)
@@ -1186,6 +1194,13 @@ type EC2API interface {
 	DescribeInstanceAttribute(*ec2.DescribeInstanceAttributeInput) (*ec2.DescribeInstanceAttributeOutput, error)
 	DescribeInstanceAttributeWithContext(aws.Context, *ec2.DescribeInstanceAttributeInput, ...request.Option) (*ec2.DescribeInstanceAttributeOutput, error)
 	DescribeInstanceAttributeRequest(*ec2.DescribeInstanceAttributeInput) (*request.Request, *ec2.DescribeInstanceAttributeOutput)
+
+	DescribeInstanceConnectEndpoints(*ec2.DescribeInstanceConnectEndpointsInput) (*ec2.DescribeInstanceConnectEndpointsOutput, error)
+	DescribeInstanceConnectEndpointsWithContext(aws.Context, *ec2.DescribeInstanceConnectEndpointsInput, ...request.Option) (*ec2.DescribeInstanceConnectEndpointsOutput, error)
+	DescribeInstanceConnectEndpointsRequest(*ec2.DescribeInstanceConnectEndpointsInput) (*request.Request, *ec2.DescribeInstanceConnectEndpointsOutput)
+
+	DescribeInstanceConnectEndpointsPages(*ec2.DescribeInstanceConnectEndpointsInput, func(*ec2.DescribeInstanceConnectEndpointsOutput, bool) bool) error
+	DescribeInstanceConnectEndpointsPagesWithContext(aws.Context, *ec2.DescribeInstanceConnectEndpointsInput, func(*ec2.DescribeInstanceConnectEndpointsOutput, bool) bool, ...request.Option) error
 
 	DescribeInstanceCreditSpecifications(*ec2.DescribeInstanceCreditSpecificationsInput) (*ec2.DescribeInstanceCreditSpecificationsOutput, error)
 	DescribeInstanceCreditSpecificationsWithContext(aws.Context, *ec2.DescribeInstanceCreditSpecificationsInput, ...request.Option) (*ec2.DescribeInstanceCreditSpecificationsOutput, error)
@@ -1870,6 +1885,10 @@ type EC2API interface {
 	DisableFastSnapshotRestoresWithContext(aws.Context, *ec2.DisableFastSnapshotRestoresInput, ...request.Option) (*ec2.DisableFastSnapshotRestoresOutput, error)
 	DisableFastSnapshotRestoresRequest(*ec2.DisableFastSnapshotRestoresInput) (*request.Request, *ec2.DisableFastSnapshotRestoresOutput)
 
+	DisableImageBlockPublicAccess(*ec2.DisableImageBlockPublicAccessInput) (*ec2.DisableImageBlockPublicAccessOutput, error)
+	DisableImageBlockPublicAccessWithContext(aws.Context, *ec2.DisableImageBlockPublicAccessInput, ...request.Option) (*ec2.DisableImageBlockPublicAccessOutput, error)
+	DisableImageBlockPublicAccessRequest(*ec2.DisableImageBlockPublicAccessInput) (*request.Request, *ec2.DisableImageBlockPublicAccessOutput)
+
 	DisableImageDeprecation(*ec2.DisableImageDeprecationInput) (*ec2.DisableImageDeprecationOutput, error)
 	DisableImageDeprecationWithContext(aws.Context, *ec2.DisableImageDeprecationInput, ...request.Option) (*ec2.DisableImageDeprecationOutput, error)
 	DisableImageDeprecationRequest(*ec2.DisableImageDeprecationInput) (*request.Request, *ec2.DisableImageDeprecationOutput)
@@ -1973,6 +1992,10 @@ type EC2API interface {
 	EnableFastSnapshotRestores(*ec2.EnableFastSnapshotRestoresInput) (*ec2.EnableFastSnapshotRestoresOutput, error)
 	EnableFastSnapshotRestoresWithContext(aws.Context, *ec2.EnableFastSnapshotRestoresInput, ...request.Option) (*ec2.EnableFastSnapshotRestoresOutput, error)
 	EnableFastSnapshotRestoresRequest(*ec2.EnableFastSnapshotRestoresInput) (*request.Request, *ec2.EnableFastSnapshotRestoresOutput)
+
+	EnableImageBlockPublicAccess(*ec2.EnableImageBlockPublicAccessInput) (*ec2.EnableImageBlockPublicAccessOutput, error)
+	EnableImageBlockPublicAccessWithContext(aws.Context, *ec2.EnableImageBlockPublicAccessInput, ...request.Option) (*ec2.EnableImageBlockPublicAccessOutput, error)
+	EnableImageBlockPublicAccessRequest(*ec2.EnableImageBlockPublicAccessInput) (*request.Request, *ec2.EnableImageBlockPublicAccessOutput)
 
 	EnableImageDeprecation(*ec2.EnableImageDeprecationInput) (*ec2.EnableImageDeprecationOutput, error)
 	EnableImageDeprecationWithContext(aws.Context, *ec2.EnableImageDeprecationInput, ...request.Option) (*ec2.EnableImageDeprecationOutput, error)
@@ -2087,6 +2110,10 @@ type EC2API interface {
 	GetHostReservationPurchasePreviewWithContext(aws.Context, *ec2.GetHostReservationPurchasePreviewInput, ...request.Option) (*ec2.GetHostReservationPurchasePreviewOutput, error)
 	GetHostReservationPurchasePreviewRequest(*ec2.GetHostReservationPurchasePreviewInput) (*request.Request, *ec2.GetHostReservationPurchasePreviewOutput)
 
+	GetImageBlockPublicAccessState(*ec2.GetImageBlockPublicAccessStateInput) (*ec2.GetImageBlockPublicAccessStateOutput, error)
+	GetImageBlockPublicAccessStateWithContext(aws.Context, *ec2.GetImageBlockPublicAccessStateInput, ...request.Option) (*ec2.GetImageBlockPublicAccessStateOutput, error)
+	GetImageBlockPublicAccessStateRequest(*ec2.GetImageBlockPublicAccessStateInput) (*request.Request, *ec2.GetImageBlockPublicAccessStateOutput)
+
 	GetInstanceTypesFromInstanceRequirements(*ec2.GetInstanceTypesFromInstanceRequirementsInput) (*ec2.GetInstanceTypesFromInstanceRequirementsOutput, error)
 	GetInstanceTypesFromInstanceRequirementsWithContext(aws.Context, *ec2.GetInstanceTypesFromInstanceRequirementsInput, ...request.Option) (*ec2.GetInstanceTypesFromInstanceRequirementsOutput, error)
 	GetInstanceTypesFromInstanceRequirementsRequest(*ec2.GetInstanceTypesFromInstanceRequirementsInput) (*request.Request, *ec2.GetInstanceTypesFromInstanceRequirementsOutput)
@@ -2161,6 +2188,9 @@ type EC2API interface {
 	GetNetworkInsightsAccessScopeAnalysisFindings(*ec2.GetNetworkInsightsAccessScopeAnalysisFindingsInput) (*ec2.GetNetworkInsightsAccessScopeAnalysisFindingsOutput, error)
 	GetNetworkInsightsAccessScopeAnalysisFindingsWithContext(aws.Context, *ec2.GetNetworkInsightsAccessScopeAnalysisFindingsInput, ...request.Option) (*ec2.GetNetworkInsightsAccessScopeAnalysisFindingsOutput, error)
 	GetNetworkInsightsAccessScopeAnalysisFindingsRequest(*ec2.GetNetworkInsightsAccessScopeAnalysisFindingsInput) (*request.Request, *ec2.GetNetworkInsightsAccessScopeAnalysisFindingsOutput)
+
+	GetNetworkInsightsAccessScopeAnalysisFindingsPages(*ec2.GetNetworkInsightsAccessScopeAnalysisFindingsInput, func(*ec2.GetNetworkInsightsAccessScopeAnalysisFindingsOutput, bool) bool) error
+	GetNetworkInsightsAccessScopeAnalysisFindingsPagesWithContext(aws.Context, *ec2.GetNetworkInsightsAccessScopeAnalysisFindingsInput, func(*ec2.GetNetworkInsightsAccessScopeAnalysisFindingsOutput, bool) bool, ...request.Option) error
 
 	GetNetworkInsightsAccessScopeContent(*ec2.GetNetworkInsightsAccessScopeContentInput) (*ec2.GetNetworkInsightsAccessScopeContentOutput, error)
 	GetNetworkInsightsAccessScopeContentWithContext(aws.Context, *ec2.GetNetworkInsightsAccessScopeContentInput, ...request.Option) (*ec2.GetNetworkInsightsAccessScopeContentOutput, error)
@@ -2253,6 +2283,10 @@ type EC2API interface {
 
 	GetVpnConnectionDeviceTypesPages(*ec2.GetVpnConnectionDeviceTypesInput, func(*ec2.GetVpnConnectionDeviceTypesOutput, bool) bool) error
 	GetVpnConnectionDeviceTypesPagesWithContext(aws.Context, *ec2.GetVpnConnectionDeviceTypesInput, func(*ec2.GetVpnConnectionDeviceTypesOutput, bool) bool, ...request.Option) error
+
+	GetVpnTunnelReplacementStatus(*ec2.GetVpnTunnelReplacementStatusInput) (*ec2.GetVpnTunnelReplacementStatusOutput, error)
+	GetVpnTunnelReplacementStatusWithContext(aws.Context, *ec2.GetVpnTunnelReplacementStatusInput, ...request.Option) (*ec2.GetVpnTunnelReplacementStatusOutput, error)
+	GetVpnTunnelReplacementStatusRequest(*ec2.GetVpnTunnelReplacementStatusInput) (*request.Request, *ec2.GetVpnTunnelReplacementStatusOutput)
 
 	ImportClientVpnClientCertificateRevocationList(*ec2.ImportClientVpnClientCertificateRevocationListInput) (*ec2.ImportClientVpnClientCertificateRevocationListOutput, error)
 	ImportClientVpnClientCertificateRevocationListWithContext(aws.Context, *ec2.ImportClientVpnClientCertificateRevocationListInput, ...request.Option) (*ec2.ImportClientVpnClientCertificateRevocationListOutput, error)
@@ -2660,6 +2694,10 @@ type EC2API interface {
 	ReplaceTransitGatewayRouteWithContext(aws.Context, *ec2.ReplaceTransitGatewayRouteInput, ...request.Option) (*ec2.ReplaceTransitGatewayRouteOutput, error)
 	ReplaceTransitGatewayRouteRequest(*ec2.ReplaceTransitGatewayRouteInput) (*request.Request, *ec2.ReplaceTransitGatewayRouteOutput)
 
+	ReplaceVpnTunnel(*ec2.ReplaceVpnTunnelInput) (*ec2.ReplaceVpnTunnelOutput, error)
+	ReplaceVpnTunnelWithContext(aws.Context, *ec2.ReplaceVpnTunnelInput, ...request.Option) (*ec2.ReplaceVpnTunnelOutput, error)
+	ReplaceVpnTunnelRequest(*ec2.ReplaceVpnTunnelInput) (*request.Request, *ec2.ReplaceVpnTunnelOutput)
+
 	ReportInstanceStatus(*ec2.ReportInstanceStatusInput) (*ec2.ReportInstanceStatusOutput, error)
 	ReportInstanceStatusWithContext(aws.Context, *ec2.ReportInstanceStatusInput, ...request.Option) (*ec2.ReportInstanceStatusOutput, error)
 	ReportInstanceStatusRequest(*ec2.ReportInstanceStatusInput) (*request.Request, *ec2.ReportInstanceStatusOutput)
@@ -2889,6 +2927,9 @@ type EC2API interface {
 
 	WaitUntilSpotInstanceRequestFulfilled(*ec2.DescribeSpotInstanceRequestsInput) error
 	WaitUntilSpotInstanceRequestFulfilledWithContext(aws.Context, *ec2.DescribeSpotInstanceRequestsInput, ...request.WaiterOption) error
+
+	WaitUntilStoreImageTaskComplete(*ec2.DescribeStoreImageTasksInput) error
+	WaitUntilStoreImageTaskCompleteWithContext(aws.Context, *ec2.DescribeStoreImageTasksInput, ...request.WaiterOption) error
 
 	WaitUntilSubnetAvailable(*ec2.DescribeSubnetsInput) error
 	WaitUntilSubnetAvailableWithContext(aws.Context, *ec2.DescribeSubnetsInput, ...request.WaiterOption) error

@@ -56,10 +56,7 @@ func (s *blobCacheSource) Close() error {
 
 func (s *blobCacheSource) GetManifest(ctx context.Context, instanceDigest *digest.Digest) ([]byte, string, error) {
 	if instanceDigest != nil {
-		filename, err := s.reference.blobPath(*instanceDigest, false)
-		if err != nil {
-			return nil, "", err
-		}
+		filename := s.reference.blobPath(*instanceDigest, false)
 		manifestBytes, err := os.ReadFile(filename)
 		if err == nil {
 			s.cacheHits++
@@ -139,10 +136,8 @@ func (s *blobCacheSource) LayerInfosForCopy(ctx context.Context, instanceDigest 
 		replacedInfos := make([]types.BlobInfo, 0, len(infos))
 		for _, info := range infos {
 			var replaceDigest []byte
-			blobFile, err := s.reference.blobPath(info.Digest, false)
-			if err != nil {
-				return nil, err
-			}
+			var err error
+			blobFile := s.reference.blobPath(info.Digest, false)
 			var alternate string
 			switch s.reference.compress {
 			case types.Compress:
@@ -153,10 +148,7 @@ func (s *blobCacheSource) LayerInfosForCopy(ctx context.Context, instanceDigest 
 				replaceDigest, err = os.ReadFile(alternate)
 			}
 			if err == nil && digest.Digest(replaceDigest).Validate() == nil {
-				alternate, err = s.reference.blobPath(digest.Digest(replaceDigest), false)
-				if err != nil {
-					return nil, err
-				}
+				alternate = s.reference.blobPath(digest.Digest(replaceDigest), false)
 				fileInfo, err := os.Stat(alternate)
 				if err == nil {
 					switch info.MediaType {

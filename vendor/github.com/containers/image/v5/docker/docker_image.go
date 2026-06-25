@@ -88,12 +88,7 @@ func GetRepositoryTags(ctx context.Context, sys *types.SystemContext, ref types.
 		if err = json.NewDecoder(res.Body).Decode(&tagsHolder); err != nil {
 			return nil, err
 		}
-		for _, tag := range tagsHolder.Tags {
-			if _, err := reference.WithTag(dr.ref, tag); err != nil { // Ensure the tag does not contain unexpected values
-				return nil, fmt.Errorf("registry returned invalid tag %q: %w", tag, err)
-			}
-			tags = append(tags, tag)
-		}
+		tags = append(tags, tagsHolder.Tags...)
 
 		link := res.Header.Get("Link")
 		if link == "" {
@@ -127,6 +122,9 @@ func GetDigest(ctx context.Context, sys *types.SystemContext, ref types.ImageRef
 	dr, ok := ref.(dockerReference)
 	if !ok {
 		return "", errors.New("ref must be a dockerReference")
+	}
+	if dr.isUnknownDigest {
+		return "", fmt.Errorf("docker: reference %q is for unknown digest case; cannot get digest", dr.StringWithinTransport())
 	}
 
 	tagOrDigest, err := dr.tagOrDigest()

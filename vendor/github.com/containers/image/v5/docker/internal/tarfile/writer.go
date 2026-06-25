@@ -95,10 +95,7 @@ func (w *Writer) ensureSingleLegacyLayerLocked(layerID string, layerDigest diges
 	if !w.legacyLayers.Contains(layerID) {
 		// Create a symlink for the legacy format, where there is one subdirectory per layer ("image").
 		// See also the comment in physicalLayerPath.
-		physicalLayerPath, err := w.physicalLayerPath(layerDigest)
-		if err != nil {
-			return err
-		}
+		physicalLayerPath := w.physicalLayerPath(layerDigest)
 		if err := w.sendSymlinkLocked(filepath.Join(layerID, legacyLayerFileName), filepath.Join("..", physicalLayerPath)); err != nil {
 			return fmt.Errorf("creating layer symbolic link: %w", err)
 		}
@@ -142,9 +139,6 @@ func (w *Writer) writeLegacyMetadataLocked(layerDescriptors []manifest.Schema2De
 		}
 
 		// This chainID value matches the computation in docker/docker/layer.CreateChainID …
-		if err := l.Digest.Validate(); err != nil { // This should never fail on this code path, still: make sure the chainID computation is unambiguous.
-			return err
-		}
 		if chainID == "" {
 			chainID = l.Digest
 		} else {
@@ -210,20 +204,12 @@ func checkManifestItemsMatch(a, b *ManifestItem) error {
 func (w *Writer) ensureManifestItemLocked(layerDescriptors []manifest.Schema2Descriptor, configDigest digest.Digest, repoTags []reference.NamedTagged) error {
 	layerPaths := []string{}
 	for _, l := range layerDescriptors {
-		p, err := w.physicalLayerPath(l.Digest)
-		if err != nil {
-			return err
-		}
-		layerPaths = append(layerPaths, p)
+		layerPaths = append(layerPaths, w.physicalLayerPath(l.Digest))
 	}
 
 	var item *ManifestItem
-	configPath, err := w.configPath(configDigest)
-	if err != nil {
-		return err
-	}
 	newItem := ManifestItem{
-		Config:       configPath,
+		Config:       w.configPath(configDigest),
 		RepoTags:     []string{},
 		Layers:       layerPaths,
 		Parent:       "", // We don’t have this information
@@ -308,27 +294,21 @@ func (w *Writer) Close() error {
 // configPath returns a path we choose for storing a config with the specified digest.
 // NOTE: This is an internal implementation detail, not a format property, and can change
 // any time.
-func (w *Writer) configPath(configDigest digest.Digest) (string, error) {
-	if err := configDigest.Validate(); err != nil { // digest.Digest.Hex() panics on failure, and could possibly result in unexpected paths, so validate explicitly.
-		return "", err
-	}
-	return configDigest.Hex() + ".json", nil
+func (w *Writer) configPath(configDigest digest.Digest) string {
+	return configDigest.Hex() + ".json"
 }
 
 // physicalLayerPath returns a path we choose for storing a layer with the specified digest
 // (the actual path, i.e. a regular file, not a symlink that may be used in the legacy format).
 // NOTE: This is an internal implementation detail, not a format property, and can change
 // any time.
-func (w *Writer) physicalLayerPath(layerDigest digest.Digest) (string, error) {
-	if err := layerDigest.Validate(); err != nil { // digest.Digest.Hex() panics on failure, and could possibly result in unexpected paths, so validate explicitly.
-		return "", err
-	}
+func (w *Writer) physicalLayerPath(layerDigest digest.Digest) string {
 	// Note that this can't be e.g. filepath.Join(l.Digest.Hex(), legacyLayerFileName); due to the way
 	// writeLegacyMetadata constructs layer IDs differently from inputinfo.Digest values (as described
 	// inside it), most of the layers would end up in subdirectories alone without any metadata; (docker load)
 	// tries to load every subdirectory as an image and fails if the config is missing.  So, keep the layers
 	// in the root of the tarball.
-	return layerDigest.Hex() + ".tar", nil
+	return layerDigest.Hex() + ".tar"
 }
 
 type tarFI struct {

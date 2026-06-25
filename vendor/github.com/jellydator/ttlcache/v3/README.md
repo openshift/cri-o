@@ -1,15 +1,19 @@
-# TTLCache - an in-memory cache with item expiration
+## TTLCache - an in-memory cache with item expiration and generics
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/jellydator/ttlcache/v3.svg)](https://pkg.go.dev/github.com/jellydator/ttlcache/v3)
+[![Build Status](https://github.com/jellydator/ttlcache/actions/workflows/go.yml/badge.svg)](https://github.com/jellydator/ttlcache/actions/workflows/go.yml)
+[![Coverage Status](https://coveralls.io/repos/github/jellydator/ttlcache/badge.svg?branch=master)](https://coveralls.io/github/jellydator/ttlcache?branch=master)
+[![Go Report Card](https://goreportcard.com/badge/github.com/jellydator/ttlcache/v3)](https://goreportcard.com/report/github.com/jellydator/ttlcache/v3)
 
 ## Features
-- Simple API.
-- Type parameters.
-- Item expiration and automatic deletion.
-- Automatic expiration time extension on each `Get` call.
-- `Loader` interface that is used to load/lazily initialize missing cache 
-items.
-- Subscription to cache events (insertion and eviction).
-- Metrics.
-- Configurability.
+- Simple API
+- Type parameters
+- Item expiration and automatic deletion
+- Automatic expiration time extension on each `Get` call
+- `Loader` interface that may be used to load/lazily initialize missing cache 
+items
+- Event handlers (insertion and eviction)
+- Metrics
 
 ## Installation
 ```
@@ -62,8 +66,8 @@ func main() {
 }
 ```
 
-The data stored in `ttlcache.Cache` can be retrieved and updated with 
-`Set`, `Get`, `Delete`, etc. methods:
+The data stored in `ttlcache.Cache` can be retrieved, checked and updated with 
+`Set`, `Get`, `Delete`, `Has` etc. methods:
 ```go
 func main() {
 	cache := ttlcache.New[string, string](
@@ -79,10 +83,19 @@ func main() {
 	item := cache.Get("first")
 	fmt.Println(item.Value(), item.ExpiresAt())
 
+	// check key 
+	ok := cache.Has("third")
+	
 	// delete data
 	cache.Delete("second")
 	cache.DeleteExpired()
 	cache.DeleteAll()
+
+	// retrieve data if in cache otherwise insert data
+	item, retrieved := cache.GetOrSet("fourth", "value4", WithTTL[string, string](ttlcache.DefaultTTL))
+
+	// retrieve and delete data
+	item, present := cache.GetAndDelete("fourth")
 }
 ```
 
@@ -95,10 +108,10 @@ func main() {
 		ttlcache.WithCapacity[string, string](300),
 	)
 
-	cache.OnInsertion(func(item *ttlcache.Item[string, string]) {
+	cache.OnInsertion(func(ctx context.Context, item *ttlcache.Item[string, string]) {
 		fmt.Println(item.Value(), item.ExpiresAt())
 	})
-	cache.OnEviction(func(reason ttlcache.EvictionReason, item *ttlcache.Item[string, string]) {
+	cache.OnEviction(func(ctx context.Context, reason ttlcache.EvictionReason, item *ttlcache.Item[string, string]) {
 		if reason == ttlcache.EvictionReasonCapacityReached {
 			fmt.Println(item.Key(), item.Value())
 		}

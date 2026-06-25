@@ -23,6 +23,7 @@ import (
 	"github.com/containers/image/v5/types"
 	"github.com/containers/storage"
 	"github.com/containers/storage/pkg/archive"
+	"github.com/containers/storage/pkg/ioutils"
 	digest "github.com/opencontainers/go-digest"
 	imgspecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
@@ -124,20 +125,25 @@ func (s *storageImageSource) GetBlob(ctx context.Context, info types.BlobInfo, c
 	}
 	defer rc.Close()
 
-	tmpFile, err := os.CreateTemp(tmpdir.TemporaryDirectoryForBigFiles(s.systemContext), "")
+	tmpFile, err := tmpdir.CreateBigFileTemp(s.systemContext, "")
 	if err != nil {
 		return nil, 0, err
 	}
 	success := false
+	tmpFileRemovePending := true
 	defer func() {
 		if !success {
 			tmpFile.Close()
+			if tmpFileRemovePending {
+				os.Remove(tmpFile.Name())
+			}
 		}
 	}()
 	// On Unix and modern Windows (2022 at least) we can eagerly unlink the file to ensure it's automatically
 	// cleaned up on process termination (or if the caller forgets to invoke Close())
+	// On older versions of Windows we will have to fallback to relying on the caller to invoke Close()
 	if err := os.Remove(tmpFile.Name()); err != nil {
-		return nil, 0, err
+		tmpFileRemovePending = false
 	}
 
 	if _, err := io.Copy(tmpFile, rc); err != nil {
@@ -148,6 +154,14 @@ func (s *storageImageSource) GetBlob(ctx context.Context, info types.BlobInfo, c
 	}
 
 	success = true
+
+	if tmpFileRemovePending {
+		return ioutils.NewReadCloserWrapper(tmpFile, func() error {
+			tmpFile.Close()
+			return os.Remove(tmpFile.Name())
+		}), n, nil
+	}
+
 	return tmpFile, n, nil
 }
 
@@ -188,10 +202,7 @@ func (s *storageImageSource) getBlobAndLayerID(digest digest.Digest, layers []st
 // GetManifest() reads the image's manifest.
 func (s *storageImageSource) GetManifest(ctx context.Context, instanceDigest *digest.Digest) (manifestBlob []byte, mimeType string, err error) {
 	if instanceDigest != nil {
-		key, err := manifestBigDataKey(*instanceDigest)
-		if err != nil {
-			return nil, "", err
-		}
+		key := manifestBigDataKey(*instanceDigest)
 		blob, err := s.imageRef.transport.store.ImageBigData(s.image.ID, key)
 		if err != nil {
 			return nil, "", fmt.Errorf("reading manifest for image instance %q: %w", *instanceDigest, err)
@@ -203,10 +214,7 @@ func (s *storageImageSource) GetManifest(ctx context.Context, instanceDigest *di
 		// Prefer the manifest corresponding to the user-specified digest, if available.
 		if s.imageRef.named != nil {
 			if digested, ok := s.imageRef.named.(reference.Digested); ok {
-				key, err := manifestBigDataKey(digested.Digest())
-				if err != nil {
-					return nil, "", err
-				}
+				key := manifestBigDataKey(digested.Digest())
 				blob, err := s.imageRef.transport.store.ImageBigData(s.image.ID, key)
 				if err != nil && !os.IsNotExist(err) { // os.IsNotExist is true if the image exists but there is no data corresponding to key
 					return nil, "", err
@@ -321,14 +329,7 @@ func (s *storageImageSource) GetSignaturesWithFormat(ctx context.Context, instan
 	instance := "default instance"
 	if instanceDigest != nil {
 		signatureSizes = s.SignaturesSizes[*instanceDigest]
-		k, err := signatureBigDataKey(*instanceDigest)
-		if err != nil {
-			return nil, err
-		}
-		key = k
-		if err := instanceDigest.Validate(); err != nil { // digest.Digest.Encoded() panics on failure, so validate explicitly.
-			return nil, err
-		}
+		key = signatureBigDataKey(*instanceDigest)
 		instance = instanceDigest.Encoded()
 	}
 	if len(signatureSizes) > 0 {

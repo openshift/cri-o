@@ -161,34 +161,25 @@ func (ref dirReference) DeleteImage(ctx context.Context, sys *types.SystemContex
 }
 
 // manifestPath returns a path for the manifest within a directory using our conventions.
-func (ref dirReference) manifestPath(instanceDigest *digest.Digest) (string, error) {
+func (ref dirReference) manifestPath(instanceDigest *digest.Digest) string {
 	if instanceDigest != nil {
-		if err := instanceDigest.Validate(); err != nil { // digest.Digest.Encoded() panics on failure, and could possibly result in a path with ../, so validate explicitly.
-			return "", err
-		}
-		return filepath.Join(ref.path, instanceDigest.Encoded()+".manifest.json"), nil
+		return filepath.Join(ref.path, instanceDigest.Encoded()+".manifest.json")
 	}
-	return filepath.Join(ref.path, "manifest.json"), nil
+	return filepath.Join(ref.path, "manifest.json")
 }
 
 // layerPath returns a path for a layer tarball within a directory using our conventions.
-func (ref dirReference) layerPath(digest digest.Digest) (string, error) {
-	if err := digest.Validate(); err != nil { // digest.Digest.Encoded() panics on failure, and could possibly result in a path with ../, so validate explicitly.
-		return "", err
-	}
+func (ref dirReference) layerPath(digest digest.Digest) string {
 	// FIXME: Should we keep the digest identification?
-	return filepath.Join(ref.path, digest.Encoded()), nil
+	return filepath.Join(ref.path, digest.Encoded())
 }
 
 // signaturePath returns a path for a signature within a directory using our conventions.
-func (ref dirReference) signaturePath(index int, instanceDigest *digest.Digest) (string, error) {
+func (ref dirReference) signaturePath(index int, instanceDigest *digest.Digest) string {
 	if instanceDigest != nil {
-		if err := instanceDigest.Validate(); err != nil { // digest.Digest.Encoded() panics on failure, and could possibly result in a path with ../, so validate explicitly.
-			return "", err
-		}
-		return filepath.Join(ref.path, fmt.Sprintf(instanceDigest.Encoded()+".signature-%d", index+1)), nil
+		return filepath.Join(ref.path, fmt.Sprintf(instanceDigest.Encoded()+".signature-%d", index+1))
 	}
-	return filepath.Join(ref.path, fmt.Sprintf("signature-%d", index+1)), nil
+	return filepath.Join(ref.path, fmt.Sprintf("signature-%d", index+1))
 }
 
 // versionPath returns a path for the version file within a directory using our conventions.
