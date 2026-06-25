@@ -1,4 +1,4 @@
-<!-- markdownlint-disable-next-line MD041 -->
+ <!-- markdownlint-disable-next-line MD041 -->
 
 ![CRI-O logo](https://github.com/cri-o/cri-o/blob/main/logo/crio-logo.svg?raw=true)
 
