@@ -24,7 +24,7 @@ var _ = t.Describe("Dedup", func() {
 				Return(graphdriver.DedupResult{Deduped: 1024}, nil)
 
 			// When
-			err := server.RunDedup(context.Background(), storeMock)
+			err := server.RunDedup(context.Background(), storeMock, false)
 
 			// Then
 			Expect(err).ToNot(HaveOccurred())
@@ -36,7 +36,7 @@ var _ = t.Describe("Dedup", func() {
 				Return(graphdriver.DedupResult{Deduped: 0}, nil)
 
 			// When
-			err := server.RunDedup(context.Background(), storeMock)
+			err := server.RunDedup(context.Background(), storeMock, false)
 
 			// Then
 			Expect(err).ToNot(HaveOccurred())
@@ -48,7 +48,7 @@ var _ = t.Describe("Dedup", func() {
 				Return(graphdriver.DedupResult{}, unix.ENOTSUP)
 
 			// When
-			err := server.RunDedup(context.Background(), storeMock)
+			err := server.RunDedup(context.Background(), storeMock, false)
 
 			// Then
 			Expect(err).To(HaveOccurred())
@@ -61,7 +61,7 @@ var _ = t.Describe("Dedup", func() {
 				Return(graphdriver.DedupResult{}, unix.EOPNOTSUPP)
 
 			// When
-			err := server.RunDedup(context.Background(), storeMock)
+			err := server.RunDedup(context.Background(), storeMock, false)
 
 			// Then
 			Expect(err).To(HaveOccurred())
@@ -74,7 +74,7 @@ var _ = t.Describe("Dedup", func() {
 				Return(graphdriver.DedupResult{}, t.TestError)
 
 			// When
-			err := server.RunDedup(context.Background(), storeMock)
+			err := server.RunDedup(context.Background(), storeMock, false)
 
 			// Then
 			Expect(err).To(HaveOccurred())

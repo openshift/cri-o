@@ -3,9 +3,9 @@ package criocli
 import (
 	"fmt"
 
-	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 
+	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/server"
 )
 
@@ -27,9 +27,18 @@ or Btrfs). On unsupported filesystems, the command exits with an error.
 This command should be run while CRI-O is stopped to avoid lock
 contention with image pull operations.`,
 	Action: crioDedup,
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:    "physical-disk-usage",
+			Aliases: []string{"p"},
+			Usage:   "report real physical disk usage after dedup (FIEMAP-based, Linux only)",
+		},
+	},
 }
 
 func crioDedup(c *cli.Context) error {
+	ctx := c.Context
+
 	config, err := GetConfigFromContext(c)
 	if err != nil {
 		return fmt.Errorf("unable to load configuration: %w", err)
@@ -42,9 +51,11 @@ func crioDedup(c *cli.Context) error {
 
 	defer func() {
 		if _, err := store.Shutdown(true); err != nil {
-			logrus.Errorf("Unable to shutdown storage: %v", err)
+			log.Errorf(ctx, "Unable to shutdown storage: %v", err)
 		}
 	}()
 
-	return server.RunDedup(c.Context, store)
+	showPhysicalUsage := c.Bool("physical-disk-usage")
+
+	return server.RunDedup(ctx, store, showPhysicalUsage)
 }

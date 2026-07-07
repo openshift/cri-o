@@ -492,7 +492,7 @@ func New(
 
 	if config.EnableStorageDedup {
 		go func() {
-			if err := RunDedup(ctx, s.ContainerServer.Store()); err != nil {
+			if err := RunDedup(ctx, s.ContainerServer.Store(), false); err != nil {
 				log.Warnf(ctx, "%v", err)
 			}
 		}()
