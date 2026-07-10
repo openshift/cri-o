@@ -329,6 +329,9 @@ Enable CRIU integration, requires that the criu binary is available in $PATH. (d
 **enable_pod_events**=false
 Enable CRI-O to generate the container pod-level events in order to optimize the performance of the Pod Lifecycle Event Generator (PLEG) module in Kubelet.
 
+**enable_layer_dedup**=false
+Enable automatic layer deduplication after image pulls using reflinks. This can save disk space when multiple images share common layers. Requires a filesystem that supports reflinks (XFS with reflink=1, BTRFS).
+
 **hostnetwork_disable_selinux**=true
 Determines whether SELinux should be disabled within a pod when it is running in the host network namespace.
 
@@ -506,6 +509,17 @@ The timeout for an image pull to make progress until the pull operation gets can
 **oci_artifact_mount_support**=true
 This option is whether CRI-O enables OCI Artifact mount.
 If true, CRI-O can mount OCI artifacts as volumes.
+
+**enable_storage_dedup**=false
+Enable background storage deduplication using reflinks on startup. Identical
+files across image layers are deduplicated at the filesystem level using
+copy-on-write clones, reducing disk usage without the drawbacks of hard links.
+Deduplication can also be triggered manually via `crio dedup`.
+Requires filesystem support (e.g., XFS with reflink=1 or Btrfs).
+Disabled by default because dedup adds startup latency and only works on
+filesystems with reflink support. Enable on storage-constrained nodes after
+confirming the graph root uses XFS with reflink=1 or Btrfs; otherwise run
+`crio dedup` manually while CRI-O is stopped.
 
 ## CRIO.NETWORK TABLE
 

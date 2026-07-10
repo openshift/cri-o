@@ -135,7 +135,8 @@ func DedupDirs(dirs []string, options DedupOptions) (DedupResult, error) {
 					}
 					logrus.Debugf("Failed to deduplicate: %v", err)
 					if errors.Is(err, errNotSupported) {
-						return dedupBytes, err
+						// Keep trying other sources; do not abort the full store walk.
+						continue
 					}
 				}
 				if dedupBytes == 0 {

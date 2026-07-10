@@ -445,6 +445,10 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 		config.OCIArtifactMountSupport = ctx.Bool("oci-artifact-mount-support")
 	}
 
+	if ctx.IsSet("enable-storage-dedup") {
+		config.EnableStorageDedup = ctx.Bool("enable-storage-dedup")
+	}
+
 	if ctx.IsSet("enable-metrics") {
 		config.EnableMetrics = ctx.Bool("enable-metrics")
 	}
@@ -551,6 +555,10 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 
 	if ctx.IsSet("enable-pod-events") {
 		config.EnablePodEvents = ctx.Bool("enable-pod-events")
+	}
+
+	if ctx.IsSet("enable-layer-dedup") {
+		config.EnableLayerDedup = ctx.Bool("enable-layer-dedup")
 	}
 
 	if ctx.IsSet("hostnetwork-disable-selinux") {
@@ -1297,6 +1305,12 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			EnvVars: []string{"CONTAINER_OCI_ARTIFACT_SUPPORT"},
 			Value:   defConf.OCIArtifactMountSupport,
 		},
+		&cli.BoolFlag{
+			Name:    "enable-storage-dedup",
+			Usage:   "Enable background storage deduplication using reflinks on startup.",
+			EnvVars: []string{"CONTAINER_ENABLE_STORAGE_DEDUP"},
+			Value:   defConf.EnableStorageDedup,
+		},
 		&cli.StringFlag{
 			Name:    "infra-ctr-cpuset",
 			Usage:   "CPU set to run infra containers, if not specified CRI-O will use all online CPUs to run infra containers.",
@@ -1350,6 +1364,12 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			Name:    "enable-pod-events",
 			Usage:   "If true, CRI-O starts sending the container events to the kubelet",
 			EnvVars: []string{"ENABLE_POD_EVENTS"},
+		},
+		&cli.BoolFlag{
+			Name:    "enable-layer-dedup",
+			Usage:   "Enable automatic layer deduplication after image pulls using reflinks",
+			EnvVars: []string{"ENABLE_LAYER_DEDUP"},
+			Value:   false,
 		},
 		&cli.StringFlag{
 			Name:  "irqbalance-config-restore-file",

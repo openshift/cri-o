@@ -13,6 +13,7 @@ import (
 
 	imageTypes "github.com/containers/image/v5/types"
 	encconfig "github.com/containers/ocicrypt/config"
+	cstorage "github.com/containers/storage"
 	"github.com/docker/distribution/registry/api/errcode"
 	"github.com/opencontainers/go-digest"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
@@ -194,6 +195,14 @@ func (s *Server) pullImage(ctx context.Context, pullArgs *pullArguments) (storag
 			// Update metric for successful image pulls
 			metrics.Instance().MetricImagePullsSuccessesInc(remoteCandidateName)
 
+			// Run deduplication if enabled
+			if s.config.EnableLayerDedup {
+				if dedupErr := s.deduplicateImageSync(ctx, repoDigest); dedupErr != nil {
+					// Log warning but don't fail the pull
+					log.Warnf(ctx, "Deduplication of image %s failed: %v", repoDigest, dedupErr)
+				}
+			}
+
 			return repoDigest, nil
 		}
 
@@ -355,4 +364,37 @@ func decodeDockerAuth(s string) (user, password string, _ error) {
 	password = strings.Trim(parts[1], "\x00")
 
 	return user, password, nil
+}
+
+func (s *Server) deduplicateImageSync(ctx context.Context, imageID storage.RegistryImageReference) error {
+	ctx, span := log.StartSpan(ctx)
+	defer span.End()
+
+	store := s.ContainerServer.StorageImageServer().GetStore()
+
+	log.Infof(ctx, "Starting layer deduplication for image %s", imageID)
+
+	start := time.Now()
+
+	// Dedup all layers in the store (uses store's internal layer cache)
+	result, err := store.Dedup(cstorage.DedupArgs{
+		Options: cstorage.DedupOptions{
+			HashMethod: cstorage.DedupHashSHA256,
+		},
+	})
+	duration := time.Since(start)
+
+	if err != nil {
+		return fmt.Errorf("deduplication failed: %w", err)
+	}
+
+	// Record dedup metrics
+	metrics.Instance().MetricImageLayerDedupDurationObserve(duration)
+	metrics.Instance().MetricImageLayerDedupBytesSavedObserve(int64(result.Deduped))
+
+	savedMB := float64(result.Deduped) / (1024 * 1024)
+	log.Infof(ctx, "Deduplication complete for image %s: saved %.2f MB in %v",
+		imageID, savedMB, duration)
+
+	return nil
 }

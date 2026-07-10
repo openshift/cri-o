@@ -475,6 +475,9 @@ type RuntimeConfig struct {
 	// SeparatePullCgroup specifies whether an image pull must be performed in a separate cgroup
 	SeparatePullCgroup string `toml:"separate_pull_cgroup"`
 
+	// EnableLayerDedup enables automatic layer deduplication after image pulls
+	EnableLayerDedup bool `toml:"enable_layer_dedup"`
+
 	// InfraCtrCPUSet is the CPUs set that will be used to run infra containers
 	InfraCtrCPUSet string `toml:"infra_ctr_cpuset"`
 
@@ -591,6 +594,15 @@ type ImageConfig struct {
 	PullProgressTimeout time.Duration `toml:"pull_progress_timeout"`
 	// OCIArtifactMountSupport is used to determine if CRI-O should support OCI Artifacts.
 	OCIArtifactMountSupport bool `toml:"oci_artifact_mount_support"`
+	// EnableStorageDedup enables background storage deduplication using
+	// reflinks on startup. Identical files across image layers are
+	// deduplicated at the filesystem level using copy-on-write clones,
+	// reducing disk usage without the drawbacks of hard links.
+	// Deduplication can also be triggered manually via `crio dedup`.
+	// Requires filesystem support (e.g., XFS with reflink=1 or Btrfs).
+	// Disabled by default: adds startup latency and needs reflink support.
+	// Enable on storage-constrained nodes; use `crio dedup` for manual runs.
+	EnableStorageDedup bool `toml:"enable_storage_dedup"`
 }
 
 // NetworkConfig represents the "crio.network" TOML config table.
