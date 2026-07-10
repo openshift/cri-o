@@ -557,6 +557,10 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 		config.EnablePodEvents = ctx.Bool("enable-pod-events")
 	}
 
+	if ctx.IsSet("enable-layer-dedup") {
+		config.EnableLayerDedup = ctx.Bool("enable-layer-dedup")
+	}
+
 	if ctx.IsSet("hostnetwork-disable-selinux") {
 		config.HostNetworkDisableSELinux = ctx.Bool("hostnetwork-disable-selinux")
 	}
@@ -1360,6 +1364,12 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			Name:    "enable-pod-events",
 			Usage:   "If true, CRI-O starts sending the container events to the kubelet",
 			EnvVars: []string{"ENABLE_POD_EVENTS"},
+		},
+		&cli.BoolFlag{
+			Name:    "enable-layer-dedup",
+			Usage:   "Enable automatic layer deduplication after image pulls using reflinks",
+			EnvVars: []string{"ENABLE_LAYER_DEDUP"},
+			Value:   false,
 		},
 		&cli.StringFlag{
 			Name:  "irqbalance-config-restore-file",

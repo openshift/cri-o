@@ -459,6 +459,11 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 			isDefaultValue: simpleEqual(dc.EnablePodEvents, c.EnablePodEvents),
 		},
 		{
+			templateString: templateStringCrioRuntimeEnableLayerDedup,
+			group:          crioRuntimeConfig,
+			isDefaultValue: simpleEqual(dc.EnableLayerDedup, c.EnableLayerDedup),
+		},
+		{
 			templateString: templateStringCrioRuntimeDefaultRuntime,
 			group:          crioRuntimeConfig,
 			isDefaultValue: simpleEqual(dc.DefaultRuntime, c.DefaultRuntime),
@@ -1239,6 +1244,12 @@ const templateStringCrioRuntimeEnableCriuSupport = `# Globally enable/disable CR
 const templateStringCrioRuntimeEnablePodEvents = `# Enable/disable the generation of the container,
 # sandbox lifecycle events to be sent to the Kubelet to optimize the PLEG
 {{ $.Comment }}enable_pod_events = {{ .EnablePodEvents }}
+
+`
+
+const templateStringCrioRuntimeEnableLayerDedup = `# Enable/disable automatic layer deduplication after image pulls using reflinks.
+# Requires a filesystem that supports reflinks (XFS, BTRFS).
+{{ $.Comment }}enable_layer_dedup = {{ .EnableLayerDedup }}
 
 `
 

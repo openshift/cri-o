@@ -3,6 +3,7 @@ package server_test
 import (
 	"context"
 
+	graphdriver "github.com/containers/storage/drivers"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
@@ -44,6 +45,59 @@ var _ = t.Describe("ImagePull", func() {
 				}})
 
 			// Then
+			Expect(err).ToNot(HaveOccurred())
+			Expect(response).NotTo(BeNil())
+		})
+
+		It("should succeed with pull and dedup enabled", func() {
+			// Given
+			sut.Config().EnableLayerDedup = true
+
+			gomock.InOrder(
+				imageServerMock.EXPECT().CandidatesForPotentiallyShortImageName(
+					gomock.Any(), "image").
+					Return([]storage.RegistryImageReference{imageCandidate}, nil),
+				imageServerMock.EXPECT().PullImage(gomock.Any(), imageCandidate, gomock.Any()).
+					Return(canonicalImageCandidate, nil),
+				imageServerMock.EXPECT().GetStore().Return(storeMock),
+				storeMock.EXPECT().Dedup(gomock.Any()).
+					Return(graphdriver.DedupResult{Deduped: 1024}, nil),
+			)
+
+			// When
+			response, err := sut.PullImage(context.Background(),
+				&types.PullImageRequest{Image: &types.ImageSpec{
+					Image: "image",
+				}})
+
+			// Then
+			Expect(err).ToNot(HaveOccurred())
+			Expect(response).NotTo(BeNil())
+		})
+
+		It("should succeed even if dedup fails after pull", func() {
+			// Given
+			sut.Config().EnableLayerDedup = true
+
+			gomock.InOrder(
+				imageServerMock.EXPECT().CandidatesForPotentiallyShortImageName(
+					gomock.Any(), "image").
+					Return([]storage.RegistryImageReference{imageCandidate}, nil),
+				imageServerMock.EXPECT().PullImage(gomock.Any(), imageCandidate, gomock.Any()).
+					Return(canonicalImageCandidate, nil),
+				imageServerMock.EXPECT().GetStore().Return(storeMock),
+				storeMock.EXPECT().Dedup(gomock.Any()).
+					Return(graphdriver.DedupResult{}, t.TestError),
+			)
+
+			// When
+			response, err := sut.PullImage(context.Background(),
+				&types.PullImageRequest{Image: &types.ImageSpec{
+					Image: "image",
+				}})
+
+			// Then
+			// Should succeed even if dedup fails (it logs warning but doesn't fail the pull)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(response).NotTo(BeNil())
 		})
