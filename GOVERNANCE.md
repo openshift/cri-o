@@ -67,7 +67,8 @@ reviewers, approvers and emeritus approvers.
   organization, and can be considered to be a community member whose
   contributions have demonstrated they can be trusted with access to the CRI-O CI.
 - Reviewers are a set of people responsible for reviewing PRs and triaging
-  issues. In most cases, they're also responsible for fixing issues in the code base.
+  issues. In most cases, they're also responsible for fixing issues in
+  the code base.
 - Approvers are the set of people that have final say over the direction of the
   project. For any PR to merge, an approver must approve it.
 - Emeritus Approvers can be considered "retired" approver--while they don't have
@@ -128,7 +129,7 @@ reviewers, approvers and emeritus approvers.
 - Monitor our channel [#crio](https://kubernetes.slack.com/archives/crio) on the
   Kubernetes Slack instance and answer questions where possible.
 - Triage GitHub issues and review pull requests. The areas of specialization
-  listed in [OWNERS.md](OWNERS.md) can be used to help with routing an issue/question
+  listed in [OWNERS](OWNERS) can be used to help with routing an issue/question
   to the right person.
 - Triage CI issues - file issues for known flaky CI runs or bugs, and either fix
   or find someone to fix any breakages.
@@ -169,7 +170,7 @@ reviewers, approvers and emeritus approvers.
 - The person in question for approvership can nominate themselves, or be nominated
   by someone else.
   - A contributor is nominated by someone submitting a PR to add their github
-    handle to the approvers section of the [OWNERS](OWNERS.md) file.
+    handle to the approvers section of the [OWNERS](OWNERS) file.
 - To become an approver, a simple majority vote among the current approvers
   should be performed.
   - See [conflict resolution](#conflict-resolution-and-voting) for more information

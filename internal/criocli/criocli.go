@@ -1312,7 +1312,7 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 		},
 		&cli.StringSliceFlag{
 			Name:    "allowed-devices",
-			Usage:   "Devices a user is allowed to specify with the \"io.kubernetes.cri-o.Devices\" allowed annotation.",
+			Usage:   "Devices a user is allowed to specify with the \"devices.crio.io\" allowed annotation.",
 			Value:   cli.NewStringSlice(defConf.AllowedDevices...),
 			EnvVars: []string{"CONTAINER_ALLOWED_DEVICES"},
 		},
@@ -1573,7 +1573,7 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 		},
 		&cli.StringSliceFlag{
 			Name:    "pinned-images",
-			Usage:   "A list of images that will be excluded from the kubelet's garbage collection.",
+			Usage:   "A list of images and OCI artifacts that will be excluded from the kubelet's garbage collection.",
 			EnvVars: []string{"CONTAINER_PINNED_IMAGES"},
 			Value:   cli.NewStringSlice(defConf.PinnedImages...),
 		},

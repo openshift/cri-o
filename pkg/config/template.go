@@ -961,8 +961,7 @@ const templateStringCrioRuntimeDecryptionKeysPath = `# decryption_keys_path is t
 
 `
 
-const templateStringCrioRuntimeAdditionalArtifactStores = `# A list of additional read-only OCI artifact store paths
-# (experimental, subject to change).
+const templateStringCrioRuntimeAdditionalArtifactStores = `# A list of additional read-only OCI artifact store paths.
 # CRI-O expects an "artifacts/" subdirectory within each configured path.
 # All entries must be absolute paths. Artifacts in these stores take priority
 # over the main store. Tag re-pointing is not supported for artifacts in
@@ -1556,10 +1555,10 @@ const templateStringCrioImagePauseCommand = `# The command to run to have a cont
 
 `
 
-const templateStringCrioImagePinnedImages = `# List of images to be excluded from the kubelet's garbage collection.
-# It allows specifying image names using either exact, glob, or keyword
-# patterns. Exact matches must match the entire name, glob matches can
-# have a wildcard * at the end, and keyword matches can have wildcards
+const templateStringCrioImagePinnedImages = `# List of images and OCI artifacts to be excluded from the kubelet's garbage
+# collection. It allows specifying image names using either exact, glob, or
+# keyword patterns. Exact matches must match the entire name, glob matches
+# can have a wildcard * at the end, and keyword matches can have wildcards
 # on both ends. By default, this list includes the "pause" image if
 # configured by the user, which is used as a placeholder in Kubernetes pods.
 {{ $.Comment }}pinned_images = [

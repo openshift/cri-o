@@ -11,6 +11,12 @@ function teardown() {
 	cleanup_test
 }
 
+function process_is_dead_or_zombie() {
+	local stat
+	stat=$(ps -p "$1" -o stat= 2> /dev/null) || return 0
+	[[ "$stat" == Z* ]]
+}
+
 # list_all_children lists children of a process recursively
 function list_all_children {
 	children=$(pgrep -P "$1")
@@ -73,7 +79,7 @@ function setup_log_linking_test() {
 
 	# Create directories and set up pod/container.
 	mkdir -p "$pod_log_dir" "$pod_empty_dir_volume_path"
-	jq --arg pod_log_dir "$pod_log_dir" --arg pod_uid "$pod_uid" '.annotations["io.kubernetes.cri-o.LinkLogs"] = "logging-volume"
+	jq --arg pod_log_dir "$pod_log_dir" --arg pod_uid "$pod_uid" '.annotations["link-logs.crio.io"] = "logging-volume"
 	| .log_directory = $pod_log_dir | .metadata.uid = $pod_uid' \
 		"$TESTDATA/sandbox_config.json" > "$TESTDIR/sandbox_config.json"
 	pod_id=$(crictl runp "$TESTDIR/sandbox_config.json")
@@ -1301,12 +1307,9 @@ function assert_log_linking() {
 
 	EXPECTED_EXIT_STATUS=137 wait_until_exit "$ctr_id"
 
-	# make sure crio syncs state
+	# After kill -9, children get reparented to PID 1; wait for systemd to reap them.
 	for process in ${processes}; do
-		# Ignore Z state (zombies) as the process has just been killed and reparented. Systemd will get to it.
-		# `pgrep` doesn't have a good mechanism for ignoring Z state, but including all others, so:
-		# shellcheck disable=SC2143
-		[ -z "$(ps -p "$process" o pid=,stat= | grep -v ' Z')" ]
+		retry 10 1 process_is_dead_or_zombie "$process"
 	done
 }
 
@@ -1334,7 +1337,7 @@ function assert_log_linking() {
 		skip "not applicable to vm runtime type"
 	fi
 	setup_crio
-	create_runtime_with_allowed_annotation logs io.kubernetes.cri-o.LinkLogs
+	create_runtime_with_allowed_annotation logs link-logs.crio.io
 	start_crio_no_setup
 
 	# Create directories created by the kubelet needed for log linking to work
@@ -1351,7 +1354,7 @@ function assert_log_linking() {
 	ctr_attempt=$(jq -r '.metadata.attempt' "$TESTDATA/container_config.json")
 
 	# Add annotation for log linking in the pod
-	jq --arg pod_log_dir "$pod_log_dir" --arg pod_uid "$pod_uid" '.annotations["io.kubernetes.cri-o.LinkLogs"] = "logging-volume"
+	jq --arg pod_log_dir "$pod_log_dir" --arg pod_uid "$pod_uid" '.annotations["link-logs.crio.io"] = "logging-volume"
 	| .log_directory = $pod_log_dir | .metadata.uid = $pod_uid' \
 		"$TESTDATA/sandbox_config.json" > "$TESTDIR/sandbox_config.json"
 	pod_id=$(crictl runp "$TESTDIR"/sandbox_config.json)
@@ -1399,8 +1402,8 @@ function assert_log_linking() {
 		skip "not applicable to vm runtime type"
 	fi
 	setup_crio
-	create_runtime_with_allowed_annotation logs io.kubernetes.cri-o.LinkLogs
-	create_workload_with_allowed_annotation io.kubernetes.cri-o.LinkLogs
+	create_runtime_with_allowed_annotation logs link-logs.crio.io
+	create_workload_with_allowed_annotation link-logs.crio.io
 	start_crio_no_setup
 
 	# Create directories created by the kubelet needed for log linking to work
@@ -1417,7 +1420,7 @@ function assert_log_linking() {
 	ctr_attempt=$(jq -r '.metadata.attempt' "$TESTDATA/container_config.json")
 
 	# Add annotation for log linking in the pod
-	jq --arg pod_log_dir "$pod_log_dir" --arg pod_uid "$pod_uid" '.annotations["io.kubernetes.cri-o.LinkLogs"] = "logging-volume"
+	jq --arg pod_log_dir "$pod_log_dir" --arg pod_uid "$pod_uid" '.annotations["link-logs.crio.io"] = "logging-volume"
 	| .log_directory = $pod_log_dir | .metadata.uid = $pod_uid' \
 		"$TESTDATA/sandbox_config.json" > "$TESTDIR/sandbox_config.json"
 	pod_id=$(crictl runp "$TESTDIR"/sandbox_config.json)
@@ -1465,7 +1468,7 @@ function assert_log_linking() {
 		skip "not applicable to vm runtime type"
 	fi
 	setup_crio
-	create_runtime_with_allowed_annotation logs io.kubernetes.cri-o.LinkLogs
+	create_runtime_with_allowed_annotation logs link-logs.crio.io
 	start_crio_no_setup
 
 	read -r pod_empty_dir_volume_path ctr_name ctr_attempt ctr_id <<< "$(setup_log_linking_test "../../../malicious")"
@@ -1478,7 +1481,7 @@ function assert_log_linking() {
 		skip "not applicable to vm runtime type"
 	fi
 	setup_crio
-	create_runtime_with_allowed_annotation logs io.kubernetes.cri-o.LinkLogs
+	create_runtime_with_allowed_annotation logs link-logs.crio.io
 	start_crio_no_setup
 
 	read -r pod_empty_dir_volume_path ctr_name ctr_attempt ctr_id <<< "$(setup_log_linking_test "invalid path")"

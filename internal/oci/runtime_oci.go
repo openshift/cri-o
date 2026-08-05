@@ -581,8 +581,7 @@ func (r *runtimeOCI) ExecContainer(ctx context.Context, c *Container, cmd []stri
 		return copyError
 	}
 
-	var exitErr *exec.ExitError
-	if errors.As(cmdErr, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](cmdErr); ok {
 		return &utilexec.ExitErrorWrapper{ExitError: exitErr}
 	}
 
@@ -822,8 +821,7 @@ func (r *runtimeOCI) ExecSyncContainer(ctx context.Context, c *Container, comman
 
 	if waitErr != nil {
 		// if we aren't a ExitError, some I/O problems probably occurred
-		var exitErr *exec.ExitError
-		if !errors.As(waitErr, &exitErr) {
+		if _, ok := errors.AsType[*exec.ExitError](waitErr); !ok { //nolint:errcheck // We only check error type here.
 			return nil, &ExecSyncError{
 				Stdout:   stdoutBuf,
 				Stderr:   stderrBuf,
@@ -1335,8 +1333,8 @@ func (r *runtimeOCI) CgroupStats(ctx context.Context, c *Container, cgroup strin
 	_, span := log.StartSpan(ctx)
 	defer span.End()
 
-	c.opLock.Lock()
-	defer c.opLock.Unlock()
+	c.opLock.RLock()
+	defer c.opLock.RUnlock()
 
 	return r.config.CgroupManager().ContainerCgroupStats(cgroup, c.ID())
 }
@@ -1346,8 +1344,8 @@ func (r *runtimeOCI) DiskStats(ctx context.Context, c *Container, cgroup string)
 	_, span := log.StartSpan(ctx)
 	defer span.End()
 
-	c.opLock.Lock()
-	defer c.opLock.Unlock()
+	c.opLock.RLock()
+	defer c.opLock.RUnlock()
 
 	// Get disk usage from the container's mount point
 	mountPoint := c.MountPoint()
@@ -1452,8 +1450,7 @@ func (r *runtimeOCI) AttachContainer(ctx context.Context, c *Container, inputStr
 			return nil
 		}
 
-		var detachErr utils.DetachError
-		if errors.As(err, &detachErr) {
+		if _, ok := errors.AsType[utils.DetachError](err); ok { //nolint:errcheck // We only check error type here.
 			return nil
 		}
 

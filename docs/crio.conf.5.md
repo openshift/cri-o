@@ -132,7 +132,7 @@ If true, the runtime will not use `pivot_root`, but instead use `MS_MOVE`.
 Path where the keys required for image decryption are located
 
 **additional_artifact_stores**=[]
-A list of additional read-only OCI artifact store paths (experimental, subject to change). CRI-O expects an "artifacts/" subdirectory within each configured path. All entries must be absolute paths. Artifacts in these stores take priority over the main store. Because these stores are read-only, CRI-O cannot remove artifacts from them. If a tag is re-pointed on the registry, the stale local copy in a read-only store will continue to be used; the artifact must be removed from the read-only store directly on the filesystem to pick up the new version.
+A list of additional read-only OCI artifact store paths. CRI-O expects an "artifacts/" subdirectory within each configured path. All entries must be absolute paths. Artifacts in these stores take priority over the main store. Because these stores are read-only, CRI-O cannot remove artifacts from them. If a tag is re-pointed on the registry, the stale local copy in a read-only store will continue to be used; the artifact must be removed from the read-only store directly on the filesystem to pick up the new version.
 
 **conmon**=""
 Path to the conmon binary, used for monitoring the OCI runtime. Will be searched for using $PATH if empty.
@@ -159,7 +159,6 @@ This option is deprecated, and be interpreted from whether SELinux is enabled on
 
 **seccomp_profile**=""
 Path to the seccomp.json profile which is used as the default seccomp profile for the runtime. If not specified, then the internal default seccomp profile will be used.
-This option is currently deprecated, and will be replaced by the SeccompDefault FeatureGate in Kubernetes.
 
 **privileged_seccomp_profile**=""
 Enable a seccomp profile for privileged containers from the local path.
@@ -233,7 +232,7 @@ One example would be allowing ping inside of containers. On systems that support
 ```
 
 **allowed_devices**=[]
-List of devices on the host that a user can specify with the "io.kubernetes.cri-o.Devices" allowed annotation.
+List of devices on the host that a user can specify with the "devices.crio.io" allowed annotation.
 
 **additional_devices**=[]
 List of additional devices. Specified as "<device-on-host>:<device-on-container>:<permissions>", for example: "--additional-devices=/dev/sdc:/dev/xvdc:rwm". If it is empty or commented out, only the devices defined in the container json file by the user/kube will be added.
@@ -358,7 +357,11 @@ Path to the OCI compatible runtime used for this runtime handler.
 Root directory used to store runtime data
 
 **runtime_type**="oci"
-Type of the runtime used for this runtime handler. "oci", "vm"
+Type of the runtime used for this runtime handler. Valid values are:
+
+- `"oci"` (default): Standard OCI runtime (e.g. runc, crun). The `runtime_path` should point to the OCI runtime binary.
+- `"vm"`: VM-isolation shim using the containerd shimv2/ttrpc protocol. The `runtime_path` must be a `containerd-shim-*` binary. This runtime type is exercised in CI with [Kata Containers](https://github.com/kata-containers/kata-containers) (`containerd-shim-kata-v2`). Other shimv2 shims implement the same protocol and may work — for example [gVisor](https://github.com/google/gvisor)'s `containerd-shim-runsc-v1` — but are not currently covered by CI.
+- `"pod"`: Pod-level runtime using [conmon-rs](https://github.com/containers/conmon-rs) instead of conmon. conmon-rs operates at pod granularity.
 
 **inherit_default_runtime**=false
 Override the runtime path, runtime config path, runtime root and runtime type from the default runtime on load.
@@ -373,14 +376,14 @@ Whether this runtime handler prevents host devices from being passed to privileg
 **This field is currently DEPRECATED. If you'd like to use allowed_annotations, please use a workload.**
 A list of experimental annotations this runtime handler is allowed to process.
 The currently recognized values are:
-"io.kubernetes.cri-o.userns-mode" for configuring a user namespace for the pod.
-"io.kubernetes.cri-o.Devices" for configuring devices for the pod.
-"io.kubernetes.cri-o.ShmSize" for configuring the size of /dev/shm.
-"io.kubernetes.cri-o.UnifiedCgroup.$CTR_NAME" for configuring the cgroup v2 unified block for a container.
+"userns-mode.crio.io" for configuring a user namespace for the pod.
+"devices.crio.io" for configuring devices for the pod.
+"shm-size.crio.io" for configuring the size of /dev/shm.
+"unified-cgroup.crio.io/$CTR_NAME" for configuring the cgroup v2 unified block for a container.
 "io.containers.trace-syscall" for tracing syscalls via the OCI seccomp BPF hook.
-"seccomp-profile.kubernetes.cri-o.io" for setting the seccomp profile for: - a specific container by using: "seccomp-profile.kubernetes.cri-o.io/<CONTAINER_NAME>" - a whole pod by using: "seccomp-profile.kubernetes.cri-o.io/POD"
+"seccomp-profile.crio.io" for setting the seccomp profile for: - a specific container by using: "seccomp-profile.crio.io/<CONTAINER_NAME>" - a whole pod by using: "seccomp-profile.crio.io/POD"
 Note that the annotation works on containers as well as on images.
-For images, the plain annotation `seccomp-profile.kubernetes.cri-o.io`
+For images, the plain annotation `seccomp-profile.crio.io`
 can be used without the required `/POD` suffix or a container name.
 
 **container_min_memory**=""
@@ -425,18 +428,18 @@ The full annotation must be of the form `$annotation_prefix.$resource/$ctrname =
 **allowed_annotations**=[]
 allowed_annotations is a slice of experimental annotations that this workload is allowed to process.
 The currently recognized values are:
-"io.kubernetes.cri-o.userns-mode" for configuring a user namespace for the pod.
-"io.kubernetes.cri-o.cgroup2-mount-hierarchy-rw" for mounting cgroups writably when set to "true".
-"io.kubernetes.cri-o.Devices" for configuring devices for the pod.
-"io.kubernetes.cri-o.ShmSize" for configuring the size of /dev/shm.
-"io.kubernetes.cri-o.UnifiedCgroup.$CTR_NAME" for configuring the cgroup v2 unified block for a container.
+"userns-mode.crio.io" for configuring a user namespace for the pod.
+"cgroup2-mount-hierarchy-rw.crio.io" for mounting cgroups writably when set to "true".
+"devices.crio.io" for configuring devices for the pod.
+"shm-size.crio.io" for configuring the size of /dev/shm.
+"unified-cgroup.crio.io/$CTR_NAME" for configuring the cgroup v2 unified block for a container.
 "io.containers.trace-syscall" for tracing syscalls via the OCI seccomp BPF hook.
-"io.kubernetes.cri-o.seccompNotifierAction" for enabling the seccomp notifier feature.
-"io.kubernetes.cri-o.umask" for setting the umask for container init process.
+"seccomp-notifier-action.crio.io" for enabling the seccomp notifier feature.
+"umask.crio.io" for setting the umask for container init process.
 "io.kubernetes.cri.rdt-class" for setting the RDT class of a container
-"seccomp-profile.kubernetes.cri-o.io" for setting the seccomp profile for: - a specific container by using: "seccomp-profile.kubernetes.cri-o.io/<CONTAINER_NAME>" - a whole pod by using: "seccomp-profile.kubernetes.cri-o.io/POD"
+"seccomp-profile.crio.io" for setting the seccomp profile for: - a specific container by using: "seccomp-profile.crio.io/<CONTAINER_NAME>" - a whole pod by using: "seccomp-profile.crio.io/POD"
 Note that the annotation works on containers as well as on images.
-"io.kubernetes.cri-o.DisableFIPS" for disabling FIPS mode for a pod within a FIPS-enabled Kubernetes cluster.
+"disable-fips.crio.io" for disabling FIPS mode for a pod within a FIPS-enabled Kubernetes cluster.
 
 #### Using the seccomp notifier feature:
 
@@ -445,16 +448,16 @@ blocked syscalls (permission denied errors) have negative impact on the
 workload.
 
 To be able to use this feature, configure a runtime which has the annotation
-"io.kubernetes.cri-o.seccompNotifierAction" in the `allowed_annotations` array.
+"seccomp-notifier-action.crio.io" in the `allowed_annotations` array.
 
 It also requires at least runc 1.1.0 or crun 0.19 which support the notifier
 feature.
 
 If everything is setup, CRI-O will modify chosen seccomp profiles for containers
-if the annotation "io.kubernetes.cri-o.seccompNotifierAction" is set on the Pod
+if the annotation "seccomp-notifier-action.crio.io" is set on the Pod
 sandbox. CRI-O will then get notified if a container is using a blocked syscall
 and then terminate the workload after a timeout of 5 seconds if the value of
-"io.kubernetes.cri-o.seccompNotifierAction=stop".
+"seccomp-notifier-action.crio.io=stop".
 
 This also means that multiple syscalls can be captured during that period, while
 the timeout will get reset once a new syscall has been discovered.
@@ -500,7 +503,7 @@ The path to a file like /var/lib/kubelet/config.json holding credentials specifi
 The command to run to have a container stay in the paused state. This option supports live configuration reload.
 
 **pinned_images**=[]
-A list of images to be excluded from the kubelet's garbage collection. It allows specifying image names using either exact, glob, or keyword patterns. Exact matches must match the entire name, glob matches can have a wildcard \* at the end, and keyword matches can have wildcards on both ends. By default, this list includes the `pause` image if configured by the user, which is used as a placeholder in Kubernetes pods.
+A list of images and OCI artifacts to be excluded from the kubelet's garbage collection. It allows specifying image names using either exact, glob, or keyword patterns. Exact matches must match the entire name, glob matches can have a wildcard \* at the end, and keyword matches can have wildcards on both ends. By default, this list includes the `pause` image if configured by the user, which is used as a placeholder in Kubernetes pods.
 
 **signature_policy**=""
 Path to the file which decides what sort of policy we use when deciding whether or not to trust an image that we've pulled. It is not recommended that this option be used, as the default behavior of using the system-wide default policy (i.e., /etc/containers/policy.json) is most often preferred. Please refer to containers-policy.json(5) for more details.
@@ -560,7 +563,7 @@ The `crio.metrics` table containers settings pertaining to the Prometheus based 
 **enable_metrics**=false
 Globally enable or disable metrics support.
 
-**metrics_collectors**=["image_pulls_layer_size", "containers_events_dropped_total", "containers_oom_total", "processes_defunct", "operations_total", "operations_latency_seconds", "operations_latency_seconds_total", "operations_errors_total", "image_pulls_bytes_total", "image_pulls_skipped_bytes_total", "image_pulls_failure_total", "image_pulls_success_total", "image_layer_reuse_total", "containers_oom_count_total", "containers_seccomp_notifier_count_total", "resources_stalled_at_stage"]
+**metrics_collectors**=["image_pulls_layer_size", "containers_events_dropped_total", "containers_oom_total", "processes_defunct", "operations_total", "operations_latency_seconds", "operations_latency_seconds_total", "operations_errors_total", "image_pulls_bytes_total", "image_pulls_skipped_bytes_total", "image_pulls_failure_total", "image_pulls_success_total", "image_layer_reuse_total", "containers_oom_count_total", "containers_seccomp_notifier_count_total", "resources_stalled_at_stage", "containers_stopped_monitor_count", "default_runtime"]
 Specify enabled metrics collectors. Per default all metrics are enabled.
 
 **metrics_host**="127.0.0.1"

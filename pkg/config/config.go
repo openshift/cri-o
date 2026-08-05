@@ -70,7 +70,7 @@ const (
 	RuntimeTypePod                = "pod"
 	defaultCtrStopTimeout         = 30 // seconds
 	defaultNamespacesDir          = "/var/run"
-	RuntimeTypeVMBinaryPattern    = "containerd-shim-([a-zA-Z0-9\\-\\+])+-v2"
+	RuntimeTypeVMBinaryPattern    = "^containerd-shim-[a-zA-Z0-9\\-\\+]+$"
 	tasksetBinary                 = "taskset"
 	MonitorExecCgroupDefault      = ""
 	MonitorExecCgroupContainer    = "container"
@@ -656,10 +656,11 @@ type ImageConfig struct {
 	// PauseCommand is the path of the binary we run in an infra
 	// container that's been instantiated using PauseImage.
 	PauseCommand string `toml:"pause_command"`
-	// PinnedImages is a list of container images that should be pinned
-	// and not subject to garbage collection by kubelet.
-	// Pinned images will remain in the container runtime's storage until
-	// they are manually removed. Default value: empty list (no images pinned)
+	// PinnedImages is a list of container images and OCI artifacts that
+	// should be pinned and not subject to garbage collection by kubelet.
+	// Pinned images and artifacts will remain in the container runtime's
+	// storage until they are manually removed.
+	// Default value: empty list (no images or artifacts pinned)
 	PinnedImages []string `toml:"pinned_images"`
 	// SignaturePolicyPath is the name of the file which decides what sort
 	// of policy we use when deciding whether or not to trust an image that
@@ -969,14 +970,14 @@ func removeDupStorageOpts(storageOpts []string) []string {
 	var resOpts []string
 
 	opts := make(map[string]bool)
-	for i := len(storageOpts) - 1; i >= 0; i-- {
-		if ok := opts[storageOpts[i]]; ok {
+	for _, storageOpt := range slices.Backward(storageOpts) {
+		if ok := opts[storageOpt]; ok {
 			continue
 		}
 
-		opts[storageOpts[i]] = true
+		opts[storageOpt] = true
 
-		resOpts = append(resOpts, storageOpts[i])
+		resOpts = append(resOpts, storageOpt)
 	}
 
 	for i, j := 0, len(resOpts)-1; i < j; i, j = i+1, j-1 {

@@ -248,6 +248,53 @@ var _ = t.Describe("Config", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
+		It("should succeed with empty additional_artifact_stores", func() {
+			// Given
+			sut.AdditionalArtifactStores = []string{}
+
+			// When
+			err := sut.RuntimeConfig.Validate(nil, false)
+
+			// Then
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("should succeed with valid absolute paths in additional_artifact_stores", func() {
+			// Given
+			sut.AdditionalArtifactStores = []string{"/mnt/nfs/store1", "/opt/artifacts"}
+
+			// When
+			err := sut.RuntimeConfig.Validate(nil, false)
+
+			// Then
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("should fail with relative path in additional_artifact_stores", func() {
+			// Given
+			sut.AdditionalArtifactStores = []string{"./relative/path"}
+
+			// When
+			err := sut.RuntimeConfig.Validate(nil, false)
+
+			// Then
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("additional_artifact_stores entry must be absolute"))
+			Expect(err.Error()).To(ContainSubstring("./relative/path"))
+		})
+
+		It("should fail with mix of absolute and relative paths in additional_artifact_stores", func() {
+			// Given
+			sut.AdditionalArtifactStores = []string{"/valid/store", "relative/path"}
+
+			// When
+			err := sut.RuntimeConfig.Validate(nil, false)
+
+			// Then
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("relative/path"))
+		})
+
 		It("should succeed during runtime", func() {
 			// Given
 			sut = runtimeValidConfig()
@@ -1658,6 +1705,36 @@ var _ = t.Describe("Config", func() {
 			Expect(ok).To(BeTrue())
 		})
 
+		It("should succeed when using RuntimeTypeVM and runtime_path is a containerd-shim binary with v1 suffix", func() {
+			// Given
+			sut.Runtimes["runsc"] = &config.RuntimeHandler{
+				RuntimePath: "containerd-shim-runsc-v1", RuntimeType: config.RuntimeTypeVM,
+			}
+
+			// When
+			ok := sut.Runtimes["runsc"].ValidateRuntimeVMBinaryPattern()
+
+			// Then
+			Expect(ok).To(BeTrue())
+		})
+
+		It("should succeed with gVisor runtime handler (v1 shim with config path)", func() {
+			// Given
+			sut.Runtimes["runsc"] = &config.RuntimeHandler{
+				RuntimePath:       "containerd-shim-runsc-v1",
+				RuntimeType:       config.RuntimeTypeVM,
+				RuntimeConfigPath: validFilePath,
+			}
+
+			// When
+			okPattern := sut.Runtimes["runsc"].ValidateRuntimeVMBinaryPattern()
+			errPath := sut.Runtimes["runsc"].ValidateRuntimeConfigPath("runsc")
+
+			// Then
+			Expect(okPattern).To(BeTrue())
+			Expect(errPath).ToNot(HaveOccurred())
+		})
+
 		It("should fail when using RuntimeTypeVM and runtime_path does not follow the containerd pattern", func() {
 			// Given
 			sut.Runtimes["kata"] = &config.RuntimeHandler{
@@ -1669,6 +1746,26 @@ var _ = t.Describe("Config", func() {
 
 			// Then
 			Expect(ok).To(BeFalse())
+		})
+
+		It("should fail when the binary name only contains the containerd-shim pattern as a substring", func() {
+			// Given the pattern is anchored, near-miss names that embed
+			// containerd-shim-* as a prefix or suffix must not match.
+			for _, name := range []string{
+				"my-containerd-shim-kata-v2",
+				"containerd-shim-runsc-v1.bak",
+				"containerd-shim",
+			} {
+				sut.Runtimes["runsc"] = &config.RuntimeHandler{
+					RuntimePath: name, RuntimeType: config.RuntimeTypeVM,
+				}
+
+				// When
+				ok := sut.Runtimes["runsc"].ValidateRuntimeVMBinaryPattern()
+
+				// Then
+				Expect(ok).To(BeFalse(), "expected %q to be rejected", name)
+			}
 		})
 	})
 
