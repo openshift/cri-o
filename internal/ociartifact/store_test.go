@@ -12,7 +12,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
-	"go.podman.io/common/pkg/libartifact"
+	"github.com/cri-o/cri-o/internal/libartifact"
 	"go.podman.io/image/v5/manifest"
 	"go.uber.org/mock/gomock"
 
