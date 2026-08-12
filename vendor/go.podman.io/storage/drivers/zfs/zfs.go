@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	zfs "github.com/mistifyio/go-zfs/v4"
+	zfs "github.com/mistifyio/go-zfs/v3"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/sirupsen/logrus"
 	graphdriver "go.podman.io/storage/drivers"
@@ -181,6 +181,12 @@ func (d *Driver) String() string {
 // Cleanup is called on when program exits, it is a no-op for ZFS.
 func (d *Driver) Cleanup() error {
 	return nil
+}
+
+// SyncMode returns the sync mode configured for the driver.
+// ZFS does not support sync mode configuration, always returns SyncModeNone.
+func (d *Driver) SyncMode() graphdriver.SyncMode {
+	return graphdriver.SyncModeNone
 }
 
 // Status returns information about the ZFS filesystem. It returns a two dimensional array of information
