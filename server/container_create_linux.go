@@ -15,7 +15,7 @@ import (
 	"github.com/intel/goresctrl/pkg/blockio"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
-	libartTypes "go.podman.io/common/pkg/libartifact/types"
+	libartTypes "github.com/cri-o/cri-o/internal/libartifact/types"
 	"go.podman.io/storage/pkg/idtools"
 	"go.podman.io/storage/pkg/mount"
 	"golang.org/x/sys/unix"
