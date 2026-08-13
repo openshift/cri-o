@@ -12,7 +12,7 @@ import (
 	"github.com/checkpoint-restore/go-criu/v8/stats"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
-	"go.podman.io/common/pkg/crutils"
+	"github.com/cri-o/cri-o/internal/crutils"
 	"go.podman.io/storage/pkg/archive"
 
 	"github.com/cri-o/cri-o/internal/annotations"
