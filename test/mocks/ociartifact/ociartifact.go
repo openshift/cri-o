@@ -15,7 +15,7 @@ import (
 
 	digest "github.com/opencontainers/go-digest"
 	libimage "go.podman.io/common/libimage"
-	libartifact "go.podman.io/common/pkg/libartifact"
+	libartifact "github.com/cri-o/cri-o/internal/libartifact"
 	manifest "go.podman.io/image/v5/manifest"
 	types "go.podman.io/image/v5/types"
 	gomock "go.uber.org/mock/gomock"
