@@ -67,8 +67,8 @@ require (
 	go.opentelemetry.io/otel/sdk v1.39.0
 	go.opentelemetry.io/otel/trace v1.39.0
 	go.podman.io/common v0.66.2-0.20260126213724-1e46b0756b39
-	go.podman.io/image/v5 v5.38.0
-	go.podman.io/storage v1.61.1-0.20251212224252-b0f86df5a665
+	go.podman.io/image/v5 v5.39.2
+	go.podman.io/storage v1.62.0
 	go.uber.org/mock v0.6.0
 	golang.org/x/net v0.48.0
 	golang.org/x/sync v0.19.0
@@ -93,7 +93,6 @@ require (
 
 require (
 	capnproto.org/go/capnp/v3 v3.1.0-alpha.1 // indirect
-	cyphar.com/go-pathrs v0.2.1 // indirect
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/ProtonMail/go-crypto v1.3.0 // indirect
@@ -189,7 +188,7 @@ require (
 	github.com/mattn/go-shellwords v1.0.12 // indirect
 	github.com/mattn/go-sqlite3 v1.14.33 // indirect
 	github.com/miekg/pkcs11 v1.1.1 // indirect
-	github.com/mistifyio/go-zfs/v4 v4.0.0 // indirect
+	github.com/mistifyio/go-zfs/v3 v3.1.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.1-0.20231216201459-8508981c8b6c // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/spdystream v0.5.1 // indirect
@@ -226,7 +225,7 @@ require (
 	github.com/tetratelabs/wazero v1.10.1 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/uptrace/opentelemetry-go-extra/otelutil v0.3.2 // indirect
-	github.com/vbatts/tar-split v0.12.2 // indirect
+	github.com/vbatts/tar-split v0.12.3 // indirect
 	github.com/vbauerster/mpb/v8 v8.11.3 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
@@ -261,4 +260,13 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 	tags.cncf.io/container-device-interface/specs-go v1.1.0 // indirect
+)
+
+replace (
+	github.com/cyphar/filepath-securejoin => github.com/cyphar/filepath-securejoin v0.4.1
+	github.com/opencontainers/runc => github.com/opencontainers/runc v1.2.0
+	github.com/opencontainers/selinux => github.com/opencontainers/selinux v1.12.0
+	go.podman.io/common => gitlab.cee.redhat.com/sustaining-engineering/container-tools/src-git/container-libs/common v0.67.1
+	go.podman.io/image/v5 => gitlab.cee.redhat.com/sustaining-engineering/container-tools/src-git/container-libs/image/v5 v5.39.2-mr11
+	go.podman.io/storage => gitlab.cee.redhat.com/sustaining-engineering/container-tools/src-git/container-libs/storage v1.62.0-mr11
 )

@@ -23,7 +23,7 @@ import (
 	json "github.com/goccy/go-json"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
-	"go.podman.io/common/pkg/crutils"
+	"github.com/cri-o/cri-o/internal/crutils"
 	"go.podman.io/storage/pkg/pools"
 	"golang.org/x/sys/unix"
 	kwait "k8s.io/apimachinery/pkg/util/wait"
