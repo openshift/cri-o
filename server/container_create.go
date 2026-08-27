@@ -203,7 +203,7 @@ func setupContainerUser(ctx context.Context, specgen *generate.Generator, rootfs
 	for _, env := range specgen.Config.Process.Env {
 		if strings.HasPrefix(env, "HOME=") {
 			homedir = strings.TrimPrefix(env, "HOME=")
-			if idx := strings.Index(homedir, `\n`); idx > -1 {
+			if strings.ContainsAny(homedir, "\n\r") {
 				return errors.New("invalid HOME environment; newline not allowed")
 			}
 			break
@@ -546,3 +546,4 @@ func isInCRIMounts(dst string, mounts []*types.Mount) bool {
 	}
 	return false
 }
+
