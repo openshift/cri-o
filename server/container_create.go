@@ -231,7 +231,7 @@ func setupContainerUser(ctx context.Context, specgen *generate.Generator, rootfs
 	for _, env := range specgen.Config.Process.Env {
 		if strings.HasPrefix(env, "HOME=") {
 			homedir = strings.TrimPrefix(env, "HOME=")
-			if idx := strings.Index(homedir, `\n`); idx > -1 {
+			if strings.ContainsAny(homedir, "\n\r") {
 				return errors.New("invalid HOME environment; newline not allowed")
 			}
 
@@ -632,6 +632,14 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr container.Conta
 	// and SpecAddAnnotations is already being passed too many arguments
 	// Filter early so any use of the annotations don't use the wrong values
 	if err := s.FilterDisallowedAnnotations(sb.Annotations(), ctr.Config().Annotations, sb.RuntimeHandler()); err != nil {
+		return nil, err
+	}
+
+	// Labels are added as OCI annotations downstream, so filter them through
+	// the full annotation pipeline (internal + allowlist) to prevent injection.
+	// Must run before SpecAddAnnotations, which sets internal annotations that
+	// unfiltered labels could overwrite (maps are shared by reference).
+	if err := s.FilterDisallowedAnnotations(sb.Annotations(), ctr.Config().GetLabels(), sb.RuntimeHandler()); err != nil {
 		return nil, err
 	}
 
@@ -1093,8 +1101,12 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr container.Conta
 	// Add environment variables from image the CRI configuration
 	envs := mergeEnvs(containerImageConfig, containerConfig.Envs)
 	for _, e := range envs {
-		parts := strings.SplitN(e, "=", 2)
-		specgen.AddProcessEnv(parts[0], parts[1])
+		key, val, ok := strings.Cut(e, "=")
+		if !ok || key == "" {
+			continue
+		}
+
+		specgen.AddProcessEnv(key, val)
 	}
 
 	// Setup user and groups
