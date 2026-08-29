@@ -432,9 +432,9 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 
 **--read-only**: Setup all unprivileged containers to run as read-only. Automatically mounts the containers' tmpfs on '/run', '/tmp' and '/var/tmp'.
 
-**--root, -r**="": The CRI-O root directory. (default: "/var/lib/containers/storage")
+**--root, -r**="": The CRI-O root directory. (default: "/home/core/.local/share/containers/storage")
 
-**--runroot**="": The CRI-O state directory. (default: "/run/containers/storage")
+**--runroot**="": The CRI-O state directory. (default: "/run/user/1001/containers")
 
 **--runtimes**="": OCI runtimes, format is 'runtime_name:runtime_path:runtime_root:runtime_type:privileged_without_host_devices:runtime_config_path:container_min_memory'.
 
@@ -536,6 +536,12 @@ by CRI-O. This allows you to save you current configuration setup and then load
 it later with **--config**. Global options will modify the output.
 
 **--default**: Output the default configuration (without taking into account any configuration options).
+
+## dedup
+
+deduplicate image storage using reflinks
+
+**--physical-disk-usage, -p**: report real physical disk usage after dedup (FIEMAP-based, Linux only)
 
 ## man
 
