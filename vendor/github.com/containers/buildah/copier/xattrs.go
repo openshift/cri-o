@@ -1,5 +1,4 @@
 //go:build linux || netbsd || freebsd || darwin
-// +build linux netbsd freebsd darwin
 
 package copier
 
@@ -10,15 +9,19 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/sirupsen/logrus"
+	"go.podman.io/storage/pkg/unshare"
 	"golang.org/x/sys/unix"
 )
 
 const (
 	xattrsSupported = true
+	imaXattr        = "security.ima"
 )
 
 var (
-	relevantAttributes    = []string{"security.capability", "security.ima", "user.*"} // the attributes that we preserve - we discard others
+	relevantAttributes    = []string{"security.capability", imaXattr, "user.*"} // the attributes that we preserve - we discard others
+	irrelevantAttributes  = []string{"user.overlay.*"}                          // the attributes that we discard, even from the relevantAttributes list
 	initialXattrListSize  = 64 * 1024
 	initialXattrValueSize = 64 * 1024
 )
@@ -30,6 +33,13 @@ func isRelevantXattr(attribute string) bool {
 		matched, err := filepath.Match(relevant, attribute)
 		if err != nil || !matched {
 			continue
+		}
+		for _, irrelevant := range irrelevantAttributes {
+			matched, err := filepath.Match(irrelevant, attribute)
+			if err != nil || !matched {
+				continue
+			}
+			return false
 		}
 		return true
 	}
@@ -63,7 +73,7 @@ func Lgetxattrs(path string) (map[string]string, error) {
 		return nil, fmt.Errorf("unable to read list of attributes for %q: size would have been too big", path)
 	}
 	m := make(map[string]string)
-	for _, attribute := range strings.Split(string(list), string('\000')) {
+	for attribute := range strings.SplitSeq(string(list), string('\000')) {
 		if isRelevantXattr(attribute) {
 			attributeSize := initialXattrValueSize
 			var attributeValue []byte
@@ -93,7 +103,11 @@ func Lsetxattrs(path string, xattrs map[string]string) error {
 	for attribute, value := range xattrs {
 		if isRelevantXattr(attribute) {
 			if err := unix.Lsetxattr(path, attribute, []byte(value), 0); err != nil {
-				return fmt.Errorf("setting value of extended attribute %q on %q: %w", attribute, path, err)
+				if unshare.IsRootless() && attribute == imaXattr {
+					logrus.Warnf("Unable to set %q xattr on %q: %v", attribute, path, err)
+				} else {
+					return fmt.Errorf("setting value of extended attribute %q on %q: %w", attribute, path, err)
+				}
 			}
 		}
 	}

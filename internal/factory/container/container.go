@@ -11,8 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/containers/podman/v4/pkg/annotations"
-	"github.com/containers/storage/pkg/stringid"
+	"go.podman.io/storage/pkg/stringid"
 	"github.com/cri-o/cri-o/internal/config/capabilities"
 	"github.com/cri-o/cri-o/internal/config/device"
 	"github.com/cri-o/cri-o/internal/config/nsmgr"
@@ -28,9 +27,9 @@ import (
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
 	validate "github.com/opencontainers/runtime-tools/validate/capabilities"
-	"github.com/opencontainers/selinux/go-selinux/label"
+	selinux "github.com/opencontainers/selinux/go-selinux"
 	"github.com/sirupsen/logrus"
-	"github.com/syndtr/gocapability/capability"
+	"github.com/moby/sys/capability"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	kubeletTypes "k8s.io/kubelet/pkg/types"
 )
@@ -181,7 +180,7 @@ func (c *container) SpecAddAnnotations(ctx context.Context, sb *sandbox.Sandbox,
 		return err
 	}
 
-	// Preserve the sandbox annotations. OCI hooks may re-use the sandbox
+	// Preserve the sandbox crioann. OCI hooks may re-use the sandbox
 	// annotation values to apply them to the container later on.
 	// The sandbox annotations are already filtered for the allowed
 	// annotations, there is no need to check it additionally here.
@@ -211,27 +210,27 @@ func (c *container) SpecAddAnnotations(ctx context.Context, sb *sandbox.Sandbox,
 		}
 	}
 
-	c.spec.AddAnnotation(annotations.Image, userRequestedImage)
+	c.spec.AddAnnotation(crioann.Image, userRequestedImage)
 	imageName := ""
 	if imageResult.SomeNameOfThisImage != nil {
 		imageName = imageResult.SomeNameOfThisImage.StringForOutOfProcessConsumptionOnly()
 	}
-	c.spec.AddAnnotation(annotations.ImageName, imageName)
-	c.spec.AddAnnotation(annotations.ImageRef, imageResult.ID.IDStringForOutOfProcessConsumptionOnly())
-	c.spec.AddAnnotation(annotations.Name, c.Name())
-	c.spec.AddAnnotation(annotations.ContainerID, c.ID())
-	c.spec.AddAnnotation(annotations.SandboxID, sb.ID())
-	c.spec.AddAnnotation(annotations.SandboxName, sb.Name())
-	c.spec.AddAnnotation(annotations.ContainerType, annotations.ContainerTypeContainer)
-	c.spec.AddAnnotation(annotations.LogPath, logPath)
-	c.spec.AddAnnotation(annotations.TTY, strconv.FormatBool(c.Config().Tty))
-	c.spec.AddAnnotation(annotations.Stdin, strconv.FormatBool(c.Config().Stdin))
-	c.spec.AddAnnotation(annotations.StdinOnce, strconv.FormatBool(c.Config().StdinOnce))
-	c.spec.AddAnnotation(annotations.ResolvPath, sb.ResolvPath())
-	c.spec.AddAnnotation(annotations.ContainerManager, lib.ContainerManagerCRIO)
-	c.spec.AddAnnotation(annotations.MountPoint, mountPoint)
-	c.spec.AddAnnotation(annotations.SeccompProfilePath, seccompRef)
-	c.spec.AddAnnotation(annotations.Created, created.Format(time.RFC3339Nano))
+	c.spec.AddAnnotation(crioann.ImageName, imageName)
+	c.spec.AddAnnotation(crioann.ImageRef, imageResult.ID.IDStringForOutOfProcessConsumptionOnly())
+	c.spec.AddAnnotation(crioann.Name, c.Name())
+	c.spec.AddAnnotation(crioann.ContainerID, c.ID())
+	c.spec.AddAnnotation(crioann.SandboxID, sb.ID())
+	c.spec.AddAnnotation(crioann.SandboxName, sb.Name())
+	c.spec.AddAnnotation(crioann.ContainerType, crioann.ContainerTypeContainer)
+	c.spec.AddAnnotation(crioann.LogPath, logPath)
+	c.spec.AddAnnotation(crioann.TTY, strconv.FormatBool(c.Config().Tty))
+	c.spec.AddAnnotation(crioann.Stdin, strconv.FormatBool(c.Config().Stdin))
+	c.spec.AddAnnotation(crioann.StdinOnce, strconv.FormatBool(c.Config().StdinOnce))
+	c.spec.AddAnnotation(crioann.ResolvPath, sb.ResolvPath())
+	c.spec.AddAnnotation(crioann.ContainerManager, lib.ContainerManagerCRIO)
+	c.spec.AddAnnotation(crioann.MountPoint, mountPoint)
+	c.spec.AddAnnotation(crioann.SeccompProfilePath, seccompRef)
+	c.spec.AddAnnotation(crioann.Created, created.Format(time.RFC3339Nano))
 	// for retrieving the runtime path for a given platform.
 	c.spec.AddAnnotation(crioann.PlatformRuntimePath, platformRuntimePath)
 
@@ -239,25 +238,25 @@ func (c *container) SpecAddAnnotations(ctx context.Context, sb *sandbox.Sandbox,
 	if err != nil {
 		return err
 	}
-	c.spec.AddAnnotation(annotations.Metadata, string(metadataJSON))
+	c.spec.AddAnnotation(crioann.Metadata, string(metadataJSON))
 
 	labelsJSON, err := json.Marshal(labels)
 	if err != nil {
 		return err
 	}
-	c.spec.AddAnnotation(annotations.Labels, string(labelsJSON))
+	c.spec.AddAnnotation(crioann.Labels, string(labelsJSON))
 
 	volumesJSON, err := json.Marshal(containerVolumes)
 	if err != nil {
 		return err
 	}
-	c.spec.AddAnnotation(annotations.Volumes, string(volumesJSON))
+	c.spec.AddAnnotation(crioann.Volumes, string(volumesJSON))
 
 	kubeAnnotationsJSON, err := json.Marshal(kubeAnnotations)
 	if err != nil {
 		return err
 	}
-	c.spec.AddAnnotation(annotations.Annotations, string(kubeAnnotationsJSON))
+	c.spec.AddAnnotation(crioann.Annotations, string(kubeAnnotationsJSON))
 
 	for k, v := range kubeAnnotations {
 		c.spec.AddAnnotation(k, v)
@@ -266,7 +265,7 @@ func (c *container) SpecAddAnnotations(ctx context.Context, sb *sandbox.Sandbox,
 		c.spec.AddAnnotation(k, v)
 	}
 	for idx, ip := range sb.IPs() {
-		c.spec.AddAnnotation(fmt.Sprintf("%s.%d", annotations.IP, idx), ip)
+		c.spec.AddAnnotation(fmt.Sprintf("%s.%d", crioann.IP, idx), ip)
 	}
 
 	if isSystemd {
@@ -496,7 +495,7 @@ func (c *container) SelinuxLabel(sboxLabel string) ([]string, error) {
 
 	labels := map[string]string{}
 
-	labelOptions, err := label.DupSecOpt(sboxLabel)
+	labelOptions, err := selinux.DupSecOpt(sboxLabel)
 	if err != nil {
 		return nil, err
 	}

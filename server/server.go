@@ -20,9 +20,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	imageTypes "github.com/containers/image/v5/types"
-	"github.com/containers/storage/pkg/idtools"
-	storageTypes "github.com/containers/storage/types"
+	imageTypes "go.podman.io/image/v5/types"
+	"go.podman.io/storage/pkg/idtools"
+	storageTypes "go.podman.io/storage/types"
 	"github.com/cri-o/cri-o/internal/config/seccomp"
 	"github.com/cri-o/cri-o/internal/hostport"
 	"github.com/cri-o/cri-o/internal/lib"

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/containers/common/pkg/apparmor"
+	"go.podman.io/common/pkg/apparmor"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
 )

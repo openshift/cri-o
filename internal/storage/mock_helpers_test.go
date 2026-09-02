@@ -1,9 +1,9 @@
 package storage_test
 
 import (
-	"github.com/containers/image/v5/docker/reference"
-	istorage "github.com/containers/image/v5/storage"
-	cstorage "github.com/containers/storage"
+	"go.podman.io/image/v5/docker/reference"
+	istorage "go.podman.io/image/v5/storage"
+	cstorage "go.podman.io/storage"
 	"github.com/cri-o/cri-o/internal/mockutils"
 	containerstoragemock "github.com/cri-o/cri-o/test/mocks/containerstorage"
 	criostoragemock "github.com/cri-o/cri-o/test/mocks/criostorage"

@@ -1,5 +1,4 @@
 //go:build linux || darwin
-// +build linux darwin
 
 package parse
 
@@ -9,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/containers/buildah/define"
+	"github.com/opencontainers/cgroups/devices/config"
 	"github.com/opencontainers/runc/libcontainer/devices"
 )
 
@@ -17,6 +17,13 @@ func DeviceFromPath(device string) (define.ContainerDevices, error) {
 	src, dst, permissions, err := Device(device)
 	if err != nil {
 		return nil, err
+	}
+	if linkTarget, err := os.Readlink(src); err == nil {
+		if filepath.IsAbs(linkTarget) {
+			src = linkTarget
+		} else {
+			src = filepath.Join(filepath.Dir(src), linkTarget)
+		}
 	}
 	srcInfo, err := os.Stat(src)
 	if err != nil {
@@ -41,7 +48,7 @@ func DeviceFromPath(device string) (define.ContainerDevices, error) {
 	}
 	for _, d := range srcDevices {
 		d.Path = filepath.Join(dst, filepath.Base(d.Path))
-		d.Permissions = devices.Permissions(permissions)
+		d.Permissions = config.Permissions(permissions)
 		device := define.BuildahDevice{Device: *d, Source: src, Destination: dst}
 		devs = append(devs, device)
 	}

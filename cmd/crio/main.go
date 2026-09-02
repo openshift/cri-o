@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/containers/kubensmnt"
-	"github.com/containers/storage/pkg/reexec"
+	"go.podman.io/storage/pkg/reexec"
 	"github.com/cri-o/cri-o/internal/criocli"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/opentelemetry"

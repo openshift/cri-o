@@ -5,7 +5,7 @@ import (
 	"path"
 	"time"
 
-	"github.com/containers/storage"
+	"go.podman.io/storage"
 	crioStorage "github.com/cri-o/cri-o/utils"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )

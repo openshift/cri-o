@@ -1,5 +1,4 @@
 //go:build linux || freebsd
-// +build linux freebsd
 
 package chrootuser
 
@@ -15,7 +14,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/containers/storage/pkg/reexec"
+	"go.podman.io/storage/pkg/reexec"
 	"golang.org/x/sys/unix"
 )
 
@@ -76,9 +75,7 @@ func openChrootedFile(rootdir, filename string) (*exec.Cmd, io.ReadCloser, error
 	return cmd, stdout, nil
 }
 
-var (
-	lookupUser, lookupGroup sync.Mutex
-)
+var lookupUser, lookupGroup sync.Mutex
 
 type lookupPasswdEntry struct {
 	name string

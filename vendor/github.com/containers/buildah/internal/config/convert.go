@@ -1,8 +1,11 @@
 package config
 
 import (
-	"github.com/containers/image/v5/manifest"
+	"maps"
+	"slices"
+
 	dockerclient "github.com/fsouza/go-dockerclient"
+	"go.podman.io/image/v5/manifest"
 )
 
 // Schema2ConfigFromGoDockerclientConfig converts a go-dockerclient Config
@@ -23,9 +26,7 @@ func Schema2ConfigFromGoDockerclientConfig(config *dockerclient.Config) *manifes
 		}
 	}
 	labels := make(map[string]string)
-	for k, v := range config.Labels {
-		labels[k] = v
-	}
+	maps.Copy(labels, config.Labels)
 	volumes := make(map[string]struct{})
 	for v := range config.Volumes {
 		volumes[v] = struct{}{}
@@ -41,17 +42,17 @@ func Schema2ConfigFromGoDockerclientConfig(config *dockerclient.Config) *manifes
 		Tty:             config.Tty,
 		OpenStdin:       config.OpenStdin,
 		StdinOnce:       config.StdinOnce,
-		Env:             append([]string{}, config.Env...),
-		Cmd:             append([]string{}, config.Cmd...),
+		Env:             slices.Clone(config.Env),
+		Cmd:             slices.Clone(config.Cmd),
 		Healthcheck:     overrideHealthCheck,
 		ArgsEscaped:     config.ArgsEscaped,
 		Image:           config.Image,
 		Volumes:         volumes,
 		WorkingDir:      config.WorkingDir,
-		Entrypoint:      append([]string{}, config.Entrypoint...),
+		Entrypoint:      slices.Clone(config.Entrypoint),
 		NetworkDisabled: config.NetworkDisabled,
 		MacAddress:      config.MacAddress,
-		OnBuild:         append([]string{}, config.OnBuild...),
+		OnBuild:         slices.Clone(config.OnBuild),
 		Labels:          labels,
 		StopSignal:      config.StopSignal,
 		Shell:           config.Shell,
@@ -80,9 +81,7 @@ func GoDockerclientConfigFromSchema2Config(s2config *manifest.Schema2Config) *do
 		}
 	}
 	labels := make(map[string]string)
-	for k, v := range s2config.Labels {
-		labels[k] = v
-	}
+	maps.Copy(labels, s2config.Labels)
 	volumes := make(map[string]struct{})
 	for v := range s2config.Volumes {
 		volumes[v] = struct{}{}
@@ -99,17 +98,17 @@ func GoDockerclientConfigFromSchema2Config(s2config *manifest.Schema2Config) *do
 		Tty:             s2config.Tty,
 		OpenStdin:       s2config.OpenStdin,
 		StdinOnce:       s2config.StdinOnce,
-		Env:             append([]string{}, s2config.Env...),
-		Cmd:             append([]string{}, s2config.Cmd...),
+		Env:             slices.Clone(s2config.Env),
+		Cmd:             slices.Clone(s2config.Cmd),
 		Healthcheck:     healthCheck,
 		ArgsEscaped:     s2config.ArgsEscaped,
 		Image:           s2config.Image,
 		Volumes:         volumes,
 		WorkingDir:      s2config.WorkingDir,
-		Entrypoint:      append([]string{}, s2config.Entrypoint...),
+		Entrypoint:      slices.Clone(s2config.Entrypoint),
 		NetworkDisabled: s2config.NetworkDisabled,
 		MacAddress:      s2config.MacAddress,
-		OnBuild:         append([]string{}, s2config.OnBuild...),
+		OnBuild:         slices.Clone(s2config.OnBuild),
 		Labels:          labels,
 		StopSignal:      s2config.StopSignal,
 		Shell:           s2config.Shell,

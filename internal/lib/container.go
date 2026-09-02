@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	cstorage "github.com/containers/storage"
+	cstorage "go.podman.io/storage"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/internal/registrar"

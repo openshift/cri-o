@@ -1,5 +1,4 @@
 //go:build linux
-// +build linux
 
 package chroot
 
@@ -9,17 +8,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/containers/buildah/copier"
-	"github.com/containers/storage/pkg/mount"
-	"github.com/containers/storage/pkg/unshare"
+	"github.com/moby/sys/capability"
 	"github.com/opencontainers/runc/libcontainer/apparmor"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
-	"github.com/syndtr/gocapability/capability"
+	"go.podman.io/storage/pkg/mount"
+	"go.podman.io/storage/pkg/unshare"
 	"golang.org/x/sys/unix"
 )
 
@@ -43,11 +43,86 @@ var (
 		"RLIMIT_STACK":      unix.RLIMIT_STACK,
 	}
 	rlimitsReverseMap = map[int]string{}
+	mountFlagMap      = map[int]string{
+		unix.MS_ACTIVE:       "MS_ACTIVE",
+		unix.MS_BIND:         "MS_BIND",
+		unix.MS_BORN:         "MS_BORN",
+		unix.MS_DIRSYNC:      "MS_DIRSYNC",
+		unix.MS_KERNMOUNT:    "MS_KERNMOUNT",
+		unix.MS_LAZYTIME:     "MS_LAZYTIME",
+		unix.MS_MANDLOCK:     "MS_MANDLOCK",
+		unix.MS_MOVE:         "MS_MOVE",
+		unix.MS_NOATIME:      "MS_NOATIME",
+		unix.MS_NODEV:        "MS_NODEV",
+		unix.MS_NODIRATIME:   "MS_NODIRATIME",
+		unix.MS_NOEXEC:       "MS_NOEXEC",
+		unix.MS_NOREMOTELOCK: "MS_NOREMOTELOCK",
+		unix.MS_NOSEC:        "MS_NOSEC",
+		unix.MS_NOSUID:       "MS_NOSUID",
+		unix.MS_NOSYMFOLLOW:  "MS_NOSYMFOLLOW",
+		unix.MS_NOUSER:       "MS_NOUSER",
+		unix.MS_POSIXACL:     "MS_POSIXACL",
+		unix.MS_PRIVATE:      "MS_PRIVATE",
+		unix.MS_RDONLY:       "MS_RDONLY",
+		unix.MS_REC:          "MS_REC",
+		unix.MS_RELATIME:     "MS_RELATIME",
+		unix.MS_REMOUNT:      "MS_REMOUNT",
+		unix.MS_SHARED:       "MS_SHARED",
+		unix.MS_SILENT:       "MS_SILENT",
+		unix.MS_SLAVE:        "MS_SLAVE",
+		unix.MS_STRICTATIME:  "MS_STRICTATIME",
+		unix.MS_SUBMOUNT:     "MS_SUBMOUNT",
+		unix.MS_SYNCHRONOUS:  "MS_SYNCHRONOUS",
+		unix.MS_UNBINDABLE:   "MS_UNBINDABLE",
+	}
+	statFlagMap = map[int]string{
+		unix.ST_MANDLOCK:    "ST_MANDLOCK",
+		unix.ST_NOATIME:     "ST_NOATIME",
+		unix.ST_NODEV:       "ST_NODEV",
+		unix.ST_NODIRATIME:  "ST_NODIRATIME",
+		unix.ST_NOEXEC:      "ST_NOEXEC",
+		unix.ST_NOSUID:      "ST_NOSUID",
+		unix.ST_RDONLY:      "ST_RDONLY",
+		unix.ST_RELATIME:    "ST_RELATIME",
+		unix.ST_SYNCHRONOUS: "ST_SYNCHRONOUS",
+	}
 )
+
+func mountFlagNames(flags uintptr) []string {
+	var names []string
+	for flag, name := range mountFlagMap {
+		if int(flags)&flag == flag {
+			names = append(names, name)
+			flags = flags &^ (uintptr(flag))
+		}
+	}
+	if flags != 0 { // got some unknown leftovers
+		names = append(names, fmt.Sprintf("%#x", flags))
+	}
+	slices.Sort(names)
+	return names
+}
+
+func statFlagNames(flags uintptr) []string {
+	var names []string
+	flags = flags & ^uintptr(0x20) // mask off ST_VALID
+	for flag, name := range statFlagMap {
+		if int(flags)&flag == flag {
+			names = append(names, name)
+			flags = flags &^ (uintptr(flag))
+		}
+	}
+	if flags != 0 { // got some unknown leftovers
+		names = append(names, fmt.Sprintf("%#x", flags))
+	}
+	slices.Sort(names)
+	return names
+}
 
 type runUsingChrootSubprocOptions struct {
 	Spec        *specs.Spec
 	BundlePath  string
+	NoPivot     bool
 	UIDMappings []syscall.SysProcIDMap
 	GIDMappings []syscall.SysProcIDMap
 }
@@ -61,14 +136,14 @@ func setPlatformUnshareOptions(spec *specs.Spec, cmd *unshare.Cmd) error {
 	uidmap, gidmap := spec.Linux.UIDMappings, spec.Linux.GIDMappings
 	if len(uidmap) == 0 {
 		// No UID mappings are configured for the container.  Borrow our parent's mappings.
-		uidmap = append([]specs.LinuxIDMapping{}, hostUidmap...)
+		uidmap = slices.Clone(hostUidmap)
 		for i := range uidmap {
 			uidmap[i].HostID = uidmap[i].ContainerID
 		}
 	}
 	if len(gidmap) == 0 {
 		// No GID mappings are configured for the container.  Borrow our parent's mappings.
-		gidmap = append([]specs.LinuxIDMapping{}, hostGidmap...)
+		gidmap = slices.Clone(hostGidmap)
 		for i := range gidmap {
 			gidmap[i].HostID = gidmap[i].ContainerID
 		}
@@ -179,39 +254,39 @@ func setCapabilities(spec *specs.Spec, keepCaps ...string) error {
 	capMap := map[capability.CapType][]string{
 		capability.BOUNDING:    spec.Process.Capabilities.Bounding,
 		capability.EFFECTIVE:   spec.Process.Capabilities.Effective,
-		capability.INHERITABLE: []string{},
+		capability.INHERITABLE: {},
 		capability.PERMITTED:   spec.Process.Capabilities.Permitted,
-		capability.AMBIENT:     spec.Process.Capabilities.Ambient,
+		capability.AMBIENT:     {},
 	}
-	knownCaps := capability.List()
+	knownCaps := capability.ListKnown()
 	noCap := capability.Cap(-1)
 	for capType, capList := range capMap {
-		for _, capToSet := range capList {
-			cap := noCap
+		for _, capSpec := range capList {
+			capToSet := noCap
 			for _, c := range knownCaps {
-				if strings.EqualFold("CAP_"+c.String(), capToSet) {
-					cap = c
+				if strings.EqualFold("CAP_"+c.String(), capSpec) {
+					capToSet = c
 					break
 				}
 			}
-			if cap == noCap {
-				return fmt.Errorf("mapping capability %q to a number", capToSet)
+			if capToSet == noCap {
+				return fmt.Errorf("mapping capability %q to a number", capSpec)
 			}
-			caps.Set(capType, cap)
+			caps.Set(capType, capToSet)
 		}
-		for _, capToSet := range keepCaps {
-			cap := noCap
+		for _, capSpec := range keepCaps {
+			capToSet := noCap
 			for _, c := range knownCaps {
-				if strings.EqualFold("CAP_"+c.String(), capToSet) {
-					cap = c
+				if strings.EqualFold("CAP_"+c.String(), capSpec) {
+					capToSet = c
 					break
 				}
 			}
-			if cap == noCap {
-				return fmt.Errorf("mapping capability %q to a number", capToSet)
+			if capToSet == noCap {
+				return fmt.Errorf("mapping capability %q to a number", capSpec)
 			}
-			if currentCaps.Get(capType, cap) {
-				caps.Set(capType, cap)
+			if currentCaps.Get(capType, capToSet) {
+				caps.Set(capType, capToSet)
 			}
 		}
 	}
@@ -226,7 +301,56 @@ func makeRlimit(limit specs.POSIXRlimit) unix.Rlimit {
 }
 
 func createPlatformContainer(options runUsingChrootExecSubprocOptions) error {
-	return errors.New("unsupported createPlatformContainer")
+	if options.NoPivot {
+		return errors.New("not using pivot_root()")
+	}
+	// borrowing a technique from runc, who credit the LXC maintainers for this
+	// open descriptors for the old and new root directories so that we can use fchdir()
+	oldRootFd, err := unix.Open("/", unix.O_DIRECTORY, 0)
+	if err != nil {
+		return fmt.Errorf("opening host root directory: %w", err)
+	}
+	defer func() {
+		if err := unix.Close(oldRootFd); err != nil {
+			logrus.Warnf("closing host root directory: %v", err)
+		}
+	}()
+	newRootFd, err := unix.Open(options.Spec.Root.Path, unix.O_DIRECTORY, 0)
+	if err != nil {
+		return fmt.Errorf("opening container root directory: %w", err)
+	}
+	defer func() {
+		if err := unix.Close(newRootFd); err != nil {
+			logrus.Warnf("closing container root directory: %v", err)
+		}
+	}()
+	// change to the new root directory
+	if err := unix.Fchdir(newRootFd); err != nil {
+		return fmt.Errorf("changing to container root directory: %w", err)
+	}
+	// this makes the current directory the root directory. not actually
+	// sure what happens to the other one
+	if err := unix.PivotRoot(".", "."); err != nil {
+		return fmt.Errorf("pivot_root: %w", err)
+	}
+	// go back and clean up the old one
+	if err := unix.Fchdir(oldRootFd); err != nil {
+		return fmt.Errorf("changing to host root directory: %w", err)
+	}
+	// make sure we only unmount things under this tree
+	if err := unix.Mount(".", ".", "", unix.MS_SLAVE|unix.MS_REC, ""); err != nil {
+		return fmt.Errorf("tweaking mount flags on host root directory before unmounting from mount namespace: %w", err)
+	}
+	// detach this (unnamed?) old directory
+	if err := unix.Unmount(".", unix.MNT_DETACH); err != nil {
+		return fmt.Errorf("unmounting host root directory in mount namespace: %w", err)
+	}
+	// go back to a named root directory
+	if err := unix.Fchdir(newRootFd); err != nil {
+		return fmt.Errorf("changing to container root directory at last: %w", err)
+	}
+	logrus.Debugf("pivot_root()ed into %q", options.Spec.Root.Path)
+	return nil
 }
 
 func mountFlagsForFSFlags(fsFlags uintptr) uintptr {
@@ -302,7 +426,7 @@ func setupChrootBindMounts(spec *specs.Spec, bundlePath string) (undoBinds func(
 	subDev := filepath.Join(spec.Root.Path, "/dev")
 	if err := unix.Mount("/dev", subDev, "bind", devFlags, ""); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			err = os.Mkdir(subDev, 0755)
+			err = os.Mkdir(subDev, 0o755)
 			if err == nil {
 				err = unix.Mount("/dev", subDev, "bind", devFlags, "")
 			}
@@ -326,7 +450,7 @@ func setupChrootBindMounts(spec *specs.Spec, bundlePath string) (undoBinds func(
 	subProc := filepath.Join(spec.Root.Path, "/proc")
 	if err := unix.Mount("/proc", subProc, "bind", procFlags, ""); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			err = os.Mkdir(subProc, 0755)
+			err = os.Mkdir(subProc, 0o755)
 			if err == nil {
 				err = unix.Mount("/proc", subProc, "bind", procFlags, "")
 			}
@@ -341,7 +465,7 @@ func setupChrootBindMounts(spec *specs.Spec, bundlePath string) (undoBinds func(
 	subSys := filepath.Join(spec.Root.Path, "/sys")
 	if err := unix.Mount("/sys", subSys, "bind", sysFlags, ""); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			err = os.Mkdir(subSys, 0755)
+			err = os.Mkdir(subSys, 0o755)
 			if err == nil {
 				err = unix.Mount("/sys", subSys, "bind", sysFlags, "")
 			}
@@ -364,9 +488,9 @@ func setupChrootBindMounts(spec *specs.Spec, bundlePath string) (undoBinds func(
 		if err := unix.Mount(m.Mountpoint, subSys, "bind", sysFlags, ""); err != nil {
 			msg := fmt.Sprintf("could not bind mount %q, skipping: %v", m.Mountpoint, err)
 			if strings.HasPrefix(m.Mountpoint, "/sys") {
-				logrus.Infof(msg)
+				logrus.Info(msg)
 			} else {
-				logrus.Warningf(msg)
+				logrus.Warning(msg)
 			}
 			continue
 		}
@@ -433,15 +557,15 @@ func setupChrootBindMounts(spec *specs.Spec, bundlePath string) (undoBinds func(
 			// The target isn't there yet, so create it.  If the source is a directory,
 			// we need a directory, otherwise we need a non-directory (i.e., a file).
 			if srcinfo.IsDir() {
-				if err = os.MkdirAll(target, 0755); err != nil {
+				if err = os.MkdirAll(target, 0o755); err != nil {
 					return undoBinds, fmt.Errorf("creating mountpoint %q in mount namespace: %w", target, err)
 				}
 			} else {
-				if err = os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				if err = os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 					return undoBinds, fmt.Errorf("ensuring parent of mountpoint %q (%q) is present in mount namespace: %w", target, filepath.Dir(target), err)
 				}
 				var file *os.File
-				if file, err = os.OpenFile(target, os.O_WRONLY|os.O_CREATE, 0755); err != nil {
+				if file, err = os.OpenFile(target, os.O_WRONLY|os.O_CREATE, 0o755); err != nil {
 					return undoBinds, fmt.Errorf("creating mountpoint %q in mount namespace: %w", target, err)
 				}
 				file.Close()
@@ -518,16 +642,21 @@ func setupChrootBindMounts(spec *specs.Spec, bundlePath string) (undoBinds func(
 		if effectiveImportantFlags != expectedImportantFlags {
 			// Do a remount to try to get the desired flags to stick.
 			effectiveUnimportantFlags := uintptr(fs.Flags) & ^possibleImportantFlags
-			if err = unix.Mount(target, target, m.Type, unix.MS_REMOUNT|bindFlags|requestFlags|mountFlagsForFSFlags(effectiveUnimportantFlags), ""); err != nil {
-				return undoBinds, fmt.Errorf("remounting %q in mount namespace with flags %#x instead of %#x: %w", target, requestFlags, effectiveImportantFlags, err)
+			remountFlags := unix.MS_REMOUNT | bindFlags | requestFlags | mountFlagsForFSFlags(effectiveUnimportantFlags)
+			// If we are requesting a read-only mount, add any possibleImportantFlags present in fs.Flags to remountFlags.
+			if requestFlags&unix.ST_RDONLY == unix.ST_RDONLY {
+				remountFlags |= uintptr(fs.Flags) & possibleImportantFlags
+			}
+			if err = unix.Mount(target, target, m.Type, remountFlags, ""); err != nil {
+				return undoBinds, fmt.Errorf("remounting %q in mount namespace with flags %v instead of %v: %w", target, mountFlagNames(requestFlags), statFlagNames(effectiveImportantFlags), err)
 			}
 			// Check if the desired flags stuck.
 			if err = unix.Statfs(target, &fs); err != nil {
-				return undoBinds, fmt.Errorf("checking if directory %q was remounted with requested flags %#x instead of %#x: %w", target, requestFlags, effectiveImportantFlags, err)
+				return undoBinds, fmt.Errorf("checking if directory %q was remounted with requested flags %v instead of %v: %w", target, mountFlagNames(requestFlags), statFlagNames(effectiveImportantFlags), err)
 			}
 			newEffectiveImportantFlags := uintptr(fs.Flags) & importantFlags
 			if newEffectiveImportantFlags != expectedImportantFlags {
-				return undoBinds, fmt.Errorf("unable to remount %q with requested flags %#x instead of %#x, just got %#x back", target, requestFlags, effectiveImportantFlags, newEffectiveImportantFlags)
+				return undoBinds, fmt.Errorf("unable to remount %q with requested flags %v instead of %v, just got %v back", target, mountFlagNames(requestFlags), statFlagNames(effectiveImportantFlags), statFlagNames(newEffectiveImportantFlags))
 			}
 		}
 	}
@@ -589,7 +718,7 @@ func setupChrootBindMounts(spec *specs.Spec, bundlePath string) (undoBinds func(
 	// Create an empty directory for to use for masking directories.
 	roEmptyDir := filepath.Join(bundlePath, "empty")
 	if len(spec.Linux.MaskedPaths) > 0 {
-		if err := os.Mkdir(roEmptyDir, 0700); err != nil {
+		if err := os.Mkdir(roEmptyDir, 0o700); err != nil {
 			return undoBinds, fmt.Errorf("creating empty directory %q: %w", roEmptyDir, err)
 		}
 	}

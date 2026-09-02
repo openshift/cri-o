@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/containers/image/v5/signature"
-	imageTypes "github.com/containers/image/v5/types"
+	"go.podman.io/image/v5/signature"
+	imageTypes "go.podman.io/image/v5/types"
 	encconfig "github.com/containers/ocicrypt/config"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/storage"

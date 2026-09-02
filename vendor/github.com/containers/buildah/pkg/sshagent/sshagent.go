@@ -38,7 +38,7 @@ func NewAgentServer(source *Source) (*AgentServer, error) {
 }
 
 // newAgentServerKeyring creates a new agent from scratch and adds keys
-func newAgentServerKeyring(keys []interface{}) (*AgentServer, error) {
+func newAgentServerKeyring(keys []any) (*AgentServer, error) {
 	a := agent.NewKeyring()
 	for _, k := range keys {
 		if err := a.Add(agent.AddedKey{PrivateKey: k}); err != nil {
@@ -64,7 +64,6 @@ func newAgentServerSocket(socketPath string) (*AgentServer, error) {
 		conn:     &conn,
 		shutdown: make(chan bool, 1),
 	}, nil
-
 }
 
 // Serve starts the SSH agent on the host and returns the path of the socket where the agent is serving
@@ -104,7 +103,7 @@ func (a *AgentServer) Serve(processLabel string) (string, error) {
 
 	go func() {
 		for {
-			//listener.Accept blocks
+			// listener.Accept blocks
 			c, err := listener.Accept()
 			if err != nil {
 				select {
@@ -192,12 +191,12 @@ func (a *readOnlyAgent) Extension(_ string, _ []byte) ([]byte, error) {
 // The source of the forwarded agent can be from a socket on the host, or from individual key files
 type Source struct {
 	Socket string
-	Keys   []interface{}
+	Keys   []any
 }
 
 // NewSource takes paths and checks of they are keys or sockets, and creates a source
 func NewSource(paths []string) (*Source, error) {
-	var keys []interface{}
+	var keys []any
 	var socket string
 	if len(paths) == 0 {
 		socket = os.Getenv("SSH_AUTH_SOCK")

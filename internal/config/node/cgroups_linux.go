@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/containers/common/pkg/cgroups"
-	libctrcgroups "github.com/opencontainers/runc/libcontainer/cgroups"
+	"go.podman.io/common/pkg/cgroups"
+	libctrcgroups "github.com/opencontainers/cgroups"
 )
 
 var (
