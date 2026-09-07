@@ -15,7 +15,7 @@ import (
 
 // CheckpointContainer checkpoints a container.
 func (s *Server) CheckpointContainer(ctx context.Context, req *types.CheckpointContainerRequest) (*types.CheckpointContainerResponse, error) {
-	if !s.config.CheckpointContainerEnabled() {
+	if !s.config.CheckpointRestore() {
 		return nil, errors.New("checkpoint/restore support not available")
 	}
 

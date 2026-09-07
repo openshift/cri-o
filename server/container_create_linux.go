@@ -15,7 +15,7 @@ import (
 	"github.com/intel/goresctrl/pkg/blockio"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
-	libartTypes "github.com/cri-o/cri-o/internal/libartifact/types"
+	libartTypes "go.podman.io/common/pkg/libartifact/types"
 	"go.podman.io/storage/pkg/idtools"
 	"go.podman.io/storage/pkg/mount"
 	"golang.org/x/sys/unix"
@@ -534,14 +534,10 @@ func (s *Server) mountImage(ctx context.Context, specgen *generate.Generator, im
 
 	log.Debugf(ctx, "Image ID to mount: %v", imageID)
 
-	options := []string{"ro", "noexec", "nosuid", "nodev"}
-
-	mountPoint, err := s.ContainerServer.Store().MountImage(imageID, options, "")
+	mountPoint, err := s.MountImageByID(ctx, imageID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("mount storage: %w", err)
 	}
-
-	log.Infof(ctx, "Image mounted to: %s", mountPoint)
 
 	var safeMount *safeMountInfo
 	if m.GetImageSubPath() != "" {
