@@ -229,7 +229,7 @@ List of devices on the host that a user can specify with the "io.kubernetes.cri-
 **additional_devices**=[]
 List of additional devices. Specified as "<device-on-host>:<device-on-container>:<permissions>", for example: "--additional-devices=/dev/sdc:/dev/xvdc:rwm". If it is empty or commented out, only the devices defined in the container json file by the user/kube will be added.
 
-**hooks_dir**=["*path*", ...]
+**hooks_dir**=["_path_", ...]
 Each `*.json` file in the path configures a hook for CRI-O containers. For more details on the syntax of the JSON files and the semantics of hook injection, see `oci-hooks(5)`. CRI-O currently support both the 1.0.0 and 0.1.0 hook schemas, although the 0.1.0 schema is deprecated.
 
 Paths listed later in the array have higher precedence (`oci-hooks(5)` discusses directory precedence).
@@ -325,6 +325,7 @@ Changes the default behavior of setting container devices uid/gid from CRI's Sec
 
 **enable_criu_support**=true
 Enable CRIU integration, requires that the criu binary is available in $PATH. (default: true)
+This option is deprecated, use the **container_level_enabled** option in the `crio.checkpoint_restore` table instead. When set to false it is translated to `container_level_enabled = "none"`.
 
 **enable_pod_events**=false
 Enable CRI-O to generate the container pod-level events in order to optimize the performance of the Pod Lifecycle Event Generator (PLEG) module in Kubelet.
@@ -460,6 +461,17 @@ Specifies the number of CPU shares this pod has access to.
 
 **cpuset**=""
 Specifies the cpuset this pod has access to.
+
+## CRIO.CHECKPOINT_RESTORE TABLE
+
+The `crio.checkpoint_restore` table contains settings pertaining to the checkpoint and restore (CRIU) support for containers.
+
+**container_level_enabled**="checkpoint_only"
+Configures the level of container checkpoint and restore (CRIU) support. It accepts one of the following values:
+
+- "none": checkpoint and restore support is disabled.
+- "checkpoint_only": only checkpointing containers is enabled.
+- "checkpoint_restore": both checkpointing and restoring containers is enabled.
 
 ## CRIO.IMAGE TABLE
 
