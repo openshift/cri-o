@@ -64,6 +64,23 @@ function os::build::version::git_vars() {
                 OS_GIT_VERSION+="-dirty"
             fi
         fi
+
+        # The openshift/cri-o fork only carries git tags for the most recent
+        # release line, so release branches have no reachable 'v[0-9]*' tag and
+        # the "git describe" above yields an empty version. Fall back to the
+        # version constant baked into the source tree so downstream consumers
+        # (notably the RPM build) still get a well-formed $OS_GIT_VERSION,
+        # e.g. v1.34.9+<commit>.
+        if [[ -z "${OS_GIT_VERSION-}" ]]; then
+            local crio_version
+            crio_version="$(sed -n 's/^const Version = "\(.*\)"$/\1/p' "${OS_ROOT}/internal/version/version.go")"
+            if [[ -n "${crio_version}" ]]; then
+                OS_GIT_VERSION="v${crio_version}+${OS_GIT_COMMIT}"
+                if [[ "${OS_GIT_TREE_STATE}" == "dirty" ]]; then
+                    OS_GIT_VERSION+="-dirty"
+                fi
+            fi
+        fi
     fi
 }
 readonly -f os::build::version::git_vars
