@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/containers/storage/pkg/idtools"
-	"github.com/containers/storage/pkg/stringid"
+	"go.podman.io/storage/pkg/idtools"
+	"go.podman.io/storage/pkg/stringid"
 	"github.com/cri-o/cri-o/internal/factory/container"
 	"github.com/cri-o/cri-o/internal/storage"
 	libconfig "github.com/cri-o/cri-o/pkg/config"

@@ -3,9 +3,9 @@ package storage_test
 import (
 	"context"
 
-	istorage "github.com/containers/image/v5/storage"
-	"github.com/containers/image/v5/types"
-	cs "github.com/containers/storage"
+	istorage "go.podman.io/image/v5/storage"
+	"go.podman.io/image/v5/types"
+	cs "go.podman.io/storage"
 	"github.com/cri-o/cri-o/internal/mockutils"
 	"github.com/cri-o/cri-o/internal/storage"
 	"github.com/cri-o/cri-o/internal/storage/references"

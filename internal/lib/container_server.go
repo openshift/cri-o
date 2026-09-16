@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/containers/common/pkg/hooks"
-	cstorage "github.com/containers/storage"
-	"github.com/containers/storage/pkg/ioutils"
-	cmount "github.com/containers/storage/pkg/mount"
-	"github.com/containers/storage/pkg/truncindex"
+	"go.podman.io/common/pkg/hooks"
+	cstorage "go.podman.io/storage"
+	"go.podman.io/storage/pkg/ioutils"
+	cmount "go.podman.io/storage/pkg/mount"
+	"go.podman.io/storage/pkg/truncindex"
 	"github.com/cri-o/cri-o/internal/hostport"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	statsserver "github.com/cri-o/cri-o/internal/lib/stats"
@@ -26,7 +26,7 @@ import (
 	libconfig "github.com/cri-o/cri-o/pkg/config"
 	json "github.com/json-iterator/go"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/opencontainers/selinux/go-selinux/label"
+	selinux "github.com/opencontainers/selinux/go-selinux"
 	"github.com/sirupsen/logrus"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
@@ -363,9 +363,7 @@ func (c *ContainerServer) LoadSandbox(ctx context.Context, id string) (sb *sandb
 		sb.SetStopped(ctx, true)
 	}
 
-	if err := label.ReserveLabel(processLabel); err != nil {
-		return sb, err
-	}
+	selinux.ReserveLabel(processLabel)
 
 	if err := c.ctrIDIndex.Add(scontainer.ID()); err != nil {
 		return sb, err

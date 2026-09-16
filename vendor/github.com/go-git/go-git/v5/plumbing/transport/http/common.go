@@ -91,9 +91,9 @@ func advertisedReferences(ctx context.Context, s *session, serviceName string) (
 }
 
 type client struct {
-	client     *http.Client
+	c          *http.Client
 	transports *lru.Cache
-	mutex      sync.RWMutex
+	m          sync.RWMutex
 }
 
 // ClientOptions holds user configurable options for the client.
@@ -147,7 +147,7 @@ func NewClientWithOptions(c *http.Client, opts *ClientOptions) transport.Transpo
 		}
 	}
 	cl := &client{
-		client: c,
+		c: c,
 	}
 
 	if opts != nil {
@@ -234,10 +234,10 @@ func newSession(c *client, ep *transport.Endpoint, auth transport.AuthMethod) (*
 		// if the client wasn't configured to have a cache for transports then just configure
 		// the transport and use it directly, otherwise try to use the cache.
 		if c.transports == nil {
-			tr, ok := c.client.Transport.(*http.Transport)
+			tr, ok := c.c.Transport.(*http.Transport)
 			if !ok {
 				return nil, fmt.Errorf("expected underlying client transport to be of type: %s; got: %s",
-					reflect.TypeOf(transport), reflect.TypeOf(c.client.Transport))
+					reflect.TypeOf(transport), reflect.TypeOf(c.c.Transport))
 			}
 
 			transport = tr.Clone()
@@ -258,7 +258,7 @@ func newSession(c *client, ep *transport.Endpoint, auth transport.AuthMethod) (*
 			transport, found = c.fetchTransport(transportOpts)
 
 			if !found {
-				transport = c.client.Transport.(*http.Transport).Clone()
+				transport = c.c.Transport.(*http.Transport).Clone()
 				configureTransport(transport, ep)
 				c.addTransport(transportOpts, transport)
 			}
@@ -266,12 +266,12 @@ func newSession(c *client, ep *transport.Endpoint, auth transport.AuthMethod) (*
 
 		httpClient = &http.Client{
 			Transport:     transport,
-			CheckRedirect: c.client.CheckRedirect,
-			Jar:           c.client.Jar,
-			Timeout:       c.client.Timeout,
+			CheckRedirect: c.c.CheckRedirect,
+			Jar:           c.c.Jar,
+			Timeout:       c.c.Timeout,
 		}
 	} else {
-		httpClient = c.client
+		httpClient = c.c
 	}
 
 	s := &session{

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	istorage "github.com/containers/image/v5/storage"
+	istorage "go.podman.io/image/v5/storage"
 	"github.com/cri-o/cri-o/internal/log"
 	pkgstorage "github.com/cri-o/cri-o/internal/storage"
 	json "github.com/json-iterator/go"

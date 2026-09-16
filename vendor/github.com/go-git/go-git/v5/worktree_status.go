@@ -271,7 +271,7 @@ func diffTreeIsEquals(a, b noder.Hasher) bool {
 // no error is returned. When path is a file, the blob.Hash is returned.
 func (w *Worktree) Add(path string) (plumbing.Hash, error) {
 	// TODO(mcuadros): deprecate in favor of AddWithOption in v6.
-	return w.doAdd(path, make([]gitignore.Pattern, 0), false)
+	return w.doAdd(path, make([]gitignore.Pattern, 0))
 }
 
 func (w *Worktree) doAddDirectory(idx *index.Index, s Status, directory string, ignorePattern []gitignore.Pattern) (added bool, err error) {
@@ -321,7 +321,7 @@ func (w *Worktree) AddWithOptions(opts *AddOptions) error {
 	}
 
 	if opts.All {
-		_, err := w.doAdd(".", w.Excludes, false)
+		_, err := w.doAdd(".", w.Excludes)
 		return err
 	}
 
@@ -329,11 +329,16 @@ func (w *Worktree) AddWithOptions(opts *AddOptions) error {
 		return w.AddGlob(opts.Glob)
 	}
 
-	_, err := w.doAdd(opts.Path, make([]gitignore.Pattern, 0), opts.SkipStatus)
+	_, err := w.Add(opts.Path)
 	return err
 }
 
-func (w *Worktree) doAdd(path string, ignorePattern []gitignore.Pattern, skipStatus bool) (plumbing.Hash, error) {
+func (w *Worktree) doAdd(path string, ignorePattern []gitignore.Pattern) (plumbing.Hash, error) {
+	s, err := w.Status()
+	if err != nil {
+		return plumbing.ZeroHash, err
+	}
+
 	idx, err := w.r.Storer.Index()
 	if err != nil {
 		return plumbing.ZeroHash, err
@@ -343,17 +348,6 @@ func (w *Worktree) doAdd(path string, ignorePattern []gitignore.Pattern, skipSta
 	var added bool
 
 	fi, err := w.Filesystem.Lstat(path)
-
-	// status is required for doAddDirectory
-	var s Status
-	var err2 error
-	if !skipStatus || fi == nil || fi.IsDir() {
-		s, err2 = w.Status()
-		if err2 != nil {
-			return plumbing.ZeroHash, err2
-		}
-	}
-
 	if err != nil || !fi.IsDir() {
 		added, h, err = w.doAddFile(idx, s, path, ignorePattern)
 	} else {
@@ -427,9 +421,8 @@ func (w *Worktree) AddGlob(pattern string) error {
 
 // doAddFile create a new blob from path and update the index, added is true if
 // the file added is different from the index.
-// if s status is nil will skip the status check and update the index anyway
 func (w *Worktree) doAddFile(idx *index.Index, s Status, path string, ignorePattern []gitignore.Pattern) (added bool, h plumbing.Hash, err error) {
-	if s != nil && s.File(path).Worktree == Unmodified {
+	if s.File(path).Worktree == Unmodified {
 		return false, h, nil
 	}
 	if len(ignorePattern) > 0 {
