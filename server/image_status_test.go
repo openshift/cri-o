@@ -3,7 +3,7 @@ package server_test
 import (
 	"context"
 
-	istorage "github.com/containers/image/v5/storage"
+	istorage "go.podman.io/image/v5/storage"
 	"github.com/cri-o/cri-o/internal/storage"
 	"github.com/cri-o/cri-o/internal/storage/references"
 	"github.com/golang/mock/gomock"

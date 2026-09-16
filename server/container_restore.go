@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
-	"github.com/containers/storage/pkg/archive"
+	"go.podman.io/storage/pkg/archive"
 	"github.com/cri-o/cri-o/internal/factory/container"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/log"

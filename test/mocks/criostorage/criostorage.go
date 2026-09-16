@@ -8,9 +8,9 @@ import (
 	context "context"
 	reflect "reflect"
 
-	types "github.com/containers/image/v5/types"
-	storage "github.com/containers/storage"
-	types0 "github.com/containers/storage/types"
+	types "go.podman.io/image/v5/types"
+	storage "go.podman.io/storage"
+	types0 "go.podman.io/storage/types"
 	storage0 "github.com/cri-o/cri-o/internal/storage"
 	references "github.com/cri-o/cri-o/internal/storage/references"
 	gomock "github.com/golang/mock/gomock"

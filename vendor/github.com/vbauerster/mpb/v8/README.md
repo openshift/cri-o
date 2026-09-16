@@ -42,11 +42,9 @@ func main() {
         mpb.BarStyle().Lbound("╢").Filler("▌").Tip("▌").Padding("░").Rbound("╟"),
         mpb.PrependDecorators(
             // display our name with one space on the right
-            decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
+            decor.Name(name, decor.WC{C: decor.DindentRight | decor.DextraSpace}),
             // replace ETA decorator with "done" message, OnComplete event
-            decor.OnComplete(
-                decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "done",
-            ),
+            decor.OnComplete(decor.AverageETA(decor.ET_STYLE_GO), "done"),
         ),
         mpb.AppendDecorators(decor.Percentage()),
     )
@@ -106,14 +104,14 @@ func main() {
     p.Wait()
 ```
 
-#### [Dynamic total](_examples/dynTotal/main.go)
+#### [dynTotal example](_examples/dynTotal/main.go)
 
-![dynamic total](_svg/godEMrCZmJkHYH1X9dN4Nm0U7.svg)
+![dynTotal](_svg/godEMrCZmJkHYH1X9dN4Nm0U7.svg)
 
-#### [Complex example](_examples/complex/main.go)
+#### [complex example](_examples/complex/main.go)
 
 ![complex](_svg/wHzf1M7sd7B3zVa2scBMnjqRf.svg)
 
-#### [Bytes counters](_examples/io/main.go)
+#### [io example](_examples/io/main.go)
 
-![byte counters](_svg/hIpTa3A5rQz65ssiVuRJu87X6.svg)
+![io](_svg/hIpTa3A5rQz65ssiVuRJu87X6.svg)
