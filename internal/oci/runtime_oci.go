@@ -17,9 +17,9 @@ import (
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
 	criu "github.com/checkpoint-restore/go-criu/v7/utils"
-	"github.com/containers/common/pkg/crutils"
+	"go.podman.io/common/pkg/crutils"
 	conmonconfig "github.com/containers/conmon/runner/config"
-	"github.com/containers/storage/pkg/pools"
+	"go.podman.io/storage/pkg/pools"
 	"github.com/fsnotify/fsnotify"
 	json "github.com/json-iterator/go"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"

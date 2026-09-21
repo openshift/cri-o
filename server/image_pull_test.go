@@ -3,7 +3,7 @@ package server_test
 import (
 	"context"
 
-	"github.com/containers/image/v5/docker/reference"
+	"go.podman.io/image/v5/docker/reference"
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"

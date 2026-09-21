@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/containers/common/pkg/apparmor"
+	"go.podman.io/common/pkg/apparmor"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 

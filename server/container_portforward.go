@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/containers/storage/pkg/pools"
+	"go.podman.io/storage/pkg/pools"
 	"golang.org/x/net/context"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
