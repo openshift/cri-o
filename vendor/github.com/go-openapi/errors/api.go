@@ -185,7 +185,7 @@ func ServeError(rw http.ResponseWriter, r *http.Request, err error) {
 }
 
 func asHTTPCode(input int) int {
-	if input >= maximumValidHTTPCode {
+	if input >= 600 {
 		return DefaultHTTPCode
 	}
 	return input

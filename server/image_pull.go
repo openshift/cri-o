@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	imageTypes "github.com/containers/image/v5/types"
+	imageTypes "go.podman.io/image/v5/types"
 	encconfig "github.com/containers/ocicrypt/config"
 	"github.com/docker/distribution/registry/api/errcode"
 	"github.com/opencontainers/go-digest"

@@ -730,9 +730,11 @@ func patNextSegment(pattern string) (nodeTyp, string, string, byte, int, int) {
 			tail = pattern[pe]
 		}
 
-		key, rexpat, isRegexp := strings.Cut(key, ":")
-		if isRegexp {
+		var rexpat string
+		if idx := strings.Index(key, ":"); idx >= 0 {
 			nt = ntRegexp
+			rexpat = key[idx+1:]
+			key = key[:idx]
 		}
 
 		if len(rexpat) > 0 {

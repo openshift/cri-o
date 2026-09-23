@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	libctr "github.com/opencontainers/runc/libcontainer/cgroups"
-	libctrCgMgr "github.com/opencontainers/runc/libcontainer/cgroups/manager"
+	libctr "github.com/opencontainers/cgroups"
+	libctrCgMgr "github.com/opencontainers/cgroups/manager"
 	cgcfgs "github.com/opencontainers/runc/libcontainer/configs"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
