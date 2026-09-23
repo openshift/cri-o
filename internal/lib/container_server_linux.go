@@ -5,7 +5,6 @@ import (
 
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	selinux "github.com/opencontainers/selinux/go-selinux"
-	"github.com/opencontainers/selinux/go-selinux/label"
 
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 )
@@ -31,9 +30,7 @@ func (c *ContainerServer) removeSandboxPlatform(sb *sandbox.Sandbox) error {
 		c.state.processLevels[level] = pl - 1
 		if c.state.processLevels[level] == 0 {
 			defer delete(c.state.processLevels, level)
-			if err := label.ReleaseLabel(processLabel); err != nil {
-				return err
-			}
+			selinux.ReleaseLabel(processLabel)
 		}
 	}
 	return nil

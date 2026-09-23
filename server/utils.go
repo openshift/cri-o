@@ -12,7 +12,7 @@ import (
 
 	encconfig "github.com/containers/ocicrypt/config"
 	cryptUtils "github.com/containers/ocicrypt/utils"
-	"github.com/containers/storage/pkg/mount"
+	"go.podman.io/storage/pkg/mount"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"

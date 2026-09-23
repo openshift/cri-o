@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/containers/storage"
+	"go.podman.io/storage"
 	errorUtils "k8s.io/apimachinery/pkg/util/errors"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	kubeletTypes "k8s.io/kubelet/pkg/types"
