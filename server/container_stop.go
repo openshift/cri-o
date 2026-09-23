@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/containers/storage/pkg/truncindex"
+	"go.podman.io/storage/pkg/truncindex"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

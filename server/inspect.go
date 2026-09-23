@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"net/http/pprof"
 
-	"github.com/containers/storage/pkg/idtools"
+	"go.podman.io/storage/pkg/idtools"
 	"github.com/go-chi/chi/v5"
 	json "github.com/json-iterator/go"
 	"github.com/sirupsen/logrus"

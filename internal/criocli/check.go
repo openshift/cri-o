@@ -3,7 +3,7 @@ package criocli
 import (
 	"fmt"
 
-	"github.com/containers/storage"
+	"go.podman.io/storage"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 

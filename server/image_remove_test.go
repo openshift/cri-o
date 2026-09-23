@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	storagetypes "github.com/containers/storage"
+	storagetypes "go.podman.io/storage"
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"

@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	cstorage "github.com/containers/storage"
+	cstorage "go.podman.io/storage"
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"

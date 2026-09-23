@@ -10,7 +10,7 @@ import (
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
 	criu "github.com/checkpoint-restore/go-criu/v7/utils"
-	"github.com/containers/storage/pkg/archive"
+	"go.podman.io/storage/pkg/archive"
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"

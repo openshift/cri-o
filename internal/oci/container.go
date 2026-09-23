@@ -12,8 +12,8 @@ import (
 	"time"
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
-	"github.com/containers/common/pkg/signal"
-	"github.com/containers/storage/pkg/idtools"
+	"go.podman.io/common/pkg/signal"
+	"go.podman.io/storage/pkg/idtools"
 	json "github.com/json-iterator/go"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
