@@ -15,9 +15,9 @@ import (
 	os "os"
 	reflect "reflect"
 
-	reference "github.com/containers/image/v5/docker/reference"
-	manifest "github.com/containers/image/v5/manifest"
-	types "github.com/containers/image/v5/types"
+	reference "go.podman.io/image/v5/docker/reference"
+	manifest "go.podman.io/image/v5/manifest"
+	types "go.podman.io/image/v5/types"
 	digest "github.com/opencontainers/go-digest"
 	gomock "go.uber.org/mock/gomock"
 )

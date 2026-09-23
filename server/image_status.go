@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	istorage "github.com/containers/image/v5/storage"
+	istorage "go.podman.io/image/v5/storage"
 	json "github.com/json-iterator/go"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"

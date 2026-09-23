@@ -13,8 +13,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/opencontainers/runc/libcontainer/cgroups"
-	libCtrMgr "github.com/opencontainers/runc/libcontainer/cgroups/manager"
+	"github.com/opencontainers/cgroups"
+	libCtrMgr "github.com/opencontainers/cgroups/manager"
 	"github.com/opencontainers/runc/libcontainer/configs"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"

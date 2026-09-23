@@ -224,13 +224,7 @@ type Connection struct {
 // NewConnection creates a new spdy connection from an existing
 // network connection.
 func NewConnection(conn net.Conn, server bool) (*Connection, error) {
-	return NewConnectionWithOptions(conn, server)
-}
-
-// NewConnectionWithOptions creates a new spdy connection and applies frame
-// parsing limits via options.
-func NewConnectionWithOptions(conn net.Conn, server bool, opts ...spdy.FramerOption) (*Connection, error) {
-	framer, framerErr := spdy.NewFramerWithOptions(conn, conn, opts...)
+	framer, framerErr := spdy.NewFramer(conn, conn)
 	if framerErr != nil {
 		return nil, framerErr
 	}
@@ -355,9 +349,6 @@ Loop:
 				debugMessage("frame read error: %s", err)
 			} else {
 				debugMessage("(%p) EOF received", s)
-			}
-			if spdyErr, ok := err.(*spdy.Error); ok && spdyErr.Err == spdy.InvalidControlFrame {
-				_ = s.conn.Close()
 			}
 			break
 		}
@@ -721,9 +712,7 @@ func (s *Connection) shutdown(closeTimeout time.Duration) {
 
 	var timeout <-chan time.Time
 	if closeTimeout > time.Duration(0) {
-		timer := time.NewTimer(closeTimeout)
-		defer timer.Stop()
-		timeout = timer.C
+		timeout = time.After(closeTimeout)
 	}
 	streamsClosed := make(chan bool)
 
@@ -750,15 +739,7 @@ func (s *Connection) shutdown(closeTimeout time.Duration) {
 	}
 
 	if err != nil {
-		// default to 1 second
-		duration := time.Second
-		// if a closeTimeout was given, use that, clipped to 1s-10m
-		if closeTimeout > time.Second {
-			duration = closeTimeout
-		}
-		if duration > 10*time.Minute {
-			duration = 10 * time.Minute
-		}
+		duration := 10 * time.Minute
 		timer := time.NewTimer(duration)
 		defer timer.Stop()
 		select {
@@ -825,9 +806,7 @@ func (s *Connection) CloseWait() error {
 func (s *Connection) Wait(waitTimeout time.Duration) error {
 	var timeout <-chan time.Time
 	if waitTimeout > time.Duration(0) {
-		timer := time.NewTimer(waitTimeout)
-		defer timer.Stop()
-		timeout = timer.C
+		timeout = time.After(waitTimeout)
 	}
 
 	select {
