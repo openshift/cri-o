@@ -166,6 +166,7 @@ func main() {
 		criocli.StatusCommand,
 		criocli.VersionCommand,
 		criocli.WipeCommand,
+		criocli.DedupCommand,
 	)
 
 	slices.SortFunc(app.Commands, func(a, b *cli.Command) int {
