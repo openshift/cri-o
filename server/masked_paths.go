@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/containers/common/pkg/config"
+	"go.podman.io/common/pkg/config"
 )
 
 // appendDefaultMaskedPaths is retrieving the default masked paths and appends

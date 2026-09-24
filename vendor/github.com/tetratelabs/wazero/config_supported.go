@@ -5,15 +5,10 @@
 //
 // Meanwhile, users who know their runtime.GOOS can operate with the compiler
 // may choose to use NewRuntimeConfigCompiler explicitly.
-//go:build (amd64 || arm64) && (linux || darwin || freebsd || netbsd || dragonfly || solaris || windows)
+//go:build (amd64 || arm64) && (darwin || linux || freebsd || windows)
 
 package wazero
 
-import "github.com/tetratelabs/wazero/internal/platform"
-
 func newRuntimeConfig() RuntimeConfig {
-	if platform.CompilerSupported() {
-		return NewRuntimeConfigCompiler()
-	}
-	return NewRuntimeConfigInterpreter()
+	return NewRuntimeConfigCompiler()
 }
