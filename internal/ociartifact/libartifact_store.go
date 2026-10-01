@@ -5,7 +5,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	"go.podman.io/common/libimage"
-	"github.com/cri-o/cri-o/internal/libartifact"
+	"go.podman.io/common/pkg/libartifact"
 	"go.podman.io/image/v5/types"
 )
 
