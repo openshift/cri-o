@@ -152,6 +152,14 @@ func (r *runtimeVM) CreateContainer(ctx context.Context, c *Container, cgroupPar
 	log.Debugf(ctx, "RuntimeVM.CreateContainer() start")
 	defer log.Debugf(ctx, "RuntimeVM.CreateContainer() end")
 
+	// This runtime will not drop the infra container, so we don't expect
+	// to run into this. But if the default runtimeHandler is kata, we might end
+	// here for a spoofed container, which is always set with the default handler.
+	// This test guards against it.
+	if c.Spoofed() {
+		return nil
+	}
+
 	// Lock the container
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
@@ -330,6 +338,10 @@ func (r *runtimeVM) startRuntimeDaemon(ctx context.Context, c *Container) error 
 func (r *runtimeVM) StartContainer(ctx context.Context, c *Container) error {
 	log.Debugf(ctx, "RuntimeVM.StartContainer() start")
 	defer log.Debugf(ctx, "RuntimeVM.StartContainer() end")
+
+	if c.Spoofed() {
+		return nil
+	}
 
 	// Lock the container
 	c.opLock.Lock()
@@ -643,6 +655,13 @@ func (r *runtimeVM) StopContainer(ctx context.Context, c *Container, timeout int
 	log.Debugf(ctx, "RuntimeVM.StopContainer() start")
 	defer log.Debugf(ctx, "RuntimeVM.StopContainer() end")
 
+	if c.Spoofed() {
+		c.state.Status = ContainerStateStopped
+		c.state.Finished = time.Now()
+
+		return nil
+	}
+
 	if err := r.shouldBeStopped(ctx, c); err != nil {
 		if errors.Is(err, ErrContainerStopped) {
 			err = nil
@@ -751,6 +770,10 @@ func (r *runtimeVM) DeleteContainer(ctx context.Context, c *Container) error {
 	// Lock the container
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
+
+	if c.Spoofed() {
+		return nil
+	}
 
 	if c.state.OOMKilled {
 		// Collect metric by container name
