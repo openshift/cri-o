@@ -15,7 +15,7 @@ import (
 	"github.com/intel/goresctrl/pkg/blockio"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
-	libartTypes "github.com/cri-o/cri-o/internal/libartifact/types"
+	libartTypes "go.podman.io/common/pkg/libartifact/types"
 	"go.podman.io/storage/pkg/idtools"
 	"go.podman.io/storage/pkg/mount"
 	"golang.org/x/sys/unix"
@@ -148,7 +148,7 @@ func clearReadOnly(m *rspec.Mount) {
 	m.Options = append(m.Options, "rw")
 }
 
-func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container, ctrInfo *storage.ContainerInfo, maybeRelabel, skipRelabel, cgroup2RW, idMapSupport, rroSupport bool, sb *sandbox.Sandbox) ([]oci.ContainerVolume, []rspec.Mount, []*safeMountInfo, error) {
+func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container, ctrInfo *storage.ContainerInfo, maybeRelabel, skipRelabel, cgroup2RW, idMapSupport, rroSupport bool) ([]oci.ContainerVolume, []rspec.Mount, []*safeMountInfo, error) {
 	ctx, span := log.StartSpan(ctx)
 	defer span.End()
 
@@ -232,7 +232,7 @@ func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container,
 				log.Debugf(ctx, "Skipping artifact mount because OCI artifact mount support is disabled")
 			}
 
-			volume, safeMount, err := s.mountImage(ctx, specgen, imageVolumesPath, m, ctrInfo.RunDir, namespace, sb)
+			volume, safeMount, err := s.mountImage(ctx, specgen, imageVolumesPath, m, ctrInfo.RunDir, namespace)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("%w: %w", crierrors.ErrImageVolumeMountFailed, err)
 			}
@@ -510,7 +510,7 @@ func FilterMountPathsBySubPath(ctx context.Context, artifact, subPath string, pa
 }
 
 // mountImage adds required image mounts to the provided spec generator and returns a corresponding ContainerVolume.
-func (s *Server) mountImage(ctx context.Context, specgen *generate.Generator, imageVolumesPath string, m *types.Mount, runDir, namespace string, sb *sandbox.Sandbox) (*oci.ContainerVolume, *safeMountInfo, error) {
+func (s *Server) mountImage(ctx context.Context, specgen *generate.Generator, imageVolumesPath string, m *types.Mount, runDir, namespace string) (*oci.ContainerVolume, *safeMountInfo, error) {
 	if m == nil || m.GetImage() == nil || m.GetImage().GetImage() == "" || m.GetContainerPath() == "" {
 		return nil, nil, fmt.Errorf("invalid mount specified: %+v", m)
 	}
@@ -531,7 +531,7 @@ func (s *Server) mountImage(ctx context.Context, specgen *generate.Generator, im
 	imageID := status.ID.IDStringForOutOfProcessConsumptionOnly()
 
 	// Check the signature of the image
-	if err := s.verifyImageSignature(ctx, namespace, m.GetImage().GetUserSpecifiedImage(), status, sb); err != nil {
+	if err := s.verifyImageSignature(ctx, namespace, m.GetImage().GetUserSpecifiedImage(), status); err != nil {
 		return nil, nil, err
 	}
 
