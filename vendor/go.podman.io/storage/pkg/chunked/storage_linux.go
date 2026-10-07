@@ -2,7 +2,6 @@ package chunked
 
 import (
 	archivetar "archive/tar"
-	"cmp"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -10,17 +9,16 @@ import (
 	"hash"
 	"io"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
 
 	"github.com/containerd/stargz-snapshotter/estargz"
-	"github.com/cyphar/filepath-securejoin/pathrs-lite"
+	securejoin "github.com/cyphar/filepath-securejoin"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/klauspost/compress/zstd"
 	"github.com/klauspost/pgzip"
@@ -608,7 +606,11 @@ func maybeDoIDRemap(manifest []fileMetadata, options *archive.TarOptions) error 
 }
 
 func mapToSlice(inputMap map[uint32]struct{}) []uint32 {
-	return slices.Collect(maps.Keys(inputMap))
+	var out []uint32
+	for value := range inputMap {
+		out = append(out, value)
+	}
+	return out
 }
 
 func collectIDs(entries []fileMetadata) ([]uint32, []uint32) {
@@ -1069,8 +1071,8 @@ func mergeMissingChunks(missingParts []missingPart, target int) []missingPart {
 		}
 		lastOffset = i
 	}
-	slices.SortFunc(requestGaps, func(a, b gap) int {
-		return cmp.Compare(a.cost, b.cost)
+	sort.Slice(requestGaps, func(i, j int) bool {
+		return requestGaps[i].cost < requestGaps[j].cost
 	})
 	toMergeMap := make([]bool, len(missingParts))
 	remainingToMerge := numberSourceChunks - target
@@ -1549,7 +1551,7 @@ func (c *chunkedDiffer) ApplyDiff(dest string, options *archive.TarOptions, diff
 		}
 	}
 
-	dirfd, err := unix.Open(dest, unix.O_PATH|unix.O_CLOEXEC, 0)
+	dirfd, err := unix.Open(dest, unix.O_RDONLY|unix.O_PATH|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return output, &fs.PathError{Op: "open", Path: dest, Err: err}
 	}
@@ -1613,15 +1615,18 @@ func (c *chunkedDiffer) ApplyDiff(dest string, options *archive.TarOptions, diff
 	}()
 
 	for range copyGoRoutines {
+		wg.Add(1)
 		jobs := copyFileJobs
-		wg.Go(func() {
+
+		go func() {
+			defer wg.Done()
 			for job := range jobs {
 				found, err := c.findAndCopyFile(dirfd, job.metadata, &copyOptions, job.mode)
 				job.err = err
 				job.found = found
 				copyResults[job.njob] = job
 			}
-		})
+		}()
 	}
 
 	filesToWaitFor := 0
@@ -2035,10 +2040,10 @@ func (fg *stagedFileGetter) Get(filename string) (io.ReadCloser, error) {
 		}
 		filename = path
 	}
-	pathFD, err := pathrs.OpenatInRoot(fg.rootDir, filename)
+	pathFD, err := securejoin.OpenatInRoot(fg.rootDir, filename)
 	if err != nil {
 		return nil, err
 	}
 	defer pathFD.Close()
-	return pathrs.Reopen(pathFD, unix.O_RDONLY)
+	return securejoin.Reopen(pathFD, unix.O_RDONLY)
 }

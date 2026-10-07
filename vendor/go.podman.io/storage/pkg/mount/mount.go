@@ -1,12 +1,9 @@
 package mount
 
 import (
-	"cmp"
-	"slices"
+	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/sirupsen/logrus"
 )
 
 // mountError holds an error from a mount or unmount operation
@@ -87,23 +84,21 @@ func RecursiveUnmount(target string) error {
 	}
 
 	// Make the deepest mount be first
-	slices.SortFunc(mounts, func(a, b *Info) int {
-		return -cmp.Compare(len(a.Mountpoint), len(b.Mountpoint))
+	sort.Slice(mounts, func(i, j int) bool {
+		return len(mounts[i].Mountpoint) > len(mounts[j].Mountpoint)
 	})
 
-	var lastErr error
-	for _, m := range mounts {
+	for i, m := range mounts {
 		if !strings.HasPrefix(m.Mountpoint, target) {
 			continue
 		}
-		if err := Unmount(m.Mountpoint); err != nil {
+		if err := Unmount(m.Mountpoint); err != nil && i == len(mounts)-1 {
+			return err
 			// Ignore errors for submounts and continue trying to unmount others
 			// The final unmount should fail if there are any submounts remaining
-			logrus.Warnf("Failed to unmount %s: %v", m.Mountpoint, err)
-			lastErr = err
 		}
 	}
-	return lastErr
+	return nil
 }
 
 // ForceUnmount lazily unmounts a filesystem on supported platforms,

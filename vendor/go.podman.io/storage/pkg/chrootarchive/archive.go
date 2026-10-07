@@ -124,7 +124,8 @@ func CopyFileWithTarAndChown(chownOpts *idtools.IDPair, hasher io.Writer, uidmap
 			defer contentWriter.Close()
 			var hashError error
 			var hashWorker sync.WaitGroup
-			hashWorker.Go(func() {
+			hashWorker.Add(1)
+			go func() {
 				t := stdtar.NewReader(contentReader)
 				_, err := t.Next()
 				if err != nil {
@@ -133,7 +134,8 @@ func CopyFileWithTarAndChown(chownOpts *idtools.IDPair, hasher io.Writer, uidmap
 				if _, err = io.Copy(hasher, t); err != nil && err != io.EOF {
 					hashError = err
 				}
-			})
+				hashWorker.Done()
+			}()
 			if err = originalUntar(io.TeeReader(tarArchive, contentWriter), dest, options); err != nil {
 				err = fmt.Errorf("extracting data to %q while copying: %w", dest, err)
 			}
