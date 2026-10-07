@@ -77,8 +77,10 @@ const PaxSchilyXattr = "SCHILY.xattr."
 
 const (
 	tarExt  = "tar"
+	solaris = "solaris"
 	windows = "windows"
 	darwin  = "darwin"
+	freebsd = "freebsd"
 )
 
 var xattrsToIgnore = map[string]any{
@@ -415,7 +417,7 @@ func FileInfoHeader(name string, fi os.FileInfo, link string) (*tar.Header, erro
 		return nil, fmt.Errorf("tar: cannot canonicalize path: %w", err)
 	}
 	hdr.Name = name
-	setHeaderForSpecialDevice(hdr, fi.Sys())
+	setHeaderForSpecialDevice(hdr, name, fi.Sys())
 	return hdr, nil
 }
 
@@ -1590,7 +1592,8 @@ func CopyFileWithTarAndChown(chownOpts *idtools.IDPair, hasher io.Writer, uidmap
 			defer contentWriter.Close()
 			var hashError error
 			var hashWorker sync.WaitGroup
-			hashWorker.Go(func() {
+			hashWorker.Add(1)
+			go func() {
 				t := tar.NewReader(contentReader)
 				_, err := t.Next()
 				if err != nil {
@@ -1599,7 +1602,8 @@ func CopyFileWithTarAndChown(chownOpts *idtools.IDPair, hasher io.Writer, uidmap
 				if _, err = io.Copy(hasher, t); err != nil && err != io.EOF {
 					hashError = err
 				}
-			})
+				hashWorker.Done()
+			}()
 			if err = originalUntar(io.TeeReader(tarArchive, contentWriter), dest, options); err != nil {
 				err = fmt.Errorf("extracting data to %q while copying: %w", dest, err)
 			}
