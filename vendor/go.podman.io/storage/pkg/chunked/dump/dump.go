@@ -9,7 +9,6 @@ import (
 	"io"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/opencontainers/go-digest"
@@ -43,7 +42,7 @@ func escaped(val []byte, escape int) string {
 		return c > 32 && c < 127
 	}
 
-	var result strings.Builder
+	var result string
 	for _, c := range val {
 		hexEscape := false
 		var special string
@@ -68,14 +67,14 @@ func escaped(val []byte, escape int) string {
 		}
 
 		if special != "" {
-			result.WriteString(special)
+			result += special
 		} else if hexEscape {
-			fmt.Fprintf(&result, "\\x%.2x", c)
+			result += fmt.Sprintf("\\x%.2x", c)
 		} else {
-			result.WriteString(string(c))
+			result += string(c)
 		}
 	}
-	return result.String()
+	return result
 }
 
 func escapedOptional(val []byte, escape int) string {
@@ -191,10 +190,7 @@ func dumpNode(out io.Writer, added map[string]*minimal.FileMetadata, links map[s
 	if _, err := fmt.Fprint(out, " "); err != nil {
 		return err
 	}
-	digest := ""
-	if entry.Type == minimal.TypeReg {
-		digest = verityDigests["/"+payload]
-	}
+	digest := verityDigests[payload]
 	if _, err := fmt.Fprint(out, escapedOptional([]byte(digest), ESCAPE_LONE_DASH)); err != nil {
 		return err
 	}

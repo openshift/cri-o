@@ -13,10 +13,10 @@ import (
 	context "context"
 	reflect "reflect"
 
+	libartifact "github.com/cri-o/cri-o/internal/libartifact"
+	types "github.com/cri-o/cri-o/internal/libartifact/types"
 	digest "github.com/opencontainers/go-digest"
 	libimage "go.podman.io/common/libimage"
-	libartifact "go.podman.io/common/pkg/libartifact"
-	types "go.podman.io/common/pkg/libartifact/types"
 	gomock "go.uber.org/mock/gomock"
 )
 

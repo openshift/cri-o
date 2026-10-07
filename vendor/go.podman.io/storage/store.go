@@ -25,13 +25,13 @@ import (
 	"github.com/sirupsen/logrus"
 	drivers "go.podman.io/storage/drivers"
 	"go.podman.io/storage/internal/dedup"
-	"go.podman.io/storage/internal/driver"
 	"go.podman.io/storage/internal/tempdir"
 	"go.podman.io/storage/pkg/archive"
 	"go.podman.io/storage/pkg/directory"
 	"go.podman.io/storage/pkg/idtools"
 	"go.podman.io/storage/pkg/ioutils"
 	"go.podman.io/storage/pkg/lockfile"
+	"go.podman.io/storage/pkg/parsers"
 	"go.podman.io/storage/pkg/stringutils"
 	"go.podman.io/storage/pkg/system"
 	"go.podman.io/storage/types"
@@ -807,7 +807,7 @@ type store struct {
 //	    return
 //	}
 func GetStore(options types.StoreOptions) (Store, error) {
-	defaultOpts, err := types.DefaultStoreOptions()
+	defaultOpts, err := types.Options()
 	if err != nil {
 		return nil, err
 	}
@@ -858,6 +858,14 @@ func GetStore(options types.StoreOptions) (Store, error) {
 	}
 	if options.ImageStore != "" {
 		if err := os.MkdirAll(options.ImageStore, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(options.GraphRoot, options.GraphDriverName), 0o700); err != nil {
+		return nil, err
+	}
+	if options.ImageStore != "" {
+		if err := os.MkdirAll(filepath.Join(options.ImageStore, options.GraphDriverName), 0o700); err != nil {
 			return nil, err
 		}
 	}
@@ -969,16 +977,6 @@ func (s *store) load() error {
 	}(); err != nil {
 		return err
 	}
-
-	if err := os.MkdirAll(filepath.Join(s.graphRoot, s.graphDriverName), 0o700); err != nil {
-		return err
-	}
-	if s.imageStoreDir != "" {
-		if err := os.MkdirAll(filepath.Join(s.imageStoreDir, s.graphDriverName), 0o700); err != nil {
-			return err
-		}
-	}
-
 	driverPrefix := s.graphDriverName + "-"
 
 	imgStoreRoot := s.imageStoreDir
@@ -1271,26 +1269,6 @@ func readAllLayerStores[T any](s *store, fn func(store roLayerStore) (T, bool, e
 		}
 	}
 	return zeroRes, false, nil
-}
-
-// readPrimaryLayerStore is a helper for working with store.getLayerStore():
-// It locks the store for reading, checks for updates, and calls fn()
-// It returns the return value of fn, or its own error initializing the store.
-//
-// Most callers should call readAllLayerStores instead.
-func readPrimaryLayerStore[T any](s *store, fn func(store rwLayerStore) (T, error)) (T, error) {
-	var zeroRes T // A zero value of T
-
-	store, err := s.getLayerStore()
-	if err != nil {
-		return zeroRes, err
-	}
-
-	if err := store.startReading(); err != nil {
-		return zeroRes, err
-	}
-	defer store.stopReading()
-	return fn(store)
 }
 
 // writeToLayerStore is a helper for working with store.getLayerStore():
@@ -2668,7 +2646,7 @@ func (s *store) DeleteLayer(id string) (retErr error) {
 	}()
 	return s.writeToAllStores(func(rlstore rwLayerStore) error {
 		if rlstore.Exists(id) {
-			if l, err := rlstore.Get(id); err == nil {
+			if l, err := rlstore.Get(id); err != nil {
 				id = l.ID
 			}
 			layers, err := rlstore.Layers()
@@ -3105,9 +3083,16 @@ func (s *store) Mounted(id string) (int, error) {
 	if layerID, err := s.ContainerLayerID(id); err == nil {
 		id = layerID
 	}
-	return readPrimaryLayerStore(s, func(store rwLayerStore) (int, error) {
-		return store.Mounted(id)
-	})
+	rlstore, err := s.getLayerStore()
+	if err != nil {
+		return 0, err
+	}
+	if err := rlstore.startReading(); err != nil {
+		return 0, err
+	}
+	defer rlstore.stopReading()
+
+	return rlstore.Mounted(id)
 }
 
 func (s *store) UnmountImage(id string, force bool) (bool, error) {
@@ -3402,48 +3387,41 @@ func (s *store) LayerSize(id string) (int64, error) {
 }
 
 func (s *store) LayerParentOwners(id string) ([]int, []int, error) {
-	var parentUIDs, parentGIDs []int
-	if _, err := readPrimaryLayerStore(s, func(store rwLayerStore) (struct{}, error) {
-		if store.Exists(id) {
-			u, g, err := store.ParentOwners(id)
-			if err != nil {
-				return struct{}{}, err
-			}
-			parentUIDs = u
-			parentGIDs = g
-			return struct{}{}, nil
-		}
-		return struct{}{}, ErrLayerUnknown
-	}); err != nil {
+	rlstore, err := s.getLayerStore()
+	if err != nil {
 		return nil, nil, err
 	}
-	return parentUIDs, parentGIDs, nil
+	if err := rlstore.startReading(); err != nil {
+		return nil, nil, err
+	}
+	defer rlstore.stopReading()
+	if rlstore.Exists(id) {
+		return rlstore.ParentOwners(id)
+	}
+	return nil, nil, ErrLayerUnknown
 }
 
 func (s *store) ContainerParentOwners(id string) ([]int, []int, error) {
-	var parentUIDs, parentGIDs []int
-	if _, err := readPrimaryLayerStore(s, func(store rwLayerStore) (struct{}, error) {
-		_, _, err := readContainerStore(s, func() (struct{}, bool, error) {
-			container, err := s.containerStore.Get(id)
-			if err != nil {
-				return struct{}{}, true, err
-			}
-			if store.Exists(container.LayerID) {
-				u, g, err := store.ParentOwners(container.LayerID)
-				if err != nil {
-					return struct{}{}, true, err
-				}
-				parentUIDs = u
-				parentGIDs = g
-				return struct{}{}, true, nil
-			}
-			return struct{}{}, true, ErrLayerUnknown
-		})
-		return struct{}{}, err
-	}); err != nil {
+	rlstore, err := s.getLayerStore()
+	if err != nil {
 		return nil, nil, err
 	}
-	return parentUIDs, parentGIDs, nil
+	if err := rlstore.startReading(); err != nil {
+		return nil, nil, err
+	}
+	defer rlstore.stopReading()
+	if err := s.containerStore.startReading(); err != nil {
+		return nil, nil, err
+	}
+	defer s.containerStore.stopReading()
+	container, err := s.containerStore.Get(id)
+	if err != nil {
+		return nil, nil, err
+	}
+	if rlstore.Exists(container.LayerID) {
+		return rlstore.ParentOwners(container.LayerID)
+	}
+	return nil, nil, ErrLayerUnknown
 }
 
 func (s *store) Layers() ([]Layer, error) {
@@ -3521,12 +3499,6 @@ func (s *store) LookupAdditionalLayer(tocDigest digest.Digest, imageref string) 
 		}
 		return nil, err
 	}
-	succeeded := false
-	defer func() {
-		if !succeeded {
-			al.Release()
-		}
-	}()
 	info, err := al.Info()
 	if err != nil {
 		return nil, err
@@ -3536,7 +3508,6 @@ func (s *store) LookupAdditionalLayer(tocDigest digest.Digest, imageref string) 
 	if err := json.NewDecoder(info).Decode(&layer); err != nil {
 		return nil, err
 	}
-	succeeded = true
 	return &additionalLayer{&layer, al, s}, nil
 }
 
@@ -3952,9 +3923,27 @@ const AutoUserNsMaxSize = 65536
 // creating a user namespace.
 const RootAutoUserNsUser = "containers"
 
+// SetDefaultConfigFilePath sets the default configuration to the specified path, and loads the file.
+// Deprecated: Use types.SetDefaultConfigFilePath, which can return an error.
+func SetDefaultConfigFilePath(path string) {
+	_ = types.SetDefaultConfigFilePath(path)
+}
+
+// DefaultConfigFile returns the path to the storage config file used
+func DefaultConfigFile() (string, error) {
+	return types.DefaultConfigFile()
+}
+
+// ReloadConfigurationFile parses the specified configuration file and overrides
+// the configuration in storeOptions.
+// Deprecated: Use types.ReloadConfigurationFile, which can return an error.
+func ReloadConfigurationFile(configFile string, storeOptions *types.StoreOptions) {
+	_ = types.ReloadConfigurationFile(configFile, storeOptions)
+}
+
 // GetDefaultMountOptions returns the default mountoptions defined in container/storage
 func GetDefaultMountOptions() ([]string, error) {
-	defaultStoreOptions, err := types.DefaultStoreOptions()
+	defaultStoreOptions, err := types.Options()
 	if err != nil {
 		return nil, err
 	}
@@ -3962,13 +3951,18 @@ func GetDefaultMountOptions() ([]string, error) {
 }
 
 // GetMountOptions returns the mountoptions for the specified driver and graphDriverOptions
-func GetMountOptions(usedDriver string, graphDriverOptions []string) ([]string, error) {
+func GetMountOptions(driver string, graphDriverOptions []string) ([]string, error) {
+	mountOpts := []string{
+		".mountopt",
+		fmt.Sprintf("%s.mountopt", driver),
+	}
 	for _, option := range graphDriverOptions {
-		optDriver, key, val, err := driver.ParseDriverOption(option)
+		key, val, err := parsers.ParseKeyValueOpt(option)
 		if err != nil {
 			return nil, err
 		}
-		if (optDriver == "" || optDriver == usedDriver) && key == "mountopt" {
+		key = strings.ToLower(key)
+		if slices.Contains(mountOpts, key) {
 			return strings.Split(val, ","), nil
 		}
 	}

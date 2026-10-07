@@ -52,6 +52,10 @@ func DefaultProfile() *Seccomp {
 			Names: []string{
 				"bdflush",
 				"cachestat",
+				"futex_requeue",
+				"futex_wait",
+				"futex_waitv",
+				"futex_wake",
 				"io_pgetevents",
 				"io_pgetevents_time64",
 				"kexec_file_load",
@@ -172,11 +176,7 @@ func DefaultProfile() *Seccomp {
 				"ftruncate",
 				"ftruncate64",
 				"futex",
-				"futex_requeue",
 				"futex_time64",
-				"futex_wait",
-				"futex_waitv",
-				"futex_wake",
 				"futimesat",
 				"get_mempolicy",
 				"get_robust_list",
@@ -616,7 +616,6 @@ func DefaultProfile() *Seccomp {
 			Names: []string{
 				"bpf",
 				"lookup_dcookie",
-				"perf_event_open",
 				"quotactl",
 				"quotactl_fd",
 				"setdomainname",
@@ -632,6 +631,7 @@ func DefaultProfile() *Seccomp {
 		{
 			Names: []string{
 				"lookup_dcookie",
+				"perf_event_open",
 				"quotactl",
 				"quotactl_fd",
 				"setdomainname",
@@ -938,7 +938,7 @@ func DefaultProfile() *Seccomp {
 			ErrnoRet: &eperm,
 			Args:     []*Arg{},
 			Excludes: Filter{
-				Caps: []string{"CAP_SYS_ADMIN", "CAP_PERFMON"},
+				Caps: []string{"CAP_SYS_ADMIN", "CAP_BPF"},
 			},
 		},
 		{
