@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"github.com/opencontainers/go-digest"
-	libart "go.podman.io/common/pkg/libartifact"
 	"go.podman.io/image/v5/docker/reference"
 
+	libart "github.com/cri-o/cri-o/internal/libartifact"
 	"github.com/cri-o/cri-o/internal/log"
 )
 
