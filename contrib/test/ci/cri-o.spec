@@ -11,13 +11,7 @@
 %global debug_package %{nil}
 %endif
 
-%if ! 0%{?centos} && 0%{?rhel}
-# Golang minor version
-%global gominver 18
-%define gobuild(o:) scl enable go-toolset-1.%{gominver} -- go build -buildmode pie -compiler gc -tags="rpm_crashtraceback no_openssl ${BUILDTAGS:-}" -ldflags "${LDFLAGS:-} -B 0x$(head -c20 /dev/urandom|od -An -tx1|tr -d ' \\n') -extldflags '%__global_ldflags'" -a -v -x %{?**};
-%else
 %define gobuild(o:) go build -buildmode pie -compiler gc -tags="rpm_crashtraceback no_openssl ${BUILDTAGS:-}" -ldflags "${LDFLAGS:-} -B 0x$(head -c20 /dev/urandom|od -An -tx1|tr -d ' \\n') -extldflags '%__global_ldflags'" -a -v -x %{?**};
-%endif
 
 %global provider github
 %global provider_tld com
@@ -38,12 +32,8 @@ Summary: Kubernetes Container Runtime Interface for OCI-based containers
 License: ASL 2.0
 URL: %{git0}
 Source0: %{name}-test.tar.gz
-%if ! 0%{?centos} && 0%{?rhel}
-BuildRequires: go-toolset-1.%{gominver}
-%else
 # Assume pre-installed golang (which is the case in our CI)
 BuildRequires: make
-%endif
 BuildRequires: git
 BuildRequires: glib2-devel
 BuildRequires: glibc-static
@@ -84,8 +74,8 @@ popd
 
 ln -s vendor src
 export GOPATH=$(pwd)/_output:$(pwd)
-export BUILDTAGS="selinux seccomp exclude_graphdriver_devicemapper exclude_graphdriver_btrfs containers_image_ostree_stub containers_image_openpgp"
-make bin/crio bin/crio-status bin/pinns
+export BUILDTAGS="selinux seccomp exclude_graphdriver_btrfs containers_image_ostree_stub containers_image_openpgp"
+make bin/crio bin/pinns
 
 # build docs
 make GO_MD2MAN=go-md2man docs
@@ -141,7 +131,6 @@ rm -f %{_unitdir}/%{repo}.service
 %license LICENSE
 %doc README.md
 %{_bindir}/%{service_name}
-%{_bindir}/%{service_name}-status
 %{_bindir}/pinns
 %{_mandir}/man5/%{service_name}.conf.5*
 %{_mandir}/man5/%{service_name}.conf.d.5*
@@ -157,11 +146,8 @@ rm -f %{_unitdir}/%{repo}.service
 %dir %{_datadir}/oci-umount/oci-umount.d
 %{_datadir}/oci-umount/oci-umount.d/%{service_name}-umount.conf
 %{_unitdir}/%{service_name}-wipe.service
-%{_datadir}/bash-completion/completions/%{service_name}-status
 %{_datadir}/bash-completion/completions/%{service_name}
-%{_datadir}/fish/completions/%{service_name}-status.fish
 %{_datadir}/fish/completions/%{service_name}.fish
-%{_datadir}/zsh/site-functions/_%{service_name}-status
 %{_datadir}/zsh/site-functions/_%{service_name}
 
 
