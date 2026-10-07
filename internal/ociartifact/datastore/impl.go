@@ -7,8 +7,9 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	"go.podman.io/common/libimage"
-	"go.podman.io/common/pkg/libartifact"
-	libartTypes "go.podman.io/common/pkg/libartifact/types"
+
+	"github.com/cri-o/cri-o/internal/libartifact"
+	libartTypes "github.com/cri-o/cri-o/internal/libartifact/types"
 )
 
 // Impl is the interface for the implementation.

@@ -74,7 +74,7 @@ type Container struct {
 	// versions of the library did not track this information, so callers
 	// will likely want to use the IsZero() method to verify that a value
 	// is set before using it.
-	Created time.Time `json:"created"`
+	Created time.Time `json:"created,omitempty"`
 
 	// UIDMap and GIDMap are used for setting up a container's root
 	// filesystem for use inside of a user namespace where UID mapping is

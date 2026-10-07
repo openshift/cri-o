@@ -2,14 +2,13 @@ package idtools
 
 import (
 	"bufio"
-	"cmp"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/user"
 	"runtime"
-	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,9 +32,11 @@ type subIDRange struct {
 	Length int
 }
 
-func compareRanges(a, b subIDRange) int {
-	return cmp.Compare(a.Start, b.Start)
-}
+type ranges []subIDRange
+
+func (e ranges) Len() int           { return len(e) }
+func (e ranges) Swap(i, j int)      { e[i], e[j] = e[j], e[i] }
+func (e ranges) Less(i, j int) bool { return e[i].Start < e[j].Start }
 
 const (
 	subuidFileName          string = "/etc/subuid"
@@ -46,18 +47,16 @@ const (
 // MkdirAllAs creates a directory (include any along the path) and then modifies
 // ownership to the requested uid/gid.  If the directory already exists, this
 // function will still change ownership to the requested uid/gid pair.
-//
 // Deprecated: Use MkdirAllAndChown
 func MkdirAllAs(path string, mode os.FileMode, ownerUID, ownerGID int) error {
-	return MkdirAllAndChown(path, mode, IDPair{UID: ownerUID, GID: ownerGID})
+	return mkdirAs(path, mode, ownerUID, ownerGID, true, true)
 }
 
 // MkdirAs creates a directory and then modifies ownership to the requested uid/gid.
 // If the directory already exists, this function still changes ownership
-//
 // Deprecated: Use MkdirAndChown with a IDPair
 func MkdirAs(path string, mode os.FileMode, ownerUID, ownerGID int) error {
-	return MkdirAndChown(path, mode, IDPair{UID: ownerUID, GID: ownerGID})
+	return mkdirAs(path, mode, ownerUID, ownerGID, false, true)
 }
 
 // MkdirAllAndChown creates a directory (include any along the path) and then modifies
@@ -297,11 +296,11 @@ func (i *IDMappings) GIDs() []IDMap {
 	return i.gids
 }
 
-func createIDMap(subidRanges []subIDRange) []IDMap {
+func createIDMap(subidRanges ranges) []IDMap {
 	idMap := []IDMap{}
 
 	// sort the ranges by lowest ID first
-	slices.SortFunc(subidRanges, compareRanges)
+	sort.Sort(subidRanges)
 	containerID := 0
 	for _, idrange := range subidRanges {
 		idMap = append(idMap, IDMap{
@@ -317,9 +316,9 @@ func createIDMap(subidRanges []subIDRange) []IDMap {
 // parseSubidFile will read the appropriate file (/etc/subuid or /etc/subgid)
 // and return all found ranges for a specified username. If the special value
 // "ALL" is supplied for username, then all ranges in the file will be returned
-func parseSubidFile(path, username string) ([]subIDRange, error) {
+func parseSubidFile(path, username string) (ranges, error) {
 	var (
-		rangeList []subIDRange
+		rangeList ranges
 		uidstr    string
 	)
 	if u, err := user.Lookup(username); err == nil {
@@ -583,6 +582,18 @@ func SafeLchown(name string, uid, gid int) error {
 	return checkChownErr(os.Lchown(name, uid, gid), name, uid, gid)
 }
 
+type sortByHostID []IDMap
+
+func (e sortByHostID) Len() int           { return len(e) }
+func (e sortByHostID) Swap(i, j int)      { e[i], e[j] = e[j], e[i] }
+func (e sortByHostID) Less(i, j int) bool { return e[i].HostID < e[j].HostID }
+
+type sortByContainerID []IDMap
+
+func (e sortByContainerID) Len() int           { return len(e) }
+func (e sortByContainerID) Swap(i, j int)      { e[i], e[j] = e[j], e[i] }
+func (e sortByContainerID) Less(i, j int) bool { return e[i].ContainerID < e[j].ContainerID }
+
 // IsContiguous checks if the specified mapping is contiguous and doesn't
 // have any hole.
 func IsContiguous(mappings []IDMap) bool {
@@ -590,20 +601,18 @@ func IsContiguous(mappings []IDMap) bool {
 		return true
 	}
 
-	slices.SortFunc(mappings, func(a, b IDMap) int {
-		return cmp.Compare(a.HostID, b.HostID)
-	})
-	for i := 1; i < len(mappings); i++ {
-		if mappings[i].HostID != mappings[i-1].HostID+mappings[i-1].Size {
+	var mh sortByHostID = mappings[:]
+	sort.Sort(mh)
+	for i := 1; i < len(mh); i++ {
+		if mh[i].HostID != mh[i-1].HostID+mh[i-1].Size {
 			return false
 		}
 	}
 
-	slices.SortFunc(mappings, func(a, b IDMap) int {
-		return cmp.Compare(a.ContainerID, b.ContainerID)
-	})
-	for i := 1; i < len(mappings); i++ {
-		if mappings[i].ContainerID != mappings[i-1].ContainerID+mappings[i-1].Size {
+	var mc sortByContainerID = mappings[:]
+	sort.Sort(mc)
+	for i := 1; i < len(mc); i++ {
+		if mc[i].ContainerID != mc[i-1].ContainerID+mc[i-1].Size {
 			return false
 		}
 	}
