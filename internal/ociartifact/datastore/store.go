@@ -9,14 +9,14 @@ import (
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"go.podman.io/common/libimage"
-	"go.podman.io/common/pkg/libartifact"
-	libartTypes "go.podman.io/common/pkg/libartifact/types"
 	"go.podman.io/image/v5/image"
 	"go.podman.io/image/v5/manifest"
 	"go.podman.io/image/v5/oci/layout"
 	"go.podman.io/image/v5/pkg/blobinfocache/none"
 	"go.podman.io/image/v5/types"
 
+	"github.com/cri-o/cri-o/internal/libartifact"
+	libartTypes "github.com/cri-o/cri-o/internal/libartifact/types"
 	"github.com/cri-o/cri-o/internal/log"
 )
 

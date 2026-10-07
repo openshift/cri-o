@@ -13,12 +13,12 @@ import (
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
 	"go.podman.io/common/libimage"
-	"go.podman.io/common/pkg/libartifact"
 	"go.podman.io/image/v5/docker/reference"
 	"go.podman.io/image/v5/manifest"
 	"go.podman.io/image/v5/types"
 	"go.uber.org/mock/gomock"
 
+	"github.com/cri-o/cri-o/internal/libartifact"
 	"github.com/cri-o/cri-o/internal/ociartifact"
 	ociartifactmock "github.com/cri-o/cri-o/test/mocks/ociartifact"
 )

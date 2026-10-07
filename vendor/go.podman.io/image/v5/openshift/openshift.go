@@ -14,7 +14,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.podman.io/image/v5/docker/reference"
 	"go.podman.io/image/v5/internal/iolimits"
-	"go.podman.io/image/v5/types"
 	"go.podman.io/image/v5/version"
 )
 
@@ -30,7 +29,13 @@ type openshiftClient struct {
 }
 
 // newOpenshiftClient creates a new openshiftClient for the specified reference.
-func newOpenshiftClient(sys *types.SystemContext, ref openshiftReference) (*openshiftClient, error) {
+func newOpenshiftClient(ref openshiftReference) (*openshiftClient, error) {
+	// We have already done this parsing in ParseReference, but thrown away
+	// httpClient. So, parse again.
+	// (We could also rework/split restClientFor to "get base URL" to be done
+	// in ParseReference, and "get httpClient" to be done here.  But until/unless
+	// we support non-default clusters, this is good enough.)
+
 	// Overall, this is modelled on openshift/origin/pkg/cmd/util/clientcmd.New().ClientConfig() and openshift/origin/pkg/client.
 	cmdConfig := defaultClientConfig()
 	logrus.Debugf("cmdConfig: %#v", cmdConfig)
@@ -40,7 +45,7 @@ func newOpenshiftClient(sys *types.SystemContext, ref openshiftReference) (*open
 	}
 	// REMOVED: SetOpenShiftDefaults (values are not overridable in config files, so hard-coded these defaults.)
 	logrus.Debugf("restConfig: %#v", restConfig)
-	baseURL, httpClient, err := restClientFor(sys, restConfig)
+	baseURL, httpClient, err := restClientFor(restConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +159,7 @@ func (c *openshiftClient) convertDockerImageReference(ref string) (string, error
 
 // These structs are subsets of github.com/openshift/origin/pkg/image/api/v1 and its dependencies.
 type imageStream struct {
-	Status imageStreamStatus `json:"status"`
+	Status imageStreamStatus `json:"status,omitempty"`
 }
 type imageStreamStatus struct {
 	DockerImageRepository string              `json:"dockerImageRepository"`
@@ -172,7 +177,7 @@ type imageStreamImage struct {
 	Image image `json:"image"`
 }
 type image struct {
-	objectMeta           `json:"metadata"`
+	objectMeta           `json:"metadata,omitempty"`
 	DockerImageReference string `json:"dockerImageReference,omitempty"`
 	//	DockerImageMetadata        runtime.RawExtension `json:"dockerImageMetadata,omitempty"`
 	DockerImageMetadataVersion string `json:"dockerImageMetadataVersion,omitempty"`
@@ -185,7 +190,7 @@ const imageSignatureTypeAtomic string = "atomic"
 
 type imageSignature struct {
 	typeMeta   `json:",inline"`
-	objectMeta `json:"metadata"`
+	objectMeta `json:"metadata,omitempty"`
 	Type       string `json:"type"`
 	Content    []byte `json:"content"`
 	// Conditions []SignatureCondition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
