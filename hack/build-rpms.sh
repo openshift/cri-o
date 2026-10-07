@@ -32,14 +32,17 @@ cp -r "${ci_data}/." "${rpm_tmp_dir}/SOURCES"
 # resolves to both IPv4 and IPv6 addresses. This result in occasional
 # "Network is unreachable" errors. Workaround: disable IPv6 for yum.
 if [ -w /etc/yum.conf ] && ! grep -q '^ip_resolve' /etc/yum.conf; then
-	os::log::info "Disabling IPv6 for yum ..."
-	echo 'ip_resolve=4' >> /etc/yum.conf
+    os::log::info "Disabling IPv6 for yum ..."
+    echo 'ip_resolve=4' >>/etc/yum.conf
 fi
-# The default configuration for source repos is to use vault.centos.org
-# (no mirrors provided), which is super slow as of late, resulting in
-# timeouts. Workaround: use mirrors.kernel.org instead.
-sed -i 's|//vault.centos.org/centos/|//archive.kernel.org/centos-vault/centos/|g' /etc/yum.repos.d/CentOS-Sources.repo
-yum-builddep -y "${OS_RPM_SPECFILE}"
+# Just in case builddep isn't an installed plugin
+dnf -y install 'dnf-command(builddep)'
+dnf builddep -y "${OS_RPM_SPECFILE}" || true
+
+# Ensure to use latest golang
+GO_VERSION=$(curl -sSfL "https://go.dev/VERSION?m=text" | head -n1)
+curl -sSfL -o- "https://go.dev/dl/${GO_VERSION}.linux-amd64.tar.gz" | tar xfz - -C /usr/local
+export PATH=/usr/local/go/bin:$PATH
 
 rpmbuild -ba "${OS_RPM_SPECFILE}" \
     --define "_sourcedir ${rpm_tmp_dir}/SOURCES" \
@@ -50,7 +53,7 @@ rpmbuild -ba "${OS_RPM_SPECFILE}" \
     --define "version ${OS_RPM_VERSION}" \
     --define "release ${OS_RPM_RELEASE}" \
     --define "commit ${OS_GIT_COMMIT}" \
-    --define 'dist .el7'
+    --define 'debug_package %{nil}'
 
 # migrate the rpm artifacts to the output directory, must be clean or move will fail
 make clean
