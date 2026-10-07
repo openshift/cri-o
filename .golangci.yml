@@ -143,6 +143,12 @@ linters:
         - /sys
     gocritic:
       enable-all: true
+    gomoddirectives:
+      replace-allow-list:
+        - github.com/cyphar/filepath-securejoin
+        - go.podman.io/common
+        - go.podman.io/image/v5
+        - go.podman.io/storage
     gocyclo:
       min-complexity: 60
     nakedret:
@@ -163,6 +169,10 @@ linters:
       - comments
       - std-error-handling
     rules:
+      # Keep these carried implementations aligned with container-libs.
+      - path: internal/libartifact/
+        linters:
+          - gocritic
       - path: _test\.go
         linters:
           - goconst

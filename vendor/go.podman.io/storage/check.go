@@ -2,7 +2,6 @@ package storage
 
 import (
 	"archive/tar"
-	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -292,13 +292,14 @@ func (s *store) Check(options *CheckOptions) (CheckReport, error) {
 					reader := io.TeeReader(diff, counter)
 					var wg sync.WaitGroup
 					var archiveErr error
-					wg.Go(func() {
+					wg.Add(1)
+					go func(layerID string, diffReader io.Reader) {
 						// Read the diff, one item at a time.
-						tr := tar.NewReader(reader)
+						tr := tar.NewReader(diffReader)
 						hdr, err := tr.Next()
 						for err == nil {
 							diffHeadersByLayerMutex.Lock()
-							diffHeadersByLayer[id] = append(diffHeadersByLayer[id], hdr)
+							diffHeadersByLayer[layerID] = append(diffHeadersByLayer[layerID], hdr)
 							diffHeadersByLayerMutex.Unlock()
 							hdr, err = tr.Next()
 						}
@@ -306,15 +307,16 @@ func (s *store) Check(options *CheckOptions) (CheckReport, error) {
 							archiveErr = err
 						}
 						// consume any trailer after the EOF marker
-						if _, err := io.Copy(io.Discard, reader); err != nil {
-							err = fmt.Errorf("layer %s: consume any trailer after the EOF marker: %w", id, err)
+						if _, err := io.Copy(io.Discard, diffReader); err != nil {
+							err = fmt.Errorf("layer %s: consume any trailer after the EOF marker: %w", layerID, err)
 							if isReadWrite {
-								report.Layers[id] = append(report.Layers[id], err)
+								report.Layers[layerID] = append(report.Layers[layerID], err)
 							} else {
-								report.ROLayers[id] = append(report.ROLayers[id], err)
+								report.ROLayers[layerID] = append(report.ROLayers[layerID], err)
 							}
 						}
-					})
+						wg.Done()
+					}(id, reader)
 					wg.Wait()
 					diff.Close()
 					if archiveErr != nil {
@@ -688,40 +690,25 @@ func (s *store) Check(options *CheckOptions) (CheckReport, error) {
 		return CheckReport{}, err
 	}
 
-	if _, err := readPrimaryLayerStore(s, func(store rwLayerStore) (struct{}, error) {
-		// If the driver can tell us about which layers it knows about, we should have
-		// corresponding metadata records.
-		// Any layers without them are probably just wasted space.
-		// Note: if the driver doesn't support enumerating layers, it returns ErrNotSupported.
-		driverLayers, err := s.graphDriver.ListLayers()
-		if err != nil && !errors.Is(err, drivers.ErrNotSupported) {
-			return struct{}{}, err
-		}
-		if !errors.Is(err, drivers.ErrNotSupported) {
-			// Update the list of layers known to the layerStore, something
-			// might have been added recently.
-			currentLayers, err := store.Layers()
-			if err != nil {
-				return struct{}{}, err
-			}
-			for i := range currentLayers {
-				id := currentLayers[i].ID
-				if _, known := referencedLayers[id]; !known {
-					referencedLayers[id] = false
-				}
-			}
-
-			for i, id := range driverLayers {
-				if _, known := referencedLayers[id]; !known {
-					err := fmt.Errorf("layer %s: %w", id, ErrLayerUnaccounted)
-					report.Layers[id] = append(report.Layers[id], err)
-				}
-				report.layerOrder[id] = i + 1
-			}
-		}
-		return struct{}{}, nil
-	}); err != nil {
+	// If the driver can tell us about which layers it knows about, we should have previously
+	// examined all of them.  Any that we didn't are probably just wasted space.
+	// Note: if the driver doesn't support enumerating layers, it returns ErrNotSupported.
+	if err := s.startUsingGraphDriver(); err != nil {
 		return CheckReport{}, err
+	}
+	defer s.stopUsingGraphDriver()
+	layerList, err := s.graphDriver.ListLayers()
+	if err != nil && !errors.Is(err, drivers.ErrNotSupported) {
+		return CheckReport{}, err
+	}
+	if !errors.Is(err, drivers.ErrNotSupported) {
+		for i, id := range layerList {
+			if _, known := referencedLayers[id]; !known {
+				err := fmt.Errorf("layer %s: %w", id, ErrLayerUnaccounted)
+				report.Layers[id] = append(report.Layers[id], err)
+			}
+			report.layerOrder[id] = i + 1
+		}
 	}
 
 	return report, nil
@@ -789,22 +776,23 @@ func (s *store) Repair(report CheckReport, options *RepairOptions) []error {
 			return errors.Is(err, ErrLayerUnaccounted)
 		})
 	}
-	slices.SortFunc(layersToDelete, func(a, b string) int {
+	sort.Slice(layersToDelete, func(i, j int) bool {
 		// we've not heard of either of them, so remove them in the order the driver suggested
-		if isUnaccounted(report.Layers[a]) && isUnaccounted(report.Layers[b]) &&
-			report.layerOrder[a] != 0 && report.layerOrder[b] != 0 {
-			return cmp.Compare(report.layerOrder[a], report.layerOrder[b])
+		if isUnaccounted(report.Layers[layersToDelete[i]]) &&
+			isUnaccounted(report.Layers[layersToDelete[j]]) &&
+			report.layerOrder[layersToDelete[i]] != 0 && report.layerOrder[layersToDelete[j]] != 0 {
+			return report.layerOrder[layersToDelete[i]] < report.layerOrder[layersToDelete[j]]
 		}
 		// always delete the one we've heard of first
-		if isUnaccounted(report.Layers[a]) && !isUnaccounted(report.Layers[b]) {
-			return 1
+		if isUnaccounted(report.Layers[layersToDelete[i]]) && !isUnaccounted(report.Layers[layersToDelete[j]]) {
+			return false
 		}
 		// always delete the one we've heard of first
-		if !isUnaccounted(report.Layers[a]) && isUnaccounted(report.Layers[b]) {
-			return -1
+		if !isUnaccounted(report.Layers[layersToDelete[i]]) && isUnaccounted(report.Layers[layersToDelete[j]]) {
+			return true
 		}
 		// we've heard of both of them; the one that's on the end of a longer chain goes first
-		return -cmp.Compare(depth(a), depth(b)) // closer-to-a-notional-base layers get removed later
+		return depth(layersToDelete[i]) > depth(layersToDelete[j]) // closer-to-a-notional-base layers get removed later
 	})
 	// Now delete the layers that haven't been removed along with images.
 	for _, id := range layersToDelete {
@@ -833,7 +821,6 @@ func (s *store) Repair(report CheckReport, options *RepairOptions) []error {
 				}
 				if err = s.DeleteLayer(id); err != nil {
 					err = fmt.Errorf("deleting layer %s: %w", id, err)
-				} else {
 					logrus.Debugf("deleted layer %s", id)
 				}
 			}
@@ -1062,25 +1049,25 @@ func (c *checkDirectory) headers(hdrs []*tar.Header) {
 	// before content when they both appear in the same directory, per
 	// https://github.com/opencontainers/image-spec/blob/main/layer.md#whiteouts
 	// and that hard links appear after other types of entries
-	slices.SortStableFunc(hdrs, func(a, b *tar.Header) int {
-		if a.Typeflag != tar.TypeLink && b.Typeflag == tar.TypeLink {
-			return -1
+	sort.SliceStable(hdrs, func(i, j int) bool {
+		if hdrs[i].Typeflag != tar.TypeLink && hdrs[j].Typeflag == tar.TypeLink {
+			return true
 		}
-		if a.Typeflag == tar.TypeLink && b.Typeflag != tar.TypeLink {
-			return 1
+		if hdrs[i].Typeflag == tar.TypeLink && hdrs[j].Typeflag != tar.TypeLink {
+			return false
 		}
-		adir, afile := path.Split(a.Name)
-		bdir, bfile := path.Split(b.Name)
-		if adir != bdir {
-			return cmp.Compare(a.Name, b.Name)
+		idir, ifile := path.Split(hdrs[i].Name)
+		jdir, jfile := path.Split(hdrs[j].Name)
+		if idir != jdir {
+			return hdrs[i].Name < hdrs[j].Name
 		}
-		if afile == archive.WhiteoutOpaqueDir {
-			return -1
+		if ifile == archive.WhiteoutOpaqueDir {
+			return true
 		}
-		if strings.HasPrefix(afile, archive.WhiteoutPrefix) && !strings.HasPrefix(bfile, archive.WhiteoutPrefix) {
-			return -1
+		if strings.HasPrefix(ifile, archive.WhiteoutPrefix) && !strings.HasPrefix(jfile, archive.WhiteoutPrefix) {
+			return true
 		}
-		return 0
+		return false
 	})
 	for _, hdr := range hdrs {
 		c.header(hdr)
@@ -1160,14 +1147,14 @@ func compareCheckSubdirectory(path string, a, b *checkDirectory, idmap *idtools.
 // compareCheckDirectory walks two directory trees and returns a sorted list of differences
 func compareCheckDirectory(a, b *checkDirectory, idmap *idtools.IDMappings, ignore checkIgnore) []string {
 	diff := compareCheckSubdirectory("", a, b, idmap, ignore)
-	slices.SortFunc(diff, func(a, b string) int {
-		if a[1:] < b[1:] {
-			return -1
+	sort.Slice(diff, func(i, j int) bool {
+		if strings.Compare(diff[i][1:], diff[j][1:]) < 0 {
+			return true
 		}
-		if a[0] == '-' {
-			return -1
+		if diff[i][0] == '-' {
+			return true
 		}
-		return 1
+		return false
 	})
 	return diff
 }

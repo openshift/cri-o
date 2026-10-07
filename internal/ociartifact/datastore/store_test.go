@@ -10,10 +10,10 @@ import (
 	"github.com/opencontainers/go-digest"
 	"github.com/sirupsen/logrus"
 	"go.podman.io/common/libimage"
-	"go.podman.io/common/pkg/libartifact"
-	libartTypes "go.podman.io/common/pkg/libartifact/types"
 	"go.uber.org/mock/gomock"
 
+	"github.com/cri-o/cri-o/internal/libartifact"
+	libartTypes "github.com/cri-o/cri-o/internal/libartifact/types"
 	"github.com/cri-o/cri-o/internal/ociartifact/datastore"
 	datastoremock "github.com/cri-o/cri-o/test/mocks/ociartifact/datastore"
 )

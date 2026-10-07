@@ -11,10 +11,10 @@ import (
 	"github.com/checkpoint-restore/go-criu/v8/stats"
 	"github.com/opencontainers/runtime-tools/generate"
 	"github.com/sirupsen/logrus"
-	"go.podman.io/common/pkg/crutils"
 	"go.podman.io/storage/pkg/archive"
 
 	"github.com/cri-o/cri-o/internal/annotations"
+	"github.com/cri-o/cri-o/internal/crutils"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/oci"
 )

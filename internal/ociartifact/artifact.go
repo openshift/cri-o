@@ -6,10 +6,10 @@ import (
 	"strings"
 
 	"github.com/opencontainers/go-digest"
-	"go.podman.io/common/pkg/libartifact"
 	"go.podman.io/image/v5/docker/reference"
 	critypes "k8s.io/cri-api/pkg/apis/runtime/v1"
 
+	"github.com/cri-o/cri-o/internal/libartifact"
 	"github.com/cri-o/cri-o/internal/log"
 )
 

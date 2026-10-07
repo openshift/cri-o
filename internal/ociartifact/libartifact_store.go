@@ -5,8 +5,9 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	"go.podman.io/common/libimage"
-	"go.podman.io/common/pkg/libartifact"
 	"go.podman.io/image/v5/types"
+
+	"github.com/cri-o/cri-o/internal/libartifact"
 )
 
 // LibartifactStore abstracts the libartifact storage operations so that

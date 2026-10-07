@@ -3,13 +3,13 @@ package archive
 import (
 	"archive/tar"
 	"bytes"
-	"cmp"
 	"fmt"
 	"io"
 	"maps"
 	"os"
 	"path/filepath"
-	"slices"
+	"reflect"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -58,9 +58,12 @@ func (change *Change) String() string {
 	return fmt.Sprintf("%s %s", change.Kind, change.Path)
 }
 
-func compareChangesByPath(a, b Change) int {
-	return cmp.Compare(a.Path, b.Path)
-}
+// changesByPath implements sort.Interface.
+type changesByPath []Change
+
+func (c changesByPath) Less(i, j int) bool { return c[i].Path < c[j].Path }
+func (c changesByPath) Len() int           { return len(c) }
+func (c changesByPath) Swap(i, j int)      { c[j], c[i] = c[i], c[j] }
 
 // Gnu tar and the go tar writer don't have sub-second mtime
 // precision, which is problematic when we apply changes via tar
@@ -334,7 +337,7 @@ func (info *FileInfo) addChanges(oldInfo *FileInfo, changes *[]Change) {
 			if statDifferent(oldStat, oldInfo, newStat, info) ||
 				!bytes.Equal(oldChild.capability, newChild.capability) ||
 				oldChild.target != newChild.target ||
-				!maps.Equal(oldChild.xattrs, newChild.xattrs) {
+				!reflect.DeepEqual(oldChild.xattrs, newChild.xattrs) {
 				change := Change{
 					Path: newChild.path(),
 					Kind: ChangeModify,
@@ -453,7 +456,7 @@ func ExportChanges(dir string, changes []Change, uidMaps, gidMaps []idtools.IDMa
 		// this buffer is needed for the duration of this piped stream
 		defer pools.BufioWriter32KPool.Put(ta.Buffer)
 
-		slices.SortFunc(changes, compareChangesByPath)
+		sort.Sort(changesByPath(changes))
 
 		// In general we log errors here but ignore them because
 		// during e.g. a diff operation the container can continue

@@ -13,9 +13,9 @@ import (
 	context "context"
 	reflect "reflect"
 
+	libartifact "github.com/cri-o/cri-o/internal/libartifact"
 	digest "github.com/opencontainers/go-digest"
 	libimage "go.podman.io/common/libimage"
-	libartifact "go.podman.io/common/pkg/libartifact"
 	manifest "go.podman.io/image/v5/manifest"
 	types "go.podman.io/image/v5/types"
 	gomock "go.uber.org/mock/gomock"

@@ -56,9 +56,10 @@ type List interface {
 	// SystemContext ( or for the current platform if the SystemContext doesn't specify any detail ) and preferGzip for compression which
 	// when configured to OptionalBoolTrue and chooses best available compression when it is OptionalBoolFalse or left OptionalBoolUndefined.
 	ChooseInstanceByCompression(ctx *types.SystemContext, preferGzip types.OptionalBool) (digest.Digest, error)
-	// EditInstances edits information about the list's instances, based on instructions in editInstances.
-	// If cannotModifyManifest, avoidable updates should be skipped.
-	EditInstances(editInstances []ListEdit, cannotModifyManifest bool) error
+	// Edit information about the list's instances. Contains Slice of ListEdit where each element
+	// is responsible for either Modifying or Adding a new instance to the Manifest. Operation is
+	// selected on the basis of configured ListOperation field.
+	EditInstances([]ListEdit) error
 }
 
 // ListUpdate includes the fields which a List's UpdateInstances() method will modify.
@@ -82,7 +83,6 @@ const (
 	listOpInvalid ListOp = iota
 	ListOpAdd
 	ListOpUpdate
-	ListOpDelete
 )
 
 // ListEdit includes the fields which a List's EditInstances() method will modify.
@@ -106,9 +106,6 @@ type ListEdit struct {
 	AddPlatform              *imgspecv1.Platform
 	AddAnnotations           map[string]string
 	AddCompressionAlgorithms []compression.Algorithm
-
-	// If Op = ListOpDelete. Callers should submit operations from highest index to lowest to avoid index shifting.
-	DeleteIndex int
 }
 
 // ListPublicFromBlob parses a list of manifests.

@@ -52,28 +52,28 @@ func chmodTarEntry(perm os.FileMode) os.FileMode {
 	return noPermPart | permPart
 }
 
-func setHeaderForSpecialDevice(hdr *tar.Header, stat any) {
+func setHeaderForSpecialDevice(hdr *tar.Header, name string, stat interface{}) {
 	// do nothing. no notion of Rdev, Nlink in stat on Windows
 }
 
-func getInodeFromStat(_ any) uint64 {
+func getInodeFromStat(stat interface{}) uint64 {
 	// do nothing. no notion of Inode in stat on Windows
 	return 0
 }
 
 // handleTarTypeBlockCharFifo is an OS-specific helper function used by
 // createTarFile to handle the following types of header: Block; Char; Fifo
-func handleTarTypeBlockCharFifo(_ *tar.Header, _ string) error {
+func handleTarTypeBlockCharFifo(hdr *tar.Header, path string) error {
 	return nil
 }
 
-func handleLChmod(_ *tar.Header, _ string, _ os.FileInfo, _ *os.FileMode) error {
+func handleLChmod(hdr *tar.Header, path string, hdrInfo os.FileInfo, forceMask *os.FileMode) error {
 	return nil
 }
 
-func getFileUIDGID(_ any) (idtools.IDPair, error) {
+func getFileUIDGID(stat interface{}) (idtools.IDPair, error) {
 	// no notion of file ownership mapping yet on Windows
-	return idtools.IDPair{UID: 0, GID: 0}, nil
+	return idtools.IDPair{0, 0}, nil
 }
 
 // Hardlink without following symlinks
