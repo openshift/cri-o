@@ -20,7 +20,7 @@ function populate_additional_store() {
 	local additional_store="$1"
 
 	# Pull artifact into the main store
-	crictl pull "$ARTIFACT_IMAGE"
+	crictl_pull "$ARTIFACT_IMAGE"
 
 	# Copy the OCI artifact layout to the additional store
 	local main_store="$TESTDIR/crio/artifacts"
@@ -116,7 +116,7 @@ EOF
 	populate_additional_store "$ADDITIONAL_STORE"
 
 	# Pull again; should be skipped because it exists in the additional store
-	crictl pull "$ARTIFACT_IMAGE"
+	crictl_pull "$ARTIFACT_IMAGE"
 
 	# Verify the artifact is NOT in the main store (pull was skipped)
 	local main_index="$TESTDIR/crio/artifacts/index.json"
@@ -125,6 +125,51 @@ EOF
 
 	# Verify the log shows the skip message
 	grep -q "already exists in additional store" "$CRIO_LOG"
+}
+
+@test "should support multiple additional stores in config" {
+	ADDITIONAL_STORE1="$TESTDIR/additional-store1"
+	ADDITIONAL_STORE2="$TESTDIR/additional-store2"
+	mkdir -p "$ADDITIONAL_STORE1/artifacts" "$ADDITIONAL_STORE2/artifacts"
+
+	cat << EOF > "$CRIO_CONFIG_DIR/99-artifact.conf"
+[crio.runtime]
+additional_artifact_stores = [
+    "$ADDITIONAL_STORE1",
+    "$ADDITIONAL_STORE2"
+]
+EOF
+
+	start_crio
+
+	run -0 "${CRIO_BINARY_PATH}" status --socket="${CRIO_SOCKET}" config
+	[[ "$output" == *"$ADDITIONAL_STORE1"* ]]
+	[[ "$output" == *"$ADDITIONAL_STORE2"* ]]
+}
+
+@test "should deduplicate when same artifact exists in additional and main store" {
+	ADDITIONAL_STORE="$TESTDIR/additional-store"
+	mkdir -p "$ADDITIONAL_STORE"
+
+	cat << EOF > "$CRIO_CONFIG_DIR/99-artifact.conf"
+[crio.runtime]
+additional_artifact_stores = [
+    "$ADDITIONAL_STORE"
+]
+EOF
+
+	start_crio
+
+	# Pull artifact into main store
+	crictl_pull "$ARTIFACT_IMAGE"
+
+	# Copy to additional store (artifact now exists in both)
+	local main_store="$TESTDIR/crio/artifacts"
+	cp -a "$main_store" "$ADDITIONAL_STORE/"
+
+	# Listing should show the artifact exactly once
+	count=$(crictl images 2> /dev/null | grep -cE "$ARTIFACT_REPO.*singlefile" || true)
+	[[ "$count" -eq 1 ]]
 }
 
 @test "should mount artifact from additional store" {

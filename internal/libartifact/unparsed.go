@@ -26,6 +26,7 @@ func (u unparsedArtifactImage) Manifest(_ context.Context) ([]byte, string, erro
 	if err != nil {
 		return nil, "", err
 	}
+
 	return b, specV1.MediaTypeImageIndex, nil
 }
 
@@ -33,7 +34,10 @@ func (u unparsedArtifactImage) Signatures(_ context.Context) ([][]byte, error) {
 	return [][]byte{}, nil
 }
 
-func newUnparsedArtifactImage(ir types.ImageReference, mannyfest specV1.Manifest) unparsedArtifactImage {
+func newUnparsedArtifactImage(
+	ir types.ImageReference,
+	mannyfest specV1.Manifest,
+) unparsedArtifactImage {
 	return unparsedArtifactImage{
 		ir:        ir,
 		mannyfest: mannyfest,

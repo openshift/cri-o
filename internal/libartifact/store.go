@@ -23,7 +23,6 @@ import (
 	specV1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
 	"go.podman.io/common/libimage"
-	libartTypes "github.com/cri-o/cri-o/internal/libartifact/types"
 	"go.podman.io/image/v5/docker"
 	"go.podman.io/image/v5/docker/reference"
 	"go.podman.io/image/v5/image"
@@ -33,6 +32,8 @@ import (
 	"go.podman.io/image/v5/types"
 	"go.podman.io/storage/pkg/fileutils"
 	"go.podman.io/storage/pkg/lockfile"
+
+	libartTypes "github.com/cri-o/cri-o/internal/libartifact/types"
 )
 
 const ManifestSchemaVersion = 2
@@ -41,6 +42,7 @@ type ArtifactStore struct {
 	SystemContext *types.SystemContext
 	storePath     string
 	lock          *lockfile.LockFile
+	eventChannel  chan *Event
 }
 
 // NewArtifactStore is a constructor for artifact stores.  Most artifact dealings depend on this. Store path is
@@ -49,6 +51,7 @@ func NewArtifactStore(storePath string, sc *types.SystemContext) (*ArtifactStore
 	if storePath == "" {
 		return nil, errors.New("store path cannot be empty")
 	}
+
 	if !filepath.IsAbs(storePath) {
 		return nil, fmt.Errorf("store path %q must be absolute", storePath)
 	}
@@ -70,21 +73,53 @@ func NewArtifactStore(storePath string, sc *types.SystemContext) (*ArtifactStore
 	if err != nil {
 		return nil, err
 	}
+
 	artifactStore.lock = lock
 	// if the index file is not present we need to create an empty one
 	// Do so after the lock to try and prevent races around store creation.
-	if err := fileutils.Exists(artifactStore.indexPath()); err != nil && errors.Is(err, os.ErrNotExist) {
+	if err := fileutils.Exists(
+		artifactStore.indexPath(),
+	); err != nil &&
+		errors.Is(err, os.ErrNotExist) {
 		if createErr := artifactStore.createEmptyManifest(); createErr != nil {
 			return nil, createErr
 		}
 	}
+
 	return artifactStore, nil
+}
+
+// EventChannel creates a buffered channel for events that the ArtifactStore will use
+// to write events to. Callers are expected to read from the channel in a
+// timely manner.
+// Can be called once for a given ArtifactStore.
+func (as *ArtifactStore) EventChannel() chan *Event {
+	if as.eventChannel != nil {
+		return as.eventChannel
+	}
+
+	as.eventChannel = make(chan *Event, 100)
+
+	return as.eventChannel
+}
+
+// CloseEventChannel closes the event channel to signal listeners that
+// the artifact store has stopped emitting events.
+// WARNING: EventChannel and CloseEventChannel are not safe for concurrent use.
+func (as *ArtifactStore) CloseEventChannel() {
+	if as.eventChannel != nil {
+		close(as.eventChannel)
+		as.eventChannel = nil
+	}
 }
 
 // lookupArtifactLocked looks up an artifact by fully qualified name,
 // or name@digest, full ID, or partial ID.
 // note: lookupArtifactLocked must be called while under a store lock
-func (as ArtifactStore) lookupArtifactLocked(ctx context.Context, asr ArtifactStoreReference) (*Artifact, error) {
+func (as *ArtifactStore) lookupArtifactLocked(
+	ctx context.Context,
+	asr ArtifactStoreReference,
+) (*Artifact, error) {
 	artifacts, err := as.getArtifacts(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -92,17 +127,23 @@ func (as ArtifactStore) lookupArtifactLocked(ctx context.Context, asr ArtifactSt
 
 	if asr.ref != nil {
 		lookupRef := *asr.ref
+
 		digestedRef, isDigested := lookupRef.(reference.Digested)
 		if isDigested {
 			for _, a := range artifacts {
 				if len(a.Name) == 0 {
 					continue
 				}
+
 				storedRef, err := reference.ParseNamed(a.Name)
 				if err != nil {
-					logrus.Error(fmt.Errorf("error parsing %s in %s: %q", a.Name, as.storePath, err))
+					logrus.Error(
+						fmt.Errorf("error parsing %s in %s: %w", a.Name, as.storePath, err),
+					)
+
 					continue
 				}
+
 				if storedRef.Name() == lookupRef.Name() {
 					if a.Digest == digestedRef.Digest() {
 						return a, nil
@@ -117,6 +158,7 @@ func (as ArtifactStore) lookupArtifactLocked(ctx context.Context, asr ArtifactSt
 				}
 			}
 		}
+
 		return nil, fmt.Errorf("%s: %w", lookupRef, libartTypes.ErrArtifactNotExist)
 	}
 
@@ -125,7 +167,9 @@ func (as ArtifactStore) lookupArtifactLocked(ctx context.Context, asr ArtifactSt
 	if len(asr.possibleDigest) == 0 {
 		return nil, errors.New("reference did not have name or id")
 	}
+
 	var returnArtifacts []*Artifact
+
 	for _, a := range artifacts {
 		if strings.HasPrefix(a.Digest.Encoded(), asr.possibleDigest) {
 			returnArtifacts = append(returnArtifacts, a)
@@ -135,18 +179,27 @@ func (as ArtifactStore) lookupArtifactLocked(ctx context.Context, asr ArtifactSt
 	if len(returnArtifacts) == 0 {
 		return nil, fmt.Errorf("%s: %w", asr.possibleDigest, libartTypes.ErrArtifactNotExist)
 	}
+
 	if len(returnArtifacts) > 1 {
 		names := make([]string, 0, len(returnArtifacts))
 		for _, a := range returnArtifacts {
 			names = append(names, a.Name)
 		}
-		return nil, fmt.Errorf("multiple artifacts found with matching digest: %q", strings.Join(names, ","))
+
+		return nil, fmt.Errorf(
+			"multiple artifacts found with matching digest: %q",
+			strings.Join(names, ","),
+		)
 	}
+
 	return returnArtifacts[0], nil
 }
 
 // Remove an artifact from the local artifact store.
-func (as ArtifactStore) Remove(ctx context.Context, asr ArtifactStoreReference) (*digest.Digest, error) {
+func (as *ArtifactStore) Remove(
+	ctx context.Context,
+	asr ArtifactStoreReference,
+) (_ *digest.Digest, removeErr error) {
 	as.lock.Lock()
 	defer as.lock.Unlock()
 
@@ -154,15 +207,35 @@ func (as ArtifactStore) Remove(ctx context.Context, asr ArtifactStoreReference) 
 	if err != nil {
 		return nil, err
 	}
+
 	ir, err := layout.NewReference(as.storePath, arty.Name)
 	if err != nil {
 		return nil, err
 	}
-	return &arty.Digest, ir.DeleteImage(ctx, as.SystemContext)
+
+	if err := ir.DeleteImage(ctx, as.SystemContext); err != nil {
+		return nil, err
+	}
+
+	if as.eventChannel != nil {
+		as.writeEvent(
+			&Event{
+				ID:   arty.Digest.String(),
+				Name: arty.Name,
+				Time: time.Now(),
+				Type: EventTypeArtifactRemove,
+			},
+		)
+	}
+
+	return &arty.Digest, nil
 }
 
 // Inspect an artifact in a local store.
-func (as ArtifactStore) Inspect(ctx context.Context, asr ArtifactStoreReference) (*Artifact, error) {
+func (as *ArtifactStore) Inspect(
+	ctx context.Context,
+	asr ArtifactStoreReference,
+) (*Artifact, error) {
 	as.lock.RLock()
 	defer as.lock.Unlock()
 
@@ -170,69 +243,122 @@ func (as ArtifactStore) Inspect(ctx context.Context, asr ArtifactStoreReference)
 }
 
 // List artifacts in the local store.
-func (as ArtifactStore) List(ctx context.Context) (ArtifactList, error) {
+func (as *ArtifactStore) List(ctx context.Context) (ArtifactList, error) {
 	as.lock.RLock()
 	defer as.lock.Unlock()
 
 	return as.getArtifacts(ctx, nil)
 }
 
-// Pull an artifact from an image registry to a local store.
-func (as ArtifactStore) Pull(ctx context.Context, ref ArtifactReference, opts libimage.CopyOptions) (digest.Digest, error) {
-	srcRef, err := docker.NewReference(ref.ref)
-	if err != nil {
-		return "", err
-	}
+// Execute fn while holding the store lock and providing a reference to the local layout.
+func (as *ArtifactStore) withLockedLayout(
+	localName string,
+	fn func(localRef types.ImageReference) (digest.Digest, error),
+) (digest.Digest, error) {
 	as.lock.Lock()
 	defer as.lock.Unlock()
 
-	destRef, err := layout.NewReference(as.storePath, ref.String())
+	ref, err := layout.NewReference(as.storePath, localName)
 	if err != nil {
 		return "", err
 	}
+
+	return fn(ref)
+}
+
+// Copy artifact from srcRef to destRef and return the digest of the copied artifact.
+func (as *ArtifactStore) copyArtifact(
+	ctx context.Context,
+	srcRef types.ImageReference,
+	destRef types.ImageReference,
+	opts libimage.CopyOptions,
+) (_ digest.Digest, err error) {
 	copyer, err := libimage.NewCopier(&opts, as.SystemContext)
 	if err != nil {
 		return "", err
 	}
+	defer func() {
+		closeErr := copyer.Close()
+		if err == nil {
+			err = closeErr
+		}
+	}()
+
 	artifactBytes, err := copyer.Copy(ctx, srcRef, destRef)
 	if err != nil {
 		return "", err
 	}
-	err = copyer.Close()
-	if err != nil {
-		return "", err
-	}
+
 	return digest.FromBytes(artifactBytes), nil
 }
 
+// Pull an artifact from an image registry to a local store.
+func (as *ArtifactStore) Pull(
+	ctx context.Context,
+	ref ArtifactReference,
+	opts libimage.CopyOptions,
+) (_ digest.Digest, pullErr error) {
+	srcRef, err := docker.NewReference(ref.ref)
+	if err != nil {
+		return "", err
+	}
+
+	artifactDigest, err := as.withLockedLayout(
+		ref.String(),
+		func(localRef types.ImageReference) (digest.Digest, error) {
+			return as.copyArtifact(ctx, srcRef, localRef, opts)
+		},
+	)
+	if err != nil {
+		return "", err
+	}
+
+	if as.eventChannel != nil {
+		as.writeEvent(
+			&Event{
+				ID:   artifactDigest.String(),
+				Name: ref.String(),
+				Time: time.Now(),
+				Type: EventTypeArtifactPull,
+			},
+		)
+	}
+
+	return artifactDigest, nil
+}
+
 // Push an artifact to an image registry.
-func (as ArtifactStore) Push(ctx context.Context, src, dest ArtifactReference, opts libimage.CopyOptions) (digest.Digest, error) {
+func (as *ArtifactStore) Push(
+	ctx context.Context,
+	src, dest ArtifactReference,
+	opts libimage.CopyOptions,
+) (_ digest.Digest, pushErr error) {
 	destRef, err := docker.NewReference(dest.ref)
 	if err != nil {
 		return "", err
 	}
 
-	as.lock.Lock()
-	defer as.lock.Unlock()
-
-	srcRef, err := layout.NewReference(as.storePath, src.String())
-	if err != nil {
-		return "", err
-	}
-	copyer, err := libimage.NewCopier(&opts, as.SystemContext)
-	if err != nil {
-		return "", err
-	}
-	artifactBytes, err := copyer.Copy(ctx, srcRef, destRef)
+	artifactDigest, err := as.withLockedLayout(
+		src.String(),
+		func(localRef types.ImageReference) (digest.Digest, error) {
+			return as.copyArtifact(ctx, localRef, destRef, opts)
+		},
+	)
 	if err != nil {
 		return "", err
 	}
 
-	err = copyer.Close()
-	if err != nil {
-		return "", err
+	if as.eventChannel != nil {
+		as.writeEvent(
+			&Event{
+				ID:   artifactDigest.String(),
+				Name: dest.String(),
+				Time: time.Now(),
+				Type: EventTypeArtifactPush,
+			},
+		)
 	}
-	artifactDigest := digest.FromBytes(artifactBytes)
+
 	return artifactDigest, nil
 }
 
@@ -243,6 +369,7 @@ func createNewArtifactManifest(options *libartTypes.AddOptions) specV1.Manifest 
 	if options.Annotations != nil {
 		annotations = maps.Clone(options.Annotations)
 	}
+
 	annotations[specV1.AnnotationCreated] = time.Now().UTC().Format(time.RFC3339Nano)
 
 	return specV1.Manifest{
@@ -256,7 +383,7 @@ func createNewArtifactManifest(options *libartTypes.AddOptions) specV1.Manifest 
 }
 
 // cleanupAfterAppend removes previous image when doing an append.
-func cleanupAfterAppend(ctx context.Context, oldDigest digest.Digest, as ArtifactStore) error {
+func cleanupAfterAppend(ctx context.Context, oldDigest digest.Digest, as *ArtifactStore) error {
 	lrs, err := layout.List(as.storePath)
 	if err != nil {
 		return err
@@ -271,23 +398,32 @@ func cleanupAfterAppend(ctx context.Context, oldDigest digest.Digest, as Artifac
 			if err := l.Reference.DeleteImage(ctx, as.SystemContext); err != nil {
 				return err
 			}
+
 			break
 		}
 	}
+
 	return nil
 }
 
 // Add takes one or more artifact blobs and add them to the local artifact store.  The empty
 // string input is for possible custom artifact types.
-func (as ArtifactStore) Add(ctx context.Context, dest ArtifactReference, artifactBlobs []libartTypes.ArtifactBlob, options *libartTypes.AddOptions) (*digest.Digest, error) {
+func (as *ArtifactStore) Add(
+	ctx context.Context,
+	dest ArtifactReference,
+	artifactBlobs []libartTypes.ArtifactBlob,
+	options *libartTypes.AddOptions,
+) (_ *digest.Digest, addErr error) {
 	if options.Append && len(options.ArtifactMIMEType) > 0 {
 		return nil, errors.New("append option is not compatible with type option")
 	}
+
 	if options.Append && options.Replace {
 		return nil, errors.New("append and replace options are mutually exclusive")
 	}
 
 	locked := true
+
 	as.lock.Lock()
 	defer func() {
 		if locked {
@@ -295,8 +431,11 @@ func (as ArtifactStore) Add(ctx context.Context, dest ArtifactReference, artifac
 		}
 	}()
 
-	var artifactManifest specV1.Manifest
-	var oldDigest digest.Digest
+	var (
+		artifactManifest specV1.Manifest
+		oldDigest        digest.Digest
+	)
+
 	fileNames := map[string]struct{}{}
 
 	existingArtifact, lookupErr := as.lookupArtifactLocked(ctx, dest.ToArtifactStoreReference())
@@ -307,8 +446,10 @@ func (as ArtifactStore) Add(ctx context.Context, dest ArtifactReference, artifac
 		if lookupErr != nil {
 			return nil, lookupErr
 		}
+
 		artifactManifest = existingArtifact.Manifest.Manifest
 		oldDigest = existingArtifact.Digest
+
 		for _, layer := range artifactManifest.Layers {
 			if value, ok := layer.Annotations[specV1.AnnotationTitle]; ok && value != "" {
 				fileNames[value] = struct{}{}
@@ -321,6 +462,7 @@ func (as ArtifactStore) Add(ctx context.Context, dest ArtifactReference, artifac
 			if err != nil {
 				return nil, err
 			}
+
 			if err := ir.DeleteImage(ctx, as.SystemContext); err != nil {
 				return nil, err
 			}
@@ -333,6 +475,7 @@ func (as ArtifactStore) Add(ctx context.Context, dest ArtifactReference, artifac
 		if lookupErr == nil {
 			return nil, fmt.Errorf("%s: %w", dest.String(), libartTypes.ErrArtifactAlreadyExists)
 		}
+
 		artifactManifest = createNewArtifactManifest(options)
 	}
 
@@ -341,6 +484,7 @@ func (as ArtifactStore) Add(ctx context.Context, dest ArtifactReference, artifac
 		if _, ok := fileNames[fileName]; ok {
 			return nil, fmt.Errorf("%s: %w", fileName, libartTypes.ErrArtifactFileExists)
 		}
+
 		fileNames[fileName] = struct{}{}
 	}
 
@@ -363,7 +507,8 @@ func (as ArtifactStore) Add(ctx context.Context, dest ArtifactReference, artifac
 	// ImageDestination, in general, requires the caller to write a full image; here we may write only the added layers.
 	// This works for the oci/layout transport we hard-code.
 	for _, artifactBlob := range artifactBlobs {
-		if (artifactBlob.BlobFilePath == "" && artifactBlob.BlobReader == nil) || (artifactBlob.BlobFilePath != "" && artifactBlob.BlobReader != nil) {
+		if (artifactBlob.BlobFilePath == "" && artifactBlob.BlobReader == nil) ||
+			(artifactBlob.BlobFilePath != "" && artifactBlob.BlobReader != nil) {
 			return nil, errors.New("Artifact.BlobFile or Artifact.BlobReader must be provided")
 		}
 
@@ -371,11 +516,15 @@ func (as ArtifactStore) Add(ctx context.Context, dest ArtifactReference, artifac
 		if options.Annotations != nil {
 			annotations = maps.Clone(options.Annotations)
 		}
+
 		if title, ok := annotations[specV1.AnnotationTitle]; ok {
 			// Verify a duplicate AnnotationTitle is not in use in a different layer.
 			for _, layer := range artifactManifest.Layers {
 				if title == layer.Annotations[specV1.AnnotationTitle] {
-					return nil, fmt.Errorf("duplicate layers %s labels within an artifact not allowed", specV1.AnnotationTitle)
+					return nil, fmt.Errorf(
+						"duplicate layers %s labels within an artifact not allowed",
+						specV1.AnnotationTitle,
+					)
 				}
 			}
 		} else {
@@ -399,17 +548,29 @@ func (as ArtifactStore) Add(ctx context.Context, dest ArtifactReference, artifac
 
 		// get the new artifact into the local store
 		if artifactBlob.BlobFilePath != "" {
-			newBlobDigest, newBlobSize, err := layout.PutBlobFromLocalFile(ctx, imageDest, artifactBlob.BlobFilePath)
+			newBlobDigest, newBlobSize, err := layout.PutBlobFromLocalFile(
+				ctx,
+				imageDest,
+				artifactBlob.BlobFilePath,
+			)
 			if err != nil {
 				return nil, err
 			}
+
 			newLayer.Digest = newBlobDigest
 			newLayer.Size = newBlobSize
 		} else {
-			blobInfo, err := imageDest.PutBlob(ctx, artifactBlob.BlobReader, types.BlobInfo{Size: -1}, none.NoCache, false)
+			blobInfo, err := imageDest.PutBlob(
+				ctx,
+				artifactBlob.BlobReader,
+				types.BlobInfo{Size: -1},
+				none.NoCache,
+				false,
+			)
 			if err != nil {
 				return nil, err
 			}
+
 			newLayer.Digest = blobInfo.Digest
 			newLayer.Size = blobInfo.Size
 		}
@@ -424,6 +585,7 @@ func (as ArtifactStore) Add(ctx context.Context, dest ArtifactReference, artifac
 	if err != nil {
 		return nil, err
 	}
+
 	if err := imageDest.PutManifest(ctx, rawData, nil); err != nil {
 		return nil, err
 	}
@@ -437,7 +599,14 @@ func (as ArtifactStore) Add(ctx context.Context, dest ArtifactReference, artifac
 
 	// the config is an empty JSON stanza i.e. '{}'; if it does not yet exist, it needs
 	// to be created
-	if err := createEmptyStanza(filepath.Join(as.storePath, specV1.ImageBlobsDir, artifactManifestDigest.Algorithm().String(), artifactManifest.Config.Digest.Encoded())); err != nil {
+	if err := createEmptyStanza(
+		filepath.Join(
+			as.storePath,
+			specV1.ImageBlobsDir,
+			artifactManifestDigest.Algorithm().String(),
+			artifactManifest.Config.Digest.Encoded(),
+		),
+	); err != nil {
 		logrus.Errorf("failed to check or write empty stanza file: %v", err)
 	}
 
@@ -447,17 +616,36 @@ func (as ArtifactStore) Add(ctx context.Context, dest ArtifactReference, artifac
 			return nil, err
 		}
 	}
+
+	if as.eventChannel != nil {
+		as.writeEvent(
+			&Event{
+				ID:   artifactManifestDigest.String(),
+				Name: dest.String(),
+				Time: time.Now(),
+				Type: EventTypeArtifactAdd,
+			},
+		)
+	}
+
 	return &artifactManifestDigest, nil
 }
 
-func getArtifactAndImageSource(ctx context.Context, as ArtifactStore, asr ArtifactStoreReference, options *libartTypes.FilterBlobOptions) (*Artifact, types.ImageSource, error) {
+func getArtifactAndImageSource(
+	ctx context.Context,
+	as *ArtifactStore,
+	asr ArtifactStoreReference,
+	options *libartTypes.FilterBlobOptions,
+) (*Artifact, types.ImageSource, error) {
 	if len(options.Digest) > 0 && len(options.Title) > 0 {
 		return nil, nil, errors.New("cannot specify both digest and title")
 	}
+
 	arty, err := as.lookupArtifactLocked(ctx, asr)
 	if err != nil {
 		return nil, nil, err
 	}
+
 	if len(arty.Manifest.Layers) == 0 {
 		return nil, nil, errors.New("the artifact has no blobs, nothing to extract")
 	}
@@ -466,12 +654,18 @@ func getArtifactAndImageSource(ctx context.Context, as ArtifactStore, asr Artifa
 	if err != nil {
 		return nil, nil, err
 	}
+
 	imgSrc, err := ir.NewImageSource(ctx, as.SystemContext)
+
 	return arty, imgSrc, err
 }
 
 // BlobMountPaths allows the caller to access the file names from the store and how they should be mounted.
-func (as ArtifactStore) BlobMountPaths(ctx context.Context, asr ArtifactStoreReference, options *libartTypes.BlobMountPathOptions) ([]libartTypes.BlobMountPath, error) {
+func (as *ArtifactStore) BlobMountPaths(
+	ctx context.Context,
+	asr ArtifactStoreReference,
+	options *libartTypes.BlobMountPathOptions,
+) ([]libartTypes.BlobMountPath, error) {
 	// FIX ME
 	// LOCKING BUG: getArtifactAndImageSource assumes a locked ArtifactStore
 	arty, imgSrc, err := getArtifactAndImageSource(ctx, as, asr, &options.FilterBlobOptions)
@@ -498,6 +692,7 @@ func (as ArtifactStore) BlobMountPaths(ctx context.Context, asr ArtifactStoreRef
 		if err != nil {
 			return nil, err
 		}
+
 		return []libartTypes.BlobMountPath{{
 			SourcePath: path,
 			Name:       filename,
@@ -509,9 +704,14 @@ func (as ArtifactStore) BlobMountPaths(ctx context.Context, asr ArtifactStoreRef
 		title := l.Annotations[specV1.AnnotationTitle]
 		for _, mp := range mountPaths {
 			if title == mp.Name {
-				return nil, fmt.Errorf("annotation %q:%q is used in multiple different layers within artifact", specV1.AnnotationTitle, title)
+				return nil, fmt.Errorf(
+					"annotation %q:%q is used in multiple different layers within artifact",
+					specV1.AnnotationTitle,
+					title,
+				)
 			}
 		}
+
 		filename, err := generateArtifactBlobName(title, l.Digest)
 		if err != nil {
 			return nil, err
@@ -521,19 +721,31 @@ func (as ArtifactStore) BlobMountPaths(ctx context.Context, asr ArtifactStoreRef
 		if err != nil {
 			return nil, err
 		}
+
 		mountPaths = append(mountPaths, libartTypes.BlobMountPath{
 			SourcePath: path,
 			Name:       filename,
 		})
 	}
+
 	return mountPaths, nil
 }
 
 // Extract an artifact to local file or directory.
-func (as ArtifactStore) Extract(ctx context.Context, nameOrDigest ArtifactStoreReference, target string, options *libartTypes.ExtractOptions) error {
+func (as *ArtifactStore) Extract(
+	ctx context.Context,
+	nameOrDigest ArtifactStoreReference,
+	target string,
+	options *libartTypes.ExtractOptions,
+) error {
 	// FIX ME
 	// LOCKING BUG: getArtifactAndImageSource assumes a locked ArtifactStore
-	arty, imgSrc, err := getArtifactAndImageSource(ctx, as, nameOrDigest, &options.FilterBlobOptions)
+	arty, imgSrc, err := getArtifactAndImageSource(
+		ctx,
+		as,
+		nameOrDigest,
+		&options.FilterBlobOptions,
+	)
 	if err != nil {
 		return err
 	}
@@ -541,6 +753,7 @@ func (as ArtifactStore) Extract(ctx context.Context, nameOrDigest ArtifactStoreR
 
 	// check if dest is a dir to know if we can copy more than one blob
 	destIsFile := true
+
 	stat, err := os.Stat(target)
 	if err == nil {
 		destIsFile = !stat.IsDir()
@@ -550,10 +763,15 @@ func (as ArtifactStore) Extract(ctx context.Context, nameOrDigest ArtifactStoreR
 
 	if destIsFile {
 		var digest digest.Digest
+
 		if len(arty.Manifest.Layers) > 1 {
 			if len(options.Digest) == 0 && len(options.Title) == 0 {
-				return fmt.Errorf("the artifact consists of several blobs and the target %q is not a directory and neither digest or title was specified to only copy a single blob", target)
+				return fmt.Errorf(
+					"the artifact consists of several blobs and the target %q is not a directory and neither digest or title was specified to only copy a single blob",
+					target,
+				)
 			}
+
 			digest, err = findDigest(arty, &options.FilterBlobOptions)
 			if err != nil {
 				return err
@@ -584,6 +802,7 @@ func (as ArtifactStore) Extract(ctx context.Context, nameOrDigest ArtifactStoreR
 
 	for _, l := range arty.Manifest.Layers {
 		title := l.Annotations[specV1.AnnotationTitle]
+
 		filename, err := generateArtifactBlobName(title, l.Digest)
 		if err != nil {
 			return err
@@ -599,7 +818,12 @@ func (as ArtifactStore) Extract(ctx context.Context, nameOrDigest ArtifactStoreR
 }
 
 // Extract an artifact to tar stream.
-func (as ArtifactStore) ExtractTarStream(ctx context.Context, w io.Writer, asr ArtifactStoreReference, options *libartTypes.ExtractOptions) error {
+func (as *ArtifactStore) ExtractTarStream(
+	ctx context.Context,
+	w io.Writer,
+	asr ArtifactStoreReference,
+	options *libartTypes.ExtractOptions,
+) error {
 	if options == nil {
 		options = &libartTypes.ExtractOptions{}
 	}
@@ -648,12 +872,14 @@ func (as ArtifactStore) ExtractTarStream(ctx context.Context, w io.Writer, asr A
 		name   string
 		digest digest.Digest
 	}
+
 	blobs := make([]blob, 0, artifactBlobCount)
 
 	// Gather blob details and return error on any illegal names
 	for _, l := range arty.Manifest.Layers {
 		title := l.Annotations[specV1.AnnotationTitle]
 		digest := l.Digest
+
 		var name string
 
 		if artifactBlobCount != 1 || !options.ExcludeTitle {
@@ -699,37 +925,50 @@ func generateArtifactBlobName(title string, digest digest.Digest) (string, error
 	// We must use os.IsPathSeparator() as on Windows it checks both "\\" and "/".
 	for i := range len(filename) {
 		if os.IsPathSeparator(filename[i]) {
-			return "", fmt.Errorf("invalid name: %q cannot contain %c: %w", filename, filename[i], libartTypes.ErrArtifactBlobTitleInvalid)
+			return "", fmt.Errorf(
+				"invalid name: %q cannot contain %c: %w",
+				filename,
+				filename[i],
+				libartTypes.ErrArtifactBlobTitleInvalid,
+			)
 		}
 	}
+
 	return filename, nil
 }
 
 func findDigest(arty *Artifact, options *libartTypes.FilterBlobOptions) (digest.Digest, error) {
 	var digest digest.Digest
+
 	for _, l := range arty.Manifest.Layers {
 		if options.Digest == l.Digest.String() {
 			if len(digest.String()) > 0 {
 				return digest, fmt.Errorf("more than one match for the digest %q", options.Digest)
 			}
+
 			digest = l.Digest
 		}
+
 		if len(options.Title) > 0 {
 			if val, ok := l.Annotations[specV1.AnnotationTitle]; ok &&
 				val == options.Title {
 				if len(digest.String()) > 0 {
 					return digest, fmt.Errorf("more than one match for the title %q", options.Title)
 				}
+
 				digest = l.Digest
 			}
 		}
 	}
+
 	if len(digest.String()) == 0 {
 		if len(options.Title) > 0 {
 			return digest, fmt.Errorf("no blob with the title %q", options.Title)
 		}
+
 		return digest, fmt.Errorf("no blob with the digest %q", options.Digest)
 	}
+
 	return digest, nil
 }
 
@@ -737,12 +976,18 @@ func findDigest(arty *Artifact, options *libartTypes.FilterBlobOptions) (digest.
 //
 // WARNING: This does not validate the contents against the expected digest, so it should only
 // be used to read from trusted sources!
-func copyTrustedImageBlobToFile(ctx context.Context, imgSrc types.ImageSource, digest digest.Digest, target string) error {
+func copyTrustedImageBlobToFile(
+	ctx context.Context,
+	imgSrc types.ImageSource,
+	digest digest.Digest,
+	target string,
+) error {
 	src, _, err := imgSrc.GetBlob(ctx, types.BlobInfo{Digest: digest}, nil)
 	if err != nil {
 		return fmt.Errorf("failed to get artifact file: %w", err)
 	}
 	defer src.Close()
+
 	dest, err := os.Create(target)
 	if err != nil {
 		return fmt.Errorf("failed to create target file: %w", err)
@@ -756,6 +1001,7 @@ func copyTrustedImageBlobToFile(ctx context.Context, imgSrc types.ImageSource, d
 	}
 
 	_, err = io.Copy(dest, src)
+
 	return err
 }
 
@@ -763,7 +1009,13 @@ func copyTrustedImageBlobToFile(ctx context.Context, imgSrc types.ImageSource, d
 //
 // WARNING: This does not validate the contents against the expected digest, so it should only
 // be used to read from trusted sources!
-func copyTrustedImageBlobToTarStream(ctx context.Context, imgSrc types.ImageSource, digest digest.Digest, filename string, tw *tar.Writer) error {
+func copyTrustedImageBlobToTarStream(
+	ctx context.Context,
+	imgSrc types.ImageSource,
+	digest digest.Digest,
+	filename string,
+	tw *tar.Writer,
+) error {
 	src, srcSize, err := imgSrc.GetBlob(ctx, types.BlobInfo{Digest: digest}, nil)
 	if err != nil {
 		return fmt.Errorf("failed to get artifact blob: %w", err)
@@ -798,13 +1050,15 @@ func copyTrustedImageBlobToTarStream(ctx context.Context, imgSrc types.ImageSour
 	return nil
 }
 
-func (as ArtifactStore) createEmptyManifest() error {
+func (as *ArtifactStore) createEmptyManifest() error {
 	as.lock.Lock()
 	defer as.lock.Unlock()
+
 	index := specV1.Index{
 		MediaType: specV1.MediaTypeImageIndex,
 		Versioned: specs.Versioned{SchemaVersion: ManifestSchemaVersion},
 	}
+
 	rawData, err := json.Marshal(&index)
 	if err != nil {
 		return err
@@ -813,29 +1067,36 @@ func (as ArtifactStore) createEmptyManifest() error {
 	return os.WriteFile(as.indexPath(), rawData, 0o644)
 }
 
-func (as ArtifactStore) indexPath() string {
+func (as *ArtifactStore) indexPath() string {
 	return filepath.Join(as.storePath, specV1.ImageIndexFile)
 }
 
 // getArtifacts returns an ArtifactList based on the artifact's store.  The return error and
 // unused opts is meant for future growth like filters, etc so the API does not change.
-func (as ArtifactStore) getArtifacts(ctx context.Context, _ *libartTypes.GetArtifactOptions) (ArtifactList, error) {
+func (as *ArtifactStore) getArtifacts(
+	ctx context.Context,
+	_ *libartTypes.GetArtifactOptions,
+) (ArtifactList, error) {
 	var al ArtifactList
 
 	lrs, err := layout.List(as.storePath)
 	if err != nil {
 		return nil, err
 	}
+
 	for _, l := range lrs {
 		imgSrc, err := l.Reference.NewImageSource(ctx, as.SystemContext)
 		if err != nil {
 			return nil, err
 		}
+
 		artManifest, b, err := getManifest(ctx, imgSrc)
 		imgSrc.Close()
+
 		if err != nil {
 			return nil, err
 		}
+
 		artifact := Artifact{
 			Digest:      digest.FromBytes(b),
 			Manifest:    artManifest,
@@ -847,6 +1108,7 @@ func (as ArtifactStore) getArtifacts(ctx context.Context, _ *libartTypes.GetArti
 
 		al = append(al, &artifact)
 	}
+
 	return al, nil
 }
 
@@ -861,7 +1123,10 @@ func getManifest(ctx context.Context, imgSrc types.ImageSource) (*manifest.OCI1,
 
 	// We only support a single flat manifest and not an oci index list
 	if manifest.MIMETypeIsMultiImage(manifestType) {
-		return nil, nil, fmt.Errorf("manifest %q is index list", imgSrc.Reference().StringWithinTransport())
+		return nil, nil, fmt.Errorf(
+			"manifest %q is index list",
+			imgSrc.Reference().StringWithinTransport(),
+		)
 	}
 
 	// parse the single manifest
@@ -869,6 +1134,7 @@ func getManifest(ctx context.Context, imgSrc types.ImageSource) (*manifest.OCI1,
 	if err != nil {
 		return nil, nil, err
 	}
+
 	return mani, b, nil
 }
 
@@ -876,6 +1142,7 @@ func createEmptyStanza(path string) error {
 	if err := fileutils.Exists(path); err == nil {
 		return nil
 	}
+
 	return os.WriteFile(path, specV1.DescriptorEmptyJSON.Data, 0o644)
 }
 
@@ -888,7 +1155,8 @@ func createEmptyStanza(path string) error {
 // is provided, a new io.Reader will be returned to be used for
 // subsequent reads.
 func determineBlobMIMEType(ab libartTypes.ArtifactBlob) (io.Reader, string, error) {
-	if ab.BlobFilePath == "" && ab.BlobReader == nil || ab.BlobFilePath != "" && ab.BlobReader != nil {
+	if ab.BlobFilePath == "" && ab.BlobReader == nil ||
+		ab.BlobFilePath != "" && ab.BlobReader != nil {
 		return nil, "", errors.New("Artifact.BlobFile or Artifact.BlobReader must be provided")
 	}
 
@@ -910,7 +1178,7 @@ func determineBlobMIMEType(ab libartTypes.ArtifactBlob) (io.Reader, string, erro
 		buf := make([]byte, maxBytes)
 
 		n, err := f.Read(buf)
-		if err != nil && err != io.EOF {
+		if err != nil && !errors.Is(err, io.EOF) {
 			return nil, "", err
 		}
 

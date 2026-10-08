@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/opencontainers/runtime-tools/generate"
+	"go.podman.io/storage/pkg/mount"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	"github.com/cri-o/cri-o/internal/factory/container"
@@ -106,6 +107,7 @@ func TestAddOCIBindsRejectAbsentSources(t *testing.T) {
 				false,
 				false,
 				false,
+				nil,
 			)
 
 			if tc.wantReject {
@@ -172,7 +174,17 @@ func TestAddOCIBindsForDev(t *testing.T) {
 		MountLabel: "",
 	}
 
-	_, binds, _, err := sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, false, false, false)
+	_, binds, _, err := sut.addOCIBindMounts(
+		t.Context(),
+		ctr,
+		ctrInfo,
+		false,
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
 	if err != nil {
 		t.Error(err)
 	}
@@ -227,7 +239,17 @@ func TestAddOCIBindsForSys(t *testing.T) {
 		MountLabel: "",
 	}
 
-	_, binds, _, err := sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, false, false, false)
+	_, binds, _, err := sut.addOCIBindMounts(
+		t.Context(),
+		ctr,
+		ctrInfo,
+		false,
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
 	if err != nil {
 		t.Error(err)
 	}
@@ -284,7 +306,17 @@ func TestAddOCIBindsRROMounts(t *testing.T) {
 		MountLabel: "",
 	}
 
-	_, binds, _, err := sut.addOCIBindMounts(ctx, ctr, ctrInfo, false, false, false, false, true)
+	_, binds, _, err := sut.addOCIBindMounts(
+		ctx,
+		ctr,
+		ctrInfo,
+		false,
+		false,
+		false,
+		false,
+		true,
+		nil,
+	)
 	if err != nil {
 		t.Errorf("Should not fail to create RRO mount, got: %v", err)
 	}
@@ -310,10 +342,11 @@ func TestAddOCIBindsRROMountsError(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		description string
-		rroSupport  bool
-		given       *types.Mount
-		want        string
+		description         string
+		rroSupport          bool
+		given               *types.Mount
+		want                string
+		requiresSharedMount bool
 	}{
 		{
 			"should fail to add an RRO mount without RRO mounts support",
@@ -326,6 +359,7 @@ func TestAddOCIBindsRROMountsError(t *testing.T) {
 				Propagation:       0,
 			},
 			`recursive read-only mount support is not available for hostPath "/mnt"`,
+			false,
 		},
 		{
 			"should fail to add an RRO mount without readonly option",
@@ -338,6 +372,7 @@ func TestAddOCIBindsRROMountsError(t *testing.T) {
 				Propagation:       0,
 			},
 			`recursive read-only mount conflicts with read-write mount for hostPath "/mnt"`,
+			false,
 		},
 		{
 			"should fail to add an RRO mount without private propagation",
@@ -350,6 +385,7 @@ func TestAddOCIBindsRROMountsError(t *testing.T) {
 				Propagation:       2,
 			},
 			`recursive read-only mount requires private propagation for hostPath "/mnt", got: PROPAGATION_BIDIRECTIONAL`,
+			true,
 		},
 	}
 
@@ -358,6 +394,19 @@ func TestAddOCIBindsRROMountsError(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.description, func(t *testing.T) {
 			t.Parallel()
+
+			if tc.requiresSharedMount {
+				mountInfos, err := mount.GetMounts()
+				if err != nil {
+					t.Fatalf("Failed to get mount info: %v", err)
+				}
+
+				// Some test environments (e.g. running unit tests inside a container) do not have
+				// shared mounts, so skip in those environments.
+				if err := ensureShared(tc.given.GetHostPath(), mountInfos); err != nil {
+					t.Skipf("skipping: %v", err)
+				}
+			}
 
 			ctr, err := container.New()
 			if err != nil {
@@ -385,7 +434,17 @@ func TestAddOCIBindsRROMountsError(t *testing.T) {
 				MountLabel: "",
 			}
 
-			_, _, _, err = sut.addOCIBindMounts(ctx, ctr, ctrInfo, false, false, false, false, tc.rroSupport)
+			_, _, _, err = sut.addOCIBindMounts(
+				ctx,
+				ctr,
+				ctrInfo,
+				false,
+				false,
+				false,
+				false,
+				tc.rroSupport,
+				nil,
+			)
 			if err == nil {
 				t.Error("Should fail to add an RRO mount with a specific error")
 			}
@@ -421,7 +480,17 @@ func TestAddOCIBindsCGroupRW(t *testing.T) {
 	}
 
 	//nolint:dogsled // test only needs the error return
-	_, _, _, err = sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, true, false, false)
+	_, _, _, err = sut.addOCIBindMounts(
+		t.Context(),
+		ctr,
+		ctrInfo,
+		false,
+		false,
+		true,
+		false,
+		false,
+		nil,
+	)
 	if err != nil {
 		t.Error(err)
 	}
@@ -462,7 +531,17 @@ func TestAddOCIBindsCGroupRW(t *testing.T) {
 	var hasCgroupRO bool
 
 	//nolint:dogsled // test only needs the error return
-	_, _, _, err = sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, false, false, false)
+	_, _, _, err = sut.addOCIBindMounts(
+		t.Context(),
+		ctr,
+		ctrInfo,
+		false,
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
 	if err != nil {
 		t.Error(err)
 	}
@@ -519,13 +598,33 @@ func TestAddOCIBindsErrorWithoutIDMap(t *testing.T) {
 	}
 
 	//nolint:dogsled // test only needs the error return
-	_, _, _, err = sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, false, false, false)
+	_, _, _, err = sut.addOCIBindMounts(
+		t.Context(),
+		ctr,
+		ctrInfo,
+		false,
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
 	if err == nil {
 		t.Errorf("Should have failed to create id mapped mount with no id map support")
 	}
 
 	//nolint:dogsled // test only needs the error return
-	_, _, _, err = sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, false, true, false)
+	_, _, _, err = sut.addOCIBindMounts(
+		t.Context(),
+		ctr,
+		ctrInfo,
+		false,
+		false,
+		false,
+		true,
+		false,
+		nil,
+	)
 	if err != nil {
 		t.Errorf("%v", err)
 	}
@@ -587,6 +686,64 @@ func TestSetupContainerUserRejectsNewlineInHOME(t *testing.T) {
 				if strings.Contains(err.Error(), "newline") {
 					t.Errorf("unexpected newline error for valid HOME: %v", err)
 				}
+			}
+		})
+	}
+}
+
+func TestUserSpecifiedSELinuxType(t *testing.T) {
+	newCtr := func(containerType, sandboxType string) container.Container {
+		t.Helper()
+
+		ctr, err := container.New()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		cfg := &types.ContainerConfig{
+			Metadata: &types.ContainerMetadata{Name: "testctr"},
+			Linux: &types.LinuxContainerConfig{
+				SecurityContext: &types.LinuxContainerSecurityContext{
+					SelinuxOptions: &types.SELinuxOption{Type: containerType},
+				},
+			},
+		}
+		sbox := &types.PodSandboxConfig{
+			Metadata: &types.PodSandboxMetadata{Name: "testpod"},
+			Linux: &types.LinuxPodSandboxConfig{
+				SecurityContext: &types.LinuxSandboxSecurityContext{
+					SelinuxOptions: &types.SELinuxOption{Type: sandboxType},
+				},
+			},
+		}
+
+		if err := ctr.SetConfig(cfg, sbox); err != nil {
+			t.Fatal(err)
+		}
+
+		return ctr
+	}
+
+	tests := []struct {
+		name          string
+		containerType string
+		sandboxType   string
+		want          string
+	}{
+		{name: "no type specified"},
+		{name: "container type", containerType: "container_init_t", want: "container_init_t"},
+		{name: "sandbox type", sandboxType: "spc_t", want: "spc_t"},
+		{
+			name: "container type overrides sandbox", containerType: "container_t",
+			sandboxType: "spc_t", want: "container_t",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := userSpecifiedSELinuxType(newCtr(tt.containerType, tt.sandboxType))
+			if got != tt.want {
+				t.Errorf("userSpecifiedSELinuxType() = %q, want %q", got, tt.want)
 			}
 		})
 	}

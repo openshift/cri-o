@@ -32,30 +32,75 @@ func assembleTemplateString(displayAllConfig bool, c *Config) string {
 	templateString += crioTemplateString(crioRootConfig, "", displayAllConfig, crioTemplateConfig)
 
 	// [crio.api] configuration
-	templateString += crioTemplateString(crioAPIConfig, templateStringCrioAPI, displayAllConfig, crioTemplateConfig)
+	templateString += crioTemplateString(
+		crioAPIConfig,
+		templateStringCrioAPI,
+		displayAllConfig,
+		crioTemplateConfig,
+	)
 
 	// [crio.runtime] configuration
-	templateString += crioTemplateString(crioRuntimeConfig, templateStringCrioRuntime, displayAllConfig, crioTemplateConfig)
+	templateString += crioTemplateString(
+		crioRuntimeConfig,
+		templateStringCrioRuntime,
+		displayAllConfig,
+		crioTemplateConfig,
+	)
 
 	// [crio.checkpoint_restore] configuration
-	templateString += crioTemplateString(crioCheckpointRestoreConfig, templateStringCrioCheckpointRestore, displayAllConfig, crioTemplateConfig)
+	templateString += crioTemplateString(
+		crioCheckpointRestoreConfig,
+		templateStringCrioCheckpointRestore,
+		displayAllConfig,
+		crioTemplateConfig,
+	)
 
 	// [crio.image] configuration
-	templateString += crioTemplateString(crioImageConfig, templateStringCrioImage, displayAllConfig, crioTemplateConfig)
+	templateString += crioTemplateString(
+		crioImageConfig,
+		templateStringCrioImage,
+		displayAllConfig,
+		crioTemplateConfig,
+	)
 
 	// [crio.network] configuration
-	templateString += crioTemplateString(crioNetworkConfig, templateStringCrioNetwork, displayAllConfig, crioTemplateConfig)
+	templateString += crioTemplateString(
+		crioNetworkConfig,
+		templateStringCrioNetwork,
+		displayAllConfig,
+		crioTemplateConfig,
+	)
 
 	// [crio.metrics] configuration
-	templateString += crioTemplateString(crioMetricsConfig, templateStringCrioMetrics, displayAllConfig, crioTemplateConfig)
+	templateString += crioTemplateString(
+		crioMetricsConfig,
+		templateStringCrioMetrics,
+		displayAllConfig,
+		crioTemplateConfig,
+	)
 
 	// [crio.tracing] configuration
-	templateString += crioTemplateString(crioTracingConfig, templateStringCrioTracing, displayAllConfig, crioTemplateConfig)
+	templateString += crioTemplateString(
+		crioTracingConfig,
+		templateStringCrioTracing,
+		displayAllConfig,
+		crioTemplateConfig,
+	)
 	// [crio.nri] configuration
-	templateString += crioTemplateString(crioNRIConfig, templateStringCrioNRI, displayAllConfig, crioTemplateConfig)
+	templateString += crioTemplateString(
+		crioNRIConfig,
+		templateStringCrioNRI,
+		displayAllConfig,
+		crioTemplateConfig,
+	)
 
 	// [crio.stats] configuration
-	templateString += crioTemplateString(crioStatsConfig, templateStringCrioStats, displayAllConfig, crioTemplateConfig)
+	templateString += crioTemplateString(
+		crioStatsConfig,
+		templateStringCrioStats,
+		displayAllConfig,
+		crioTemplateConfig,
+	)
 
 	if templateString != "" {
 		templateString = templateStringPrefix + templateStringCrio + templateString
@@ -64,7 +109,12 @@ func assembleTemplateString(displayAllConfig bool, c *Config) string {
 	return templateString
 }
 
-func crioTemplateString(group templateGroup, prefix string, displayAll bool, crioTemplateConfig []*templateConfigValue) string {
+func crioTemplateString(
+	group templateGroup,
+	prefix string,
+	displayAll bool,
+	crioTemplateConfig []*templateConfigValue,
+) string {
 	templateString := ""
 
 	var sb strings.Builder
@@ -314,7 +364,10 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 		{
 			templateString: templateStringCrioRuntimeIrqBalanceConfigRestoreFile,
 			group:          crioRuntimeConfig,
-			isDefaultValue: simpleEqual(dc.IrqBalanceConfigRestoreFile, c.IrqBalanceConfigRestoreFile),
+			isDefaultValue: simpleEqual(
+				dc.IrqBalanceConfigRestoreFile,
+				c.IrqBalanceConfigRestoreFile,
+			),
 		},
 		{
 			templateString: templateStringCrioRuntimeRdtConfigFile,
@@ -339,7 +392,10 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 		{
 			templateString: templateStringCrioRuntimeAddInheritableCapabilities,
 			group:          crioRuntimeConfig,
-			isDefaultValue: simpleEqual(dc.AddInheritableCapabilities, c.AddInheritableCapabilities),
+			isDefaultValue: simpleEqual(
+				dc.AddInheritableCapabilities,
+				c.AddInheritableCapabilities,
+			),
 		},
 		{
 			templateString: templateStringCrioRuntimeDefaultSysctls,
@@ -364,7 +420,10 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 		{
 			templateString: templateStringCrioRuntimeDeviceOwnershipFromSecurityContext,
 			group:          crioRuntimeConfig,
-			isDefaultValue: simpleEqual(dc.DeviceOwnershipFromSecurityContext, c.DeviceOwnershipFromSecurityContext),
+			isDefaultValue: simpleEqual(
+				dc.DeviceOwnershipFromSecurityContext,
+				c.DeviceOwnershipFromSecurityContext,
+			),
 		},
 		{
 			templateString: templateStringCrioRuntimeHooksDir,
@@ -489,7 +548,10 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 		{
 			templateString: templateStringCrioRuntimeAbsentMountSourcesToReject,
 			group:          crioRuntimeConfig,
-			isDefaultValue: slices.Equal(dc.AbsentMountSourcesToReject, c.AbsentMountSourcesToReject),
+			isDefaultValue: slices.Equal(
+				dc.AbsentMountSourcesToReject,
+				c.AbsentMountSourcesToReject,
+			),
 		},
 		{
 			templateString: templateStringCrioRuntimeRuntimesRuntimeHandler,
@@ -562,11 +624,6 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 			isDefaultValue: simpleEqual(dc.SignaturePolicyDir, c.SignaturePolicyDir),
 		},
 		{
-			templateString: templateStringCrioImageInsecureRegistries,
-			group:          crioImageConfig,
-			isDefaultValue: slices.Equal(dc.InsecureRegistries, c.InsecureRegistries),
-		},
-		{
 			templateString: templateStringCrioImageImageVolumes,
 			group:          crioImageConfig,
 			isDefaultValue: simpleEqual(dc.ImageVolumes, c.ImageVolumes),
@@ -624,7 +681,10 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 		{
 			templateString: templateStringCrioMetricsCollectors,
 			group:          crioMetricsConfig,
-			isDefaultValue: slices.Equal(dc.MetricsCollectors.ToSlice(), c.MetricsCollectors.ToSlice()),
+			isDefaultValue: slices.Equal(
+				dc.MetricsCollectors.ToSlice(),
+				c.MetricsCollectors.ToSlice(),
+			),
 		},
 		{
 			templateString: templateStringCrioMetricsMetricsHost,
@@ -664,7 +724,10 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 		{
 			templateString: templateStringCrioTracingTracingSamplingRatePerMillion,
 			group:          crioTracingConfig,
-			isDefaultValue: simpleEqual(dc.TracingSamplingRatePerMillion, c.TracingSamplingRatePerMillion),
+			isDefaultValue: simpleEqual(
+				dc.TracingSamplingRatePerMillion,
+				c.TracingSamplingRatePerMillion,
+			),
 		},
 		{
 			templateString: templateStringCrioStatsStatsCollectionPeriod,
@@ -709,7 +772,10 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 		{
 			templateString: templateStringCrioNRIPluginRegistrationTimeout,
 			group:          crioNRIConfig,
-			isDefaultValue: simpleEqual(dc.NRI.PluginRegistrationTimeout, c.NRI.PluginRegistrationTimeout),
+			isDefaultValue: simpleEqual(
+				dc.NRI.PluginRegistrationTimeout,
+				c.NRI.PluginRegistrationTimeout,
+			),
 		},
 		{
 			templateString: templateStringCrioNRIPluginRequestTimeout,
@@ -934,12 +1000,12 @@ const templateStringCrioAPITLSCipherSuites = `# List of cipher suites for TLS 1.
 
 `
 
-const templateStringCrioAPIGrpcMaxSendMsgSize = `# Maximum grpc send message size in bytes. If not set or <=0, then CRI-O will default to 80 * 1024 * 1024.
+const templateStringCrioAPIGrpcMaxSendMsgSize = `# Maximum grpc send message size in bytes. If not set or <=0, then CRI-O will default to 16 * 1024 * 1024.
 {{ $.Comment }}grpc_max_send_msg_size = {{ .GRPCMaxSendMsgSize }}
 
 `
 
-const templateStringCrioAPIGrpcMaxRecvMsgSize = `# Maximum grpc receive message size. If not set or <= 0, then CRI-O will default to 80 * 1024 * 1024.
+const templateStringCrioAPIGrpcMaxRecvMsgSize = `# Maximum grpc receive message size. If not set or <= 0, then CRI-O will default to 16 * 1024 * 1024.
 {{ $.Comment }}grpc_max_recv_msg_size = {{ .GRPCMaxRecvMsgSize }}
 
 `
@@ -970,8 +1036,7 @@ const templateStringCrioRuntimeDecryptionKeysPath = `# decryption_keys_path is t
 
 `
 
-const templateStringCrioRuntimeAdditionalArtifactStores = `# A list of additional read-only OCI artifact store paths
-# (experimental, subject to change).
+const templateStringCrioRuntimeAdditionalArtifactStores = `# A list of additional read-only OCI artifact store paths.
 # CRI-O expects an "artifacts/" subdirectory within each configured path.
 # All entries must be absolute paths. Artifacts in these stores take priority
 # over the main store. Tag re-pointing is not supported for artifacts in
@@ -1583,10 +1648,10 @@ const templateStringCrioImagePauseCommand = `# The command to run to have a cont
 
 `
 
-const templateStringCrioImagePinnedImages = `# List of images to be excluded from the kubelet's garbage collection.
-# It allows specifying image names using either exact, glob, or keyword
-# patterns. Exact matches must match the entire name, glob matches can
-# have a wildcard * at the end, and keyword matches can have wildcards
+const templateStringCrioImagePinnedImages = `# List of images and OCI artifacts to be excluded from the kubelet's garbage
+# collection. It allows specifying image names using either exact, glob, or
+# keyword patterns. Exact matches must match the entire name, glob matches
+# can have a wildcard * at the end, and keyword matches can have wildcards
 # on both ends. By default, this list includes the "pause" image if
 # configured by the user, which is used as a placeholder in Kubernetes pods.
 {{ $.Comment }}pinned_images = [
@@ -1609,15 +1674,6 @@ const templateStringCrioImageSignaturePolicyDir = `# Root path for pod namespace
 # or the concatenated path is non existent, then the signature_policy or system
 # wide policy will be used as fallback. Must be an absolute path.
 {{ $.Comment }}signature_policy_dir = "{{ .SignaturePolicyDir }}"
-
-`
-
-const templateStringCrioImageInsecureRegistries = `# List of registries to skip TLS verification for pulling images. Please
-# consider configuring the registries via /etc/containers/registries.conf before
-# changing them here.
-# This option is deprecated and no longer effective. Use registries.conf file instead.
-{{ $.Comment }}insecure_registries = [
-{{ range $opt := .InsecureRegistries }}{{ $.Comment }}{{ printf "\t%q,\n" $opt }}{{ end }}{{ $.Comment }}]
 
 `
 

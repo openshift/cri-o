@@ -18,12 +18,16 @@ const (
 	OrgEnvKey            = "ORG"
 	VersionFile          = "internal/version/version.go"
 	DependenciesYAMLFile = "dependencies.yaml"
+	SpecFile             = "contrib/test/ci/cri-o.spec"
 	BranchPrefix         = "release-"
 	VersionPrefix        = "v"
 	CrioOrgRepo          = "cri-o"
 )
 
-func GetCurrentVersionFromReleaseBranch(repo *git.Repo, baseBranchName string) (res semver.Version, err error) {
+func GetCurrentVersionFromReleaseBranch(
+	repo *git.Repo,
+	baseBranchName string,
+) (res semver.Version, err error) {
 	logrus.Infof("Switching to branch: %s", baseBranchName)
 
 	if err := repo.Checkout(baseBranchName); err != nil {
@@ -53,7 +57,10 @@ func ConvertStringToSemver(tag string) (res semver.Version, err error) {
 }
 
 func GetCurrentVersionFromVersionFile(versionFile string) (string, error) {
-	const versionPattern = `const\s+Version\s+=\s+"(.+)"`
+	// Matches both the legacy "const Version" declaration and the "var
+	// Version" declaration used so downstream builds can override the
+	// value via -ldflags -X.
+	const versionPattern = `(?:const|var)\s+Version\s+=\s+"(.+)"`
 
 	content, err := os.ReadFile(versionFile)
 	if err != nil {

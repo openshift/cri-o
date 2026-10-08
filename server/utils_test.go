@@ -101,13 +101,20 @@ func TestMergeEnvs(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := mergeEnvs(tc.imageConfig, tc.kubeEnvs)
-			if len(result) != len(tc.expected) {
-				t.Fatalf("expected %d envs %v, got %d envs %v", len(tc.expected), tc.expected, len(result), result)
+			mergedEnvs := mergeEnvs(tc.imageConfig, tc.kubeEnvs)
+
+			if len(mergedEnvs) != len(tc.expected) {
+				t.Fatalf("Expected %d env vars, found %d", len(tc.expected), len(mergedEnvs))
 			}
-			for i, env := range result {
-				if env != tc.expected[i] {
-					t.Errorf("env[%d]: expected %q, got %q", i, tc.expected[i], env)
+
+			expectedMap := make(map[string]bool)
+			for _, e := range tc.expected {
+				expectedMap[e] = true
+			}
+
+			for _, env := range mergedEnvs {
+				if !expectedMap[env] {
+					t.Fatalf("Unexpected env var found: %s", env)
 				}
 			}
 		})

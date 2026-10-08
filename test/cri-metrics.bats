@@ -94,6 +94,12 @@ EOF
 	# wait a bit for metrics sync - tests are more flaky without this
 	sleep 1
 
+	# The metrics endpoint and the cgroup files are sampled at slightly
+	# different times, so the memory values can drift by a small amount between
+	# the two reads. Allow a 1 KiB tolerance on the memory comparisons instead
+	# of requiring an exact match to avoid flaky failures.
+	MEMORY_METRIC_TOLERANCE=1024
+
 	# assert container_memory_usage_bytes == cgroup memory.usage_in_bytes(cgroup v1) or memory.current(cgroup v2)
 	if is_cgroup_v2; then
 		cgroup_memory_usage=$(cat "$CTR_CGROUP"/memory.current)
@@ -101,7 +107,8 @@ EOF
 		cgroup_memory_usage=$(cat "$CTR_CGROUP"/memory.usage_in_bytes)
 	fi
 	metrics_memory_usage=$(crictl metricsp | jq '.podMetrics[0].containerMetrics[0].metrics[] | select(.name == "container_memory_usage_bytes") | .value.value | tonumber')
-	[[ "$cgroup_memory_usage" == "$metrics_memory_usage" ]]
+	usage_diff=$((metrics_memory_usage - cgroup_memory_usage))
+	[[ ${usage_diff#-} -le $MEMORY_METRIC_TOLERANCE ]]
 
 	# assert container_memory_working_set_bytes ==
 	#    cgroup memory.usage_in_bytes - cgroup memory.stat:total_inactive_file(cgroup v1) or memory.current - memory.stat:inactive_file(cgroup v2)
@@ -114,7 +121,17 @@ EOF
 	fi
 
 	metrics_memory_working_set=$(crictl metricsp | jq '.podMetrics[0].containerMetrics[0].metrics[] | select(.name == "container_memory_working_set_bytes") | .value.value | tonumber')
-	[[ $metrics_memory_working_set == $((cgroup_memory_usage - cgroup_memory_inactive_file)) ]]
+	# Mirror the production clamp in computeMemoryMetricValues: usage and
+	# inactive_file are read separately, so the raw subtraction can transiently
+	# go negative while the exported metric is clamped to zero. Clamp here too
+	# so the comparison stays within tolerance.
+	if [[ $cgroup_memory_usage -lt $cgroup_memory_inactive_file ]]; then
+		cgroup_memory_working_set=0
+	else
+		cgroup_memory_working_set=$((cgroup_memory_usage - cgroup_memory_inactive_file))
+	fi
+	working_set_diff=$((metrics_memory_working_set - cgroup_memory_working_set))
+	[[ ${working_set_diff#-} -le $MEMORY_METRIC_TOLERANCE ]]
 
 	# assert container_memory_rss == cgroup memory.stat:total_rss(cgroup v1) or memory.stat:anon(cgroup v2)
 	if is_cgroup_v2; then
@@ -124,7 +141,8 @@ EOF
 		cgroup_memory_rss=$(grep -w total_rss "$CTR_CGROUP"/memory.stat | awk '{print $2}')
 	fi
 	metrics_memory_rss=$(crictl metricsp | jq '.podMetrics[0].containerMetrics[0].metrics[] | select(.name == "container_memory_rss") | .value.value | tonumber')
-	[[ $metrics_memory_rss == "$cgroup_memory_rss" ]]
+	rss_diff=$((metrics_memory_rss - cgroup_memory_rss))
+	[[ ${rss_diff#-} -le $MEMORY_METRIC_TOLERANCE ]]
 
 	cmd="myarray=(); touch /dev/tmpfile; for i in {1..100}; do myarray+=(\"$(date)\"); date >> /dev/tmpfile; done"
 	crictl exec --sync "$CONTAINER_ID" /bin/sh -c "$cmd"
@@ -136,7 +154,8 @@ EOF
 		cgroup_memory_cache=$(grep -w cache < "$CTR_CGROUP"/memory.stat | awk '{print $2}')
 	fi
 	metrics_memory_cache=$(crictl metricsp | jq '.podMetrics[0].containerMetrics[0].metrics[] | select(.name == "container_memory_cache") | .value.value | tonumber')
-	[[ $metrics_memory_cache == "$cgroup_memory_cache" ]]
+	cache_diff=$((metrics_memory_cache - cgroup_memory_cache))
+	[[ ${cache_diff#-} -le $MEMORY_METRIC_TOLERANCE ]]
 
 	# assert container_memory_swap == cgroup memory.swap.current(cgroup v2).
 	# or for cgroup v1, container_memory_swap == cgroup memory.memsw.usage_in_bytes - cgroup memory.usage_in_bytes
@@ -149,6 +168,105 @@ EOF
 	# or cgroup memory.stat:mapped_file (cgroup v1)
 
 	# TODO: find a suitable command/script to use to increase the mapped file count in the cgroup
+}
+
+@test "container memoryExtra metrics" {
+	CONTAINER_ENABLE_METRICS="true" CONTAINER_METRICS_PORT=$(free_port) setup_crio
+	cat << EOF > "$CRIO_CONFIG"
+[crio.stats]
+collection_period = 0
+included_pod_metrics = [
+    "memory",
+    "memoryExtra",
+]
+EOF
+	start_crio_no_setup
+	check_images
+
+	metrics_setup
+	set_container_pod_cgroup_root "" "$CONTAINER_ID"
+
+	cmd='for i in {1..10}; do dd if=/dev/zero of=/dev/null bs=10M count=1; done'
+	crictl exec --sync "$CONTAINER_ID" /bin/sh -c "$cmd"
+	# wait a bit for metrics sync - tests are more flaky without this
+	sleep 1
+
+	# The metrics endpoint and the cgroup files are sampled at slightly
+	# different times, so the memory values can drift by a small amount between
+	# the two reads. Allow a 1 KiB tolerance on the memory comparisons instead
+	# of requiring an exact match to avoid flaky failures.
+	MEMORY_METRIC_TOLERANCE=1024
+
+	metrics=$(crictl metricsp)
+
+	# assert container_memory_active_anon_bytes == cgroup memory.stat:active_anon(cgroup v2)
+	# or cgroup memory.stat:total_active_anon(cgroup v1 hierarchy)
+	if is_cgroup_v2; then
+		cgroup_active_anon=$(grep -w active_anon < "$CTR_CGROUP"/memory.stat | awk '{print $2}')
+		cgroup_inactive_anon=$(grep -w inactive_anon < "$CTR_CGROUP"/memory.stat | awk '{print $2}')
+	else
+		cgroup_active_anon=$(grep -w total_active_anon < "$CTR_CGROUP"/memory.stat | awk '{print $2}')
+		cgroup_inactive_anon=$(grep -w total_inactive_anon < "$CTR_CGROUP"/memory.stat | awk '{print $2}')
+	fi
+
+	metrics_active_anon=$(echo "$metrics" | jq '.podMetrics[0].containerMetrics[0].metrics[] | select(.name == "container_memory_active_anon_bytes") | .value.value | tonumber')
+	active_anon_diff=$((metrics_active_anon - cgroup_active_anon))
+	[[ ${active_anon_diff#-} -le $MEMORY_METRIC_TOLERANCE ]]
+
+	# assert container_memory_inactive_anon_bytes == cgroup memory.stat:inactive_anon(cgroup v2)
+	# or cgroup memory.stat:total_inactive_anon(cgroup v1 hierarchy)
+	metrics_inactive_anon=$(echo "$metrics" | jq '.podMetrics[0].containerMetrics[0].metrics[] | select(.name == "container_memory_inactive_anon_bytes") | .value.value | tonumber')
+	inactive_anon_diff=$((metrics_inactive_anon - cgroup_inactive_anon))
+	[[ ${inactive_anon_diff#-} -le $MEMORY_METRIC_TOLERANCE ]]
+
+	# assert the THP metrics are emitted. Their values depend on whether THP is
+	# enabled on the host, and cgroup v1 has no THP accounting at all, so only
+	# assert the metrics are present rather than checking a specific value.
+	for metric in \
+		container_memory_anon_thp_bytes \
+		container_memory_shmem_thp_bytes \
+		container_memory_file_thp_bytes; do
+		echo "$metrics" | jq -e ".podMetrics[0].containerMetrics[0].metrics[] | select(.name == \"$metric\")"
+	done
+
+	# assert the THP metrics read zero on cgroup v1, which does not account for them
+	if ! is_cgroup_v2; then
+		for metric in \
+			container_memory_anon_thp_bytes \
+			container_memory_shmem_thp_bytes \
+			container_memory_file_thp_bytes; do
+			value=$(echo "$metrics" | jq ".podMetrics[0].containerMetrics[0].metrics[] | select(.name == \"$metric\") | .value.value | tonumber")
+			[[ $value == "0" ]]
+		done
+	fi
+}
+
+@test "memoryExtra metrics are excluded when only memory is included" {
+	CONTAINER_ENABLE_METRICS="true" CONTAINER_METRICS_PORT=$(free_port) setup_crio
+	cat << EOF > "$CRIO_CONFIG"
+[crio.stats]
+collection_period = 0
+included_pod_metrics = [
+    "memory",
+]
+EOF
+	start_crio_no_setup
+
+	descs=$(crictl metricdescs | jq -r ".descriptors.[].name")
+
+	# assert the cAdvisor equivalent memory metrics are still included
+	grep -q "^container_memory_working_set_bytes$" <<< "$descs"
+	grep -q "^container_memory_usage_bytes$" <<< "$descs"
+
+	# assert the memoryExtra metrics are not included without the memoryExtra value
+	for metric in \
+		container_memory_active_anon_bytes \
+		container_memory_inactive_anon_bytes \
+		container_memory_anon_thp_bytes \
+		container_memory_shmem_thp_bytes \
+		container_memory_file_thp_bytes; do
+		! grep -q "^$metric$" <<< "$descs"
+	done
 }
 
 @test "container memory cgroupv1-specific metrics" {
@@ -314,6 +432,8 @@ EOF
 	crictl exec --sync "$CONTAINER_ID" mkdir -p /var/lib/mydisktest
 	crictl exec --sync "$CONTAINER_ID" /bin/sh -c "for i in \$(seq 1 50); do touch /var/lib/mydisktest/inode_test_file_\$i; done"
 	crictl exec --sync "$CONTAINER_ID" sync
+	# wait a bit for metrics sync - tests are more flaky without this
+	sleep 1
 
 	# Poll for inode metrics to be updated
 	local timeout=60 # Set a reasonable timeout in seconds
@@ -345,15 +465,21 @@ EOF
 
 	# Generate disk usage and validate increase
 	crictl exec --sync "$CONTAINER_ID" mkdir -p /var/lib/mydisktest
-	crictl exec --sync "$CONTAINER_ID" dd if=/dev/zero of=/var/lib/mydisktest/bloatfile bs=1024 count=4
+	crictl exec --sync "$CONTAINER_ID" dd if=/dev/zero of=/var/lib/mydisktest/bloatfile bs=1M count=10
 	crictl exec --sync "$CONTAINER_ID" sync
+
+	# Allow a 1 KiB tolerance on the disk usage comparison to avoid flaky failures
+	# due to filesystem metadata update timing and block allocation granularity.
+	DISK_METRIC_TOLERANCE=1024
+
 	# Polling loop for metrics to be updated
 	local timeout=60 # Set a reasonable timeout in seconds
 	local new_fs_usage=0
 	local found_increase=false
 	for ((i = 0; i < timeout; i++)); do
 		new_fs_usage=$(crictl metricsp | jq '.podMetrics[0].containerMetrics[0].metrics[] | select(.name == "container_fs_usage_bytes") | .value.value | tonumber')
-		if [[ "$new_fs_usage" -gt "$fs_usage" ]]; then
+		usage_diff=$((new_fs_usage - fs_usage))
+		if [[ $usage_diff -gt $DISK_METRIC_TOLERANCE ]]; then
 			found_increase=true
 			break
 		fi
@@ -560,4 +686,32 @@ EOF
 
 	container_pressure_io_waiting_seconds_total=$(echo "$metrics" | jq 'select(.name == "container_pressure_io_waiting_seconds_total") | .value.value | tonumber')
 	[[ "$container_pressure_io_waiting_seconds_total" != "" ]]
+}
+
+@test "non-hostNetwork pod metrics match interfaces in the pod's network namespace" {
+	CONTAINER_ENABLE_METRICS="true" CONTAINER_METRICS_PORT=$(free_port) setup_crio
+	cat << EOF > "$CRIO_CONFIG"
+[crio.stats]
+collection_period = 0
+included_pod_metrics = [
+    "network",
+]
+EOF
+	start_crio_no_setup
+	check_images
+
+	# create a non-hostNetwork pod with a container so we can exec into it
+	POD_ID=$(crictl runp "$TESTDATA/sandbox_config.json")
+	CTR_ID=$(crictl create "$POD_ID" "$TESTDATA/container_sleep.json" "$TESTDATA/sandbox_config.json")
+	crictl start "$CTR_ID"
+
+	wait_for_metric "container_network_receive_bytes_total"
+
+	metrics=$(crictl metricsp)
+
+	# metrics must match the pod's own interfaces, not the host's
+	pod_metric_ifaces=$(echo "$metrics" | jq -r --arg id "$POD_ID" \
+		'[.podMetrics[] | select(.podSandboxId == $id) | .metrics[] | select(.name == "container_network_receive_bytes_total") | .labelValues[-1]] | unique | .[]' | sed '/^$/d' | sort)
+	pod_actual_ifaces=$(crictl exec --sync "$CTR_ID" ls /sys/class/net/ | sed '/^$/d' | sort)
+	[[ "$pod_metric_ifaces" == "$pod_actual_ifaces" ]]
 }

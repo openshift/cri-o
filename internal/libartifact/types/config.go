@@ -31,6 +31,7 @@ type FilterBlobOptions struct {
 
 type ExtractOptions struct {
 	FilterBlobOptions
+
 	// ExcludeTitle option allows single blobs to be exported
 	// with their title/filename empty. Optional.
 	// Default: False

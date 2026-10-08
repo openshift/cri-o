@@ -27,6 +27,7 @@ It is assumed you are running a Linux machine.
   - [Build](#build)
     - [Install with Ansible](#install-with-ansible)
     - [Build Tags](#build-tags)
+    - [Container-based build environment](#container-based-build-environment)
   - [Static builds](#static-builds)
   - [Download conmon](#download-conmon)
 - [Setup CNI networking](#setup-cni-networking)
@@ -55,8 +56,9 @@ For more information, please follow the instructions in the [CRI-O packaging rep
 
 ## Install CRI-O on Flatcar with Sysexts
 
-Installing CRI-O on Flatcar Container Linux with support for systemd extensions (sysexts),
-enabling a supported installation method for environments that utilize Flatcar.
+Installing CRI-O on Flatcar Container Linux with support for systemd
+extensions (sysexts), enabling a supported installation method for
+environments that utilize Flatcar.
 
 See the [Flatcar documentation](https://flatcar.github.io/sysext-bakery/#ready-to-use-system-extensions-for-flatcar-and-other-distros)
 for more information on how to install.
@@ -349,6 +351,30 @@ which uses the following buildtags.
 
 <!-- markdownlint-enable MD013 -->
 
+#### Container-based build environment
+
+As an alternative to installing build dependencies on the host, a
+`Containerfile` is provided to create a container image with all
+required build dependencies. This can be used to build CRI-O and run
+unit tests without modifying the host system.
+
+Note that integration tests cannot be run in a container as CRI-O
+requires a full system environment.
+
+Build the container image:
+
+```shell
+podman build -f hack/Containerfile.dev -t crio-dev .
+```
+
+Then use it to build and test:
+
+```shell
+podman run --rm -v .:/src:Z crio-dev make all
+podman run --rm -v .:/src:Z crio-dev make lint
+podman run --rm -v .:/src:Z crio-dev make testunit
+```
+
 ### Static builds
 
 It is possible to build a statically linked binary of CRI-O by using the
@@ -356,8 +382,9 @@ officially provided [nix](https://nixos.org/nix) package and the derivation of
 it [within this repository](../nix). The builds are completely reproducible and
 will create a `x86_64`/`amd64` or `aarch64`/`arm64`, `ppc64le` or `s390x`
 stripped ELF binary for [glibc](https://www.gnu.org/software/libc) or [musl
-libc (for `s390x`)](https://www.musl-libc.org/). These binaries are integration tested
-(for `amd64` and `arm64`) as well and support the following features:
+libc (for `s390x`)](https://www.musl-libc.org/). These binaries are
+integration tested (for `amd64` and `arm64`) as well and support the
+following features:
 
 - apparmor
 - btrfs

@@ -87,13 +87,12 @@ Requires:       podman-sequoia
 %prep
 %autosetup -Sgit -n %{name}-%{version}
 sed -i 's/\.gopathok //' Makefile
-sed -i 's/\(const Version = "[^"]*\)"/\1-%{release}"/' internal/version/version.go
 sed -i 's/\/local//' contrib/systemd/%{service_name}.service
 
 %build
 %if 0%{?cibuild}
 export BUILDTAGS="selinux seccomp exclude_graphdriver_devicemapper exclude_graphdriver_btrfs containers_image_ostree_stub"
-%{__make} bin/%{service_name} bin/pinns
+%{__make} EXTRA_LDFLAGS="-X %{import_path}/internal/version.Version=%{version}-%{release}" bin/%{service_name} bin/pinns
 GO_MD2MAN=go-md2man %{__make} docs
 %else
 mkdir _output
@@ -111,6 +110,7 @@ export BUILDTAGS="$BUILDTAGS containers_image_sequoia"
 export GO111MODULE=off
 # https://bugzilla.redhat.com/show_bug.cgi?id=1825623
 export VERSION=%{version}
+export LDFLAGS="${LDFLAGS:-} -X %{import_path}/internal/version.Version=%{version}-%{release}"
 
 # build crio
 %gobuild -o bin/%{service_name} %{import_path}/cmd/%{service_name}

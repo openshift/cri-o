@@ -11,10 +11,10 @@ import (
 	"github.com/checkpoint-restore/go-criu/v8/stats"
 	"github.com/opencontainers/runtime-tools/generate"
 	"github.com/sirupsen/logrus"
-	"github.com/cri-o/cri-o/internal/crutils"
 	"go.podman.io/storage/pkg/archive"
 
 	"github.com/cri-o/cri-o/internal/annotations"
+	"github.com/cri-o/cri-o/internal/crutils"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/oci"
 )
@@ -47,8 +47,19 @@ func (c *ContainerServer) ContainerRestore(
 	if err != nil {
 		return "", err
 	}
+
+	sb, err := c.LookupSandbox(ctr.Sandbox())
+	if err != nil {
+		return "", fmt.Errorf("failed to lookup sandbox %s: %w", ctr.Sandbox(), err)
+	}
+
+	imageService, err := c.StorageImageServer(sb)
+	if err != nil {
+		return "", fmt.Errorf("failed to get image service for sandbox %s: %w", sb.ID(), err)
+	}
+
 	// During checkpointing the container is unmounted. This mounts the container again.
-	mountPoint, err := c.StorageImageServer().GetStore().Mount(ctr.ID(), ctrSpec.Config.Linux.MountLabel)
+	mountPoint, err := imageService.GetStore().Mount(ctr.ID(), ctrSpec.Config.Linux.MountLabel)
 	if err != nil {
 		log.Debugf(ctx, "Failed to mount container %q: %v", ctr.ID(), err)
 
@@ -57,18 +68,18 @@ func (c *ContainerServer) ContainerRestore(
 
 	log.Debugf(ctx, "Container mountpoint %v", mountPoint)
 	log.Debugf(ctx, "Sandbox %v", ctr.Sandbox())
-	log.Debugf(ctx, "Specgen.Config.Annotations[io.kubernetes.cri-o.SandboxID] %v", ctrSpec.Config.Annotations["io.kubernetes.cri-o.SandboxID"])
-
-	sb, err := c.LookupSandbox(ctr.Sandbox())
-	if err != nil {
-		return "", err
-	}
+	log.Debugf(
+		ctx,
+		"Specgen.Config.Annotations[io.kubernetes.cri-o.SandboxID] %v",
+		ctrSpec.Config.Annotations["io.kubernetes.cri-o.SandboxID"],
+	)
 
 	if ctr.RestoreArchivePath() != "" || ctr.RestoreStorageImageID() != nil {
 		if ctr.RestoreStorageImageID() != nil {
 			log.Debugf(ctx, "Restoring from %v", ctr.RestoreStorageImageID())
 			// This is not out-of-process, but it is at least out of the CRI-O codebase; containers/storage uses raw strings.
-			imageMountPoint, err := c.StorageImageServer().GetStore().MountImage(ctr.RestoreStorageImageID().IDStringForOutOfProcessConsumptionOnly(), nil, "")
+			imageMountPoint, err := imageService.GetStore().
+				MountImage(ctr.RestoreStorageImageID().IDStringForOutOfProcessConsumptionOnly(), nil, "")
 			if err != nil {
 				return "", err
 			}
@@ -77,7 +88,8 @@ func (c *ContainerServer) ContainerRestore(
 
 			defer func() {
 				// This is not out-of-process, but it is at least out of the CRI-O codebase; containers/storage uses raw strings.
-				_, err := c.StorageImageServer().GetStore().UnmountImage(ctr.RestoreStorageImageID().IDStringForOutOfProcessConsumptionOnly(), true)
+				_, err := imageService.GetStore().
+					UnmountImage(ctr.RestoreStorageImageID().IDStringForOutOfProcessConsumptionOnly(), true)
 				if err != nil {
 					log.Errorf(ctx, "Failed to unmount checkpoint image: %q", err)
 				}
@@ -107,7 +119,10 @@ func (c *ContainerServer) ContainerRestore(
 				}
 			}
 		} else {
-			if err := crutils.CRImportCheckpointWithoutConfig(ctr.Dir(), ctr.RestoreArchivePath()); err != nil {
+			if err := crutils.CRImportCheckpointWithoutConfig(
+				ctr.Dir(),
+				ctr.RestoreArchivePath(),
+			); err != nil {
 				return "", err
 			}
 		}
@@ -213,7 +228,12 @@ func (c *ContainerServer) ContainerRestore(
 						source.Close()
 					}
 
-					log.Debugf(ctx, "Created missing external bind mount %q %q\n", e.FileType, e.Source)
+					log.Debugf(
+						ctx,
+						"Created missing external bind mount %q %q\n",
+						e.FileType,
+						e.Source,
+					)
 				}
 			}
 		}
@@ -289,7 +309,10 @@ func (c *ContainerServer) ContainerRestore(
 		return "", err
 	}
 
-	if err := ctrSpec.SaveToFile(filepath.Join(ctr.BundlePath(), "config.json"), saveOptions); err != nil {
+	if err := ctrSpec.SaveToFile(
+		filepath.Join(ctr.BundlePath(), "config.json"),
+		saveOptions,
+	); err != nil {
 		return "", err
 	}
 
@@ -313,7 +336,12 @@ func (c *ContainerServer) ContainerRestore(
 		// failed. Starting with the checkpoint directory
 		err = os.RemoveAll(ctr.CheckpointPath())
 		if err != nil {
-			log.Debugf(ctx, "Non-fatal: removal of checkpoint directory (%s) failed: %v", ctr.CheckpointPath(), err)
+			log.Debugf(
+				ctx,
+				"Non-fatal: removal of checkpoint directory (%s) failed: %v",
+				ctr.CheckpointPath(),
+				err,
+			)
 		}
 
 		cleanup := [...]string{

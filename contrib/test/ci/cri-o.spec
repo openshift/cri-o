@@ -21,13 +21,14 @@
 %global provider_prefix %{provider}.%{provider_tld}/%{project}/%{repo}
 %global import_path %{provider_prefix}
 %global git0 https://%{import_path}
-#%%global commit0 ee2e7485ffe9c6d8932ec6acb0adcb7a0a55c253
+# Requires a git checkout; this spec is only used in CI (see line 1).
+%global shortcommit0 %(git rev-parse --short HEAD)
 
 %global service_name crio
 
 Name: %{repo}
-Version: 1.36.5
-Release: 1.ci%{?dist}
+Version: 1.37.2
+Release: 1.ci.git%{shortcommit0}%{?dist}
 Summary: Kubernetes Container Runtime Interface for OCI-based containers
 License: ASL 2.0
 URL: %{git0}
@@ -62,7 +63,6 @@ sed -i 's/install.config: crio.conf/install.config:/' Makefile
 sed -i 's/install.bin: binaries/install.bin:/' Makefile
 sed -i 's/\.gopathok//' Makefile
 sed -i 's/go test/$(GO) test/' Makefile
-sed -i 's/%{version}/%{version}-%{release}/' internal/version/version.go
 sed -i 's/\/local//' contrib/systemd/%{service_name}.service
 
 %build
@@ -75,7 +75,8 @@ popd
 ln -s vendor src
 export GOPATH=$(pwd)/_output:$(pwd)
 export BUILDTAGS="selinux seccomp exclude_graphdriver_btrfs containers_image_ostree_stub containers_image_openpgp"
-make bin/crio bin/pinns
+# Inject the full RPM NVR at link time instead of sed-patching version.go.
+make EXTRA_LDFLAGS="-X github.com/cri-o/cri-o/internal/version.Version=%{version}-%{release}" bin/crio bin/pinns
 
 # build docs
 make GO_MD2MAN=go-md2man docs

@@ -110,7 +110,7 @@ ARCH=$(uname -m)
 ARCH_X86_64=x86_64
 
 IMAGES=(
-    registry.k8s.io/pause:3.10.1
+    registry.k8s.io/pause:3.10.2
     quay.io/crio/fedora-crio-ci:latest
     quay.io/crio/hello-wasm:latest
 )
@@ -130,7 +130,8 @@ function get_img() {
         if ! "$COPYIMG_BINARY" \
             --import-from="$img" \
             --export-to="dir:$dir" \
-            --signature-policy="$INTEGRATION_ROOT"/policy.json; then
+            --signature-policy="$INTEGRATION_ROOT"/policy.json \
+            --retry-attempts=3; then
             echo "Error pulling $img" >&2
             rm -fr "$dir"
             exit 1

@@ -5,7 +5,7 @@ GO_ARCH=$(shell $(GO) env GOARCH)
 GO_BUILD ?= $(GO) build $(TRIMPATH)
 GO_TEST ?= $(GO) test $(TRIMPATH)
 GO_RUN ?= $(GO) run
-NIX_IMAGE ?= nixos/nix:2.33.3
+NIX_IMAGE ?= nixos/nix:2.35.2
 NIX_FLAKE_FLAGS ?= --extra-experimental-features 'nix-command flakes'
 
 PROJECT := github.com/cri-o/cri-o
@@ -50,19 +50,19 @@ GO_MD2MAN ?= ${BUILD_BIN_PATH}/go-md2man
 GINKGO := ${BUILD_BIN_PATH}/ginkgo
 MOCKGEN := ${BUILD_BIN_PATH}/mockgen
 GOLANGCI_LINT := ${BUILD_BIN_PATH}/golangci-lint
-GOLANGCI_LINT_VERSION := v2.10.1
+GOLANGCI_LINT_VERSION := v2.13.2
 GO_MOD_OUTDATED := ${BUILD_BIN_PATH}/go-mod-outdated
 GO_MOD_OUTDATED_VERSION := 0.9.0
 GOSEC := ${BUILD_BIN_PATH}/gosec
-GOSEC_VERSION := 2.24.7
+GOSEC_VERSION := 2.29.0
 MDTOC := ${BUILD_BIN_PATH}/mdtoc
 MDTOC_VERSION := v1.4.0
 RELEASE_NOTES := ${BUILD_BIN_PATH}/release-notes
-RELEASE_NOTES_VERSION := v0.18.0
+RELEASE_NOTES_VERSION := v0.21.1
 ZEITGEIST := ${BUILD_BIN_PATH}/zeitgeist
 ZEITGEIST_VERSION := v0.5.4
 SHFMT := ${BUILD_BIN_PATH}/shfmt
-SHFMT_VERSION := v3.12.0
+SHFMT_VERSION := v3.14.1
 SHELLCHECK := ${BUILD_BIN_PATH}/shellcheck
 SHELLCHECK_VERSION := v0.11.0
 BATS_FILES := $(wildcard test/*.bats)
@@ -166,9 +166,9 @@ $(MDTOC): $(BUILD_BIN_PATH)
 
 $(GOLANGCI_LINT):
 	export VERSION=$(GOLANGCI_LINT_VERSION) \
-		URL=https://raw.githubusercontent.com/golangci/golangci-lint \
+		URL=https://golangci-lint.run \
 		BINDIR=${BUILD_BIN_PATH} && \
-	curl -sSfL $$URL/$$VERSION/install.sh | sh -s $$VERSION
+	curl -sSfL $$URL/install.sh | sh -s $$VERSION
 
 $(SHELLCHECK): $(BUILD_BIN_PATH)
 	URL=https://github.com/koalaman/shellcheck/releases/download/$(SHELLCHECK_VERSION)/shellcheck-$(SHELLCHECK_VERSION).linux.x86_64.tar.xz \
@@ -546,7 +546,7 @@ mock-ociartifact-datastore-types: ${MOCKGEN}
 	${BUILD_BIN_PATH}/mockgen \
 		-package datastoremock \
 		-destination ${MOCK_PATH}/ociartifact/datastore/datastore.go \
-		github.com/cri-o/cri-o/internal/ociartifact/datastore Impl
+		github.com/cri-o/cri-o/internal/ociartifact/datastore Impl,LibartifactStore
 
 .PHONY: mock-systemd
 mock-systemd: ${MOCKGEN}
@@ -574,8 +574,8 @@ docs: $(MANPAGES) ## Build the man pages.
 
 .PHONY: docs-generation
 docs-generation: ## Generate the documentation.
-	bin/crio -d "" --config="" md  > docs/crio.8.md
-	bin/crio -d "" --config="" man > docs/crio.8
+	CONTAINERS_STORAGE_CONF=/dev/null bin/crio -d "" --config="" md  > docs/crio.8.md
+	CONTAINERS_STORAGE_CONF=/dev/null bin/crio -d "" --config="" man > docs/crio.8
 
 .PHONY: prettier
 prettier: ## Prettify supported files.

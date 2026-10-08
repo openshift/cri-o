@@ -11,8 +11,6 @@ import (
 
 	cnitypes "github.com/containernetworking/cni/pkg/types"
 	current "github.com/containernetworking/cni/pkg/types/100"
-	"go.podman.io/storage"
-	"go.podman.io/storage/pkg/idtools"
 	"github.com/cri-o/cri-o/internal/annotations"
 	"github.com/cri-o/cri-o/internal/config/node"
 	"github.com/cri-o/cri-o/internal/config/nsmgr"
@@ -27,7 +25,10 @@ import (
 	"github.com/cri-o/cri-o/utils"
 	json "github.com/json-iterator/go"
 	"github.com/opencontainers/runtime-tools/generate"
+	selinux "github.com/opencontainers/selinux/go-selinux"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/storage"
+	"go.podman.io/storage/pkg/idtools"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	kubeletTypes "k8s.io/kubelet/pkg/types"
 )
@@ -143,7 +144,12 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 	if err != nil {
 		return nil, err
 	}
-	podContainer, err := s.ContainerServer.StorageRuntimeServer().CreatePodSandbox(s.config.SystemContext,
+	runtimeSvc, err := s.ContainerServer.StorageRuntimeServer(sbox)
+	if err != nil {
+		return nil, fmt.Errorf("getting runtime service for sandbox %q: %w", sboxName, err)
+	}
+
+	podContainer, err := runtimeSvc.CreatePodSandbox(s.config.SystemContext,
 		sboxName, sboxId,
 		pauseImage,
 		s.config.PauseImageAuthFile,
@@ -163,7 +169,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 		return nil, fmt.Errorf("creating pod sandbox with name %q: %w", sboxName, err)
 	}
 	resourceCleaner.Add(ctx, "runSandbox: removing pod sandbox from storage: "+sboxId, func() error {
-		return s.ContainerServer.StorageRuntimeServer().DeleteContainer(ctx, sboxId)
+		return runtimeSvc.DeleteContainer(ctx, sboxId)
 	})
 
 	mountLabel := podContainer.MountLabel
@@ -397,12 +403,17 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 
 	s.resourceStore.SetStageForResource(ctx, sboxName, "sandbox storage start")
 
-	mountPoint, err := s.ContainerServer.StorageRuntimeServer().StartContainer(sboxId)
+	runtimeSvcStart, err := s.ContainerServer.StorageRuntimeServer(sbox)
+	if err != nil {
+		return nil, fmt.Errorf("getting runtime service for sandbox %s(%s): %w", sb.Name(), sboxId, err)
+	}
+
+	mountPoint, err := runtimeSvcStart.StartContainer(sboxId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to mount container %s in pod sandbox %s(%s): %w", containerName, sb.Name(), sboxId, err)
 	}
 	resourceCleaner.Add(ctx, "runSandbox: stopping storage container for sandbox "+sboxId, func() error {
-		if err := s.ContainerServer.StorageRuntimeServer().StopContainer(ctx, sboxId); err != nil {
+		if err := runtimeSvcStart.StopContainer(ctx, sboxId); err != nil {
 			return fmt.Errorf("could not stop storage container: %s: %w", sboxId, err)
 		}
 		return nil
@@ -451,7 +462,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 		// If using a kernel separated container runtime, the process label should be set to container_kvm_t
 		// Keep in mind that kata does *not* apply any process label to containers within the VM
 		if podIsKernelSeparated {
-			processLabel, err = KVMLabel(processLabel)
+			processLabel, err = selinux.SetProcessKind(processLabel, selinux.ProcessKindKVM)
 			if err != nil {
 				return nil, err
 			}

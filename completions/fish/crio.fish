@@ -13,7 +13,7 @@ complete -c crio -n '__fish_crio_no_subcommand' -f -l absent-mount-sources-to-re
 complete -c crio -n '__fish_crio_no_subcommand' -f -l add-inheritable-capabilities -d 'Add capabilities to the inheritable set, as well as the default group of permitted, bounding and effective.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l additional-artifact-stores -r -d 'Additional read-only OCI artifact store paths.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l additional-devices -r -d 'Devices to add to the containers.'
-complete -c crio -n '__fish_crio_no_subcommand' -f -l allowed-devices -r -d 'Devices a user is allowed to specify with the "io.kubernetes.cri-o.Devices" allowed annotation.'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l allowed-devices -r -d 'Devices a user is allowed to specify with the "devices.crio.io" allowed annotation.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l apparmor-profile -r -d 'Name of the apparmor profile to be used as the runtime\'s default. This only takes effect if the user does not specify a profile via the Kubernetes Pod\'s metadata annotation.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l auto-reload-registries -d 'If true, CRI-O will automatically reload the mirror registry when there is an update to the \'registries.conf.d\' directory. Default value is set to \'false\'.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l big-files-temporary-dir -r -d 'Path to the temporary directory to use for storing big files, used to store image blobs and data streams related to containers image management.'
@@ -66,7 +66,7 @@ complete -c crio -n '__fish_crio_no_subcommand' -f -l enable-tracing -d 'Enable 
 complete -c crio -n '__fish_crio_no_subcommand' -f -l gid-mappings -r -d 'Specify the GID mappings to use for the user namespace. This option is deprecated, and will be replaced with Kubernetes user namespace (KEP-127) support in the future.'
 complete -c crio -n '__fish_crio_no_subcommand' -l global-auth-file -r -d 'Path to a file like /var/lib/kubelet/config.json holding credentials necessary for pulling images from secure registries.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l grpc-max-recv-msg-size -r -d 'Maximum grpc receive message size in bytes.'
-complete -c crio -n '__fish_crio_no_subcommand' -f -l grpc-max-send-msg-size -r -d 'Maximum grpc receive message size.'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l grpc-max-send-msg-size -r -d 'Maximum grpc send message size in bytes.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l hooks-dir -r -d 'Set the OCI hooks directory path (may be set multiple times)
     If one of the directories does not exist, then CRI-O will automatically
     skip them.
@@ -93,20 +93,9 @@ complete -c crio -n '__fish_crio_no_subcommand' -f -l image-volumes -r -d 'Image
     2. bind: A directory is created inside container state directory and bind
        mounted into the container for the volumes.
 	3. ignore: All volumes are just ignored and no action is taken.'
-complete -c crio -n '__fish_crio_no_subcommand' -l imagestore -r -d 'Store newly pulled images in the specified path, rather than the path provided by --root.'
+complete -c crio -n '__fish_crio_no_subcommand' -l imagestore -r -d 'Store newly pulled images in the specified path, rather than the path provided by --root. Defaults to the value from containers/storage configuration.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l included-pod-metrics -r -d 'A list of pod metrics to include. Specify the names of the metrics to include in this list.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l infra-ctr-cpuset -r -d 'CPU set to run infra containers, if not specified CRI-O will use all online CPUs to run infra containers.'
-complete -c crio -n '__fish_crio_no_subcommand' -f -l insecure-registry -r -d 'Enable insecure registry communication, i.e., enable un-encrypted and/or untrusted communication.
-    This option is deprecated. Please use "insecure" in registries.conf instead.
-    1. List of insecure registries can contain an element with CIDR notation to
-       specify a whole subnet.
-    2. Insecure registries accept HTTP or accept HTTPS with certificates from
-       unknown CAs.
-    3. Enabling \'--insecure-registry\' is useful when running a local registry.
-       However, because its use creates security vulnerabilities, **it should ONLY
-       be enabled for testing purposes**. For increased security, users should add
-       their CA to their system\'s list of trusted CAs instead of using
-       \'--insecure-registry\'.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l internal-repair -d 'If true, CRI-O will check if the container and image storage was corrupted after a sudden restart, and attempt to repair the storage if it was.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l internal-wipe -d 'Whether CRI-O should wipe containers after a reboot and images after an upgrade when the server starts. If set to false, one must run \'crio wipe\' to wipe the containers and images in these situations. This option is deprecated, and will be removed in the future.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l irqbalance-config-file -r -d 'The irqbalance service config file which is used by CRI-O.'
@@ -149,7 +138,7 @@ complete -c crio -n '__fish_crio_no_subcommand' -f -l pause-command -r -d 'Path 
 complete -c crio -n '__fish_crio_no_subcommand' -f -l pause-image -r -d 'Image which contains the pause executable.'
 complete -c crio -n '__fish_crio_no_subcommand' -l pause-image-auth-file -r -d 'Path to a config file containing credentials for --pause-image.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l pids-limit -r -d 'Maximum number of processes allowed in a container. This option is deprecated. The Kubelet flag \'--pod-pids-limit\' should be used instead.'
-complete -c crio -n '__fish_crio_no_subcommand' -f -l pinned-images -r -d 'A list of images that will be excluded from the kubelet\'s garbage collection.'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l pinned-images -r -d 'A list of images and OCI artifacts that will be excluded from the kubelet\'s garbage collection.'
 complete -c crio -n '__fish_crio_no_subcommand' -l pinns-path -r -d 'The path to find the pinns binary, which is needed to manage namespace lifecycle. Will be searched for in $PATH if empty.'
 complete -c crio -n '__fish_crio_no_subcommand' -l privileged-seccomp-profile -r -d 'Enable a seccomp profile for privileged containers from the local path.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l profile -d 'Enable pprof remote profiler on 127.0.0.1:6060.'
@@ -159,8 +148,8 @@ complete -c crio -n '__fish_crio_no_subcommand' -f -l profile-port -r -d 'Port f
 complete -c crio -n '__fish_crio_no_subcommand' -f -l pull-progress-timeout -r -d 'The timeout for an image pull to make progress until the pull operation gets canceled. This value will be also used for calculating the pull progress interval to --pull-progress-timeout / 10. Can be set to 0 to disable the timeout as well as the progress output.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l rdt-config-file -r -d 'Path to the RDT configuration file for configuring the resctrl pseudo-filesystem.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l read-only -d 'Setup all unprivileged containers to run as read-only. Automatically mounts the containers\' tmpfs on \'/run\', \'/tmp\' and \'/var/tmp\'.'
-complete -c crio -n '__fish_crio_no_subcommand' -l root -s r -r -d 'The CRI-O root directory.'
-complete -c crio -n '__fish_crio_no_subcommand' -l runroot -r -d 'The CRI-O state directory.'
+complete -c crio -n '__fish_crio_no_subcommand' -l root -s r -r -d 'The CRI-O root directory. Defaults to the value from containers/storage configuration.'
+complete -c crio -n '__fish_crio_no_subcommand' -l runroot -r -d 'The CRI-O state directory. Defaults to the value from containers/storage configuration.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l runtimes -r -d 'OCI runtimes, format is \'runtime_name:runtime_path:runtime_root:runtime_type:privileged_without_host_devices:runtime_config_path:container_min_memory\'.'
 complete -c crio -n '__fish_crio_no_subcommand' -l seccomp-profile -r -d 'Path to the seccomp.json profile to be used as the runtime\'s default. If not specified, then the internal default seccomp profile will be used.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l selinux -d 'Enable selinux support. This option is deprecated, and be interpreted from whether SELinux is enabled on the host in the future.'
@@ -170,8 +159,8 @@ complete -c crio -n '__fish_crio_no_subcommand' -f -l short-name-mode -r -d 'Des
 complete -c crio -n '__fish_crio_no_subcommand' -l signature-policy -r -d 'Path to signature policy JSON file.'
 complete -c crio -n '__fish_crio_no_subcommand' -l signature-policy-dir -r -d 'Path to the root directory for namespaced signature policies. Must be an absolute path.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l stats-collection-period -r -d 'The number of seconds between collecting pod and container stats. If set to 0, the stats are collected on-demand instead. DEPRECATED: This option will be removed in the future.'
-complete -c crio -n '__fish_crio_no_subcommand' -f -l storage-driver -s s -r -d 'OCI storage driver.'
-complete -c crio -n '__fish_crio_no_subcommand' -f -l storage-opt -r -d 'OCI storage driver option.'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l storage-driver -s s -r -d 'OCI storage driver. Defaults to the value from containers/storage configuration.'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l storage-opt -r -d 'OCI storage driver option. Defaults to the value from containers/storage configuration.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l stream-address -r -d 'Bind address for streaming socket.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l stream-enable-tls -d 'Enable encrypted TLS transport of the stream server.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l stream-idle-timeout -r -d 'Length of time until open streams terminate due to lack of activity.'

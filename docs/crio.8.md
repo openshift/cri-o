@@ -67,7 +67,6 @@ crio
 [--imagestore]=[value]
 [--included-pod-metrics]=[value]
 [--infra-ctr-cpuset]=[value]
-[--insecure-registry]=[value]
 [--internal-repair]
 [--internal-wipe]
 [--irqbalance-config-file]=[value]
@@ -183,7 +182,7 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 
 **--additional-devices**="": Devices to add to the containers.
 
-**--allowed-devices**="": Devices a user is allowed to specify with the "io.kubernetes.cri-o.Devices" allowed annotation. (default: "/dev/fuse", "/dev/net/tun")
+**--allowed-devices**="": Devices a user is allowed to specify with the "devices.crio.io" allowed annotation. (default: "/dev/fuse", "/dev/net/tun")
 
 **--apparmor-profile**="": Name of the apparmor profile to be used as the runtime's default. This only takes effect if the user does not specify a profile via the Kubernetes Pod's metadata annotation. (default: "crio-default")
 
@@ -278,9 +277,9 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 
 **--global-auth-file**="": Path to a file like /var/lib/kubelet/config.json holding credentials necessary for pulling images from secure registries.
 
-**--grpc-max-recv-msg-size**="": Maximum grpc receive message size in bytes. (default: 83886080)
+**--grpc-max-recv-msg-size**="": Maximum grpc receive message size in bytes. (default: 16777216)
 
-**--grpc-max-send-msg-size**="": Maximum grpc receive message size. (default: 83886080)
+**--grpc-max-send-msg-size**="": Maximum grpc send message size in bytes. (default: 16777216)
 
 **--help, -h**: show help
 
@@ -313,23 +312,11 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
        mounted into the container for the volumes.
 	3. ignore: All volumes are just ignored and no action is taken. (default: "mkdir")
 
-**--imagestore**="": Store newly pulled images in the specified path, rather than the path provided by --root.
+**--imagestore**="": Store newly pulled images in the specified path, rather than the path provided by --root. Defaults to the value from containers/storage configuration.
 
 **--included-pod-metrics**="": A list of pod metrics to include. Specify the names of the metrics to include in this list.
 
 **--infra-ctr-cpuset**="": CPU set to run infra containers, if not specified CRI-O will use all online CPUs to run infra containers.
-
-**--insecure-registry**="": Enable insecure registry communication, i.e., enable un-encrypted and/or untrusted communication.
-    This option is deprecated. Please use "insecure" in registries.conf instead.
-    1. List of insecure registries can contain an element with CIDR notation to
-       specify a whole subnet.
-    2. Insecure registries accept HTTP or accept HTTPS with certificates from
-       unknown CAs.
-    3. Enabling '--insecure-registry' is useful when running a local registry.
-       However, because its use creates security vulnerabilities, **it should ONLY
-       be enabled for testing purposes**. For increased security, users should add
-       their CA to their system's list of trusted CAs instead of using
-       '--insecure-registry'.
 
 **--internal-repair**: If true, CRI-O will check if the container and image storage was corrupted after a sudden restart, and attempt to repair the storage if it was.
 
@@ -409,13 +396,13 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 
 **--pause-command**="": Path to the pause executable in the pause image. (default: "/pause")
 
-**--pause-image**="": Image which contains the pause executable. (default: "registry.k8s.io/pause:3.10.1")
+**--pause-image**="": Image which contains the pause executable. (default: "registry.k8s.io/pause:3.10.2")
 
 **--pause-image-auth-file**="": Path to a config file containing credentials for --pause-image.
 
 **--pids-limit**="": Maximum number of processes allowed in a container. This option is deprecated. The Kubelet flag '--pod-pids-limit' should be used instead. (default: -1)
 
-**--pinned-images**="": A list of images that will be excluded from the kubelet's garbage collection.
+**--pinned-images**="": A list of images and OCI artifacts that will be excluded from the kubelet's garbage collection.
 
 **--pinns-path**="": The path to find the pinns binary, which is needed to manage namespace lifecycle. Will be searched for in $PATH if empty.
 
@@ -435,9 +422,9 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 
 **--read-only**: Setup all unprivileged containers to run as read-only. Automatically mounts the containers' tmpfs on '/run', '/tmp' and '/var/tmp'.
 
-**--root, -r**="": The CRI-O root directory. (default: "/var/lib/containers/storage")
+**--root, -r**="": The CRI-O root directory. Defaults to the value from containers/storage configuration.
 
-**--runroot**="": The CRI-O state directory. (default: "/run/containers/storage")
+**--runroot**="": The CRI-O state directory. Defaults to the value from containers/storage configuration.
 
 **--runtimes**="": OCI runtimes, format is 'runtime_name:runtime_path:runtime_root:runtime_type:privileged_without_host_devices:runtime_config_path:container_min_memory'.
 
@@ -457,9 +444,9 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 
 **--stats-collection-period**="": The number of seconds between collecting pod and container stats. If set to 0, the stats are collected on-demand instead. DEPRECATED: This option will be removed in the future. (default: 0)
 
-**--storage-driver, -s**="": OCI storage driver.
+**--storage-driver, -s**="": OCI storage driver. Defaults to the value from containers/storage configuration.
 
-**--storage-opt**="": OCI storage driver option.
+**--storage-opt**="": OCI storage driver option. Defaults to the value from containers/storage configuration.
 
 **--stream-address**="": Bind address for streaming socket. (default: "127.0.0.1")
 

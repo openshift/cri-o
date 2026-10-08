@@ -42,7 +42,14 @@ ssh_user: "{{ lookup('env','USER') }}"
 ssh_location: "{{ lookup('env','HOME') }}/.ssh/id_rsa"
 
 # variables for testing with the kata-containers runtime
-kata_version: "3.6.0"
+kata_version: "3.31.0"
+# sha256 sourced from the GitHub release attestation — decode the
+# base64 payload and look up kata-static-<version>-amd64.tar.zst:
+# https://github.com/kata-containers/kata-containers/attestations/28048664/download
+kata_amd64_checksum: "sha256:68c2786a0b97023f62f3eca02dc868b78a794e5469d4ddd6cc9e0bd4a7212b0b"
+int_test_timeout: "{{ 120 * 60 }}"
+podvm_image: "quay.io/confidential-containers/podvm-generic-ubuntu-amd64:v0.18.0"
+caa_image: "quay.io/confidential-containers/cloud-api-adaptor:v0.18.0-dev"
 
 kata_skip_files:
   - "apparmor.bats"
@@ -186,5 +193,5 @@ kata_skip_annotation_migration_tests:
   - 'test "v1 umask annotation should still work"'
   - 'test "v2 unified-cgroup annotation for specific container with slash separator should work"'
 
-runc_git_version: v1.4.3
-crun_git_version: 1.23.1
+runc_git_version: v1.5.1
+crun_git_version: 1.29.1

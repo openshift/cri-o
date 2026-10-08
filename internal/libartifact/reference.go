@@ -1,8 +1,9 @@
 package libartifact
 
 import (
-	"github.com/cri-o/cri-o/internal/libartifact/types"
 	"go.podman.io/image/v5/docker/reference"
+
+	"github.com/cri-o/cri-o/internal/libartifact/types"
 )
 
 // ArtifactReference is a fully qualified oci reference except for tag, where we add
@@ -34,6 +35,7 @@ func (ar ArtifactReference) ToArtifactStoreReference() ArtifactStoreReference {
 	afr := ArtifactStoreReference{
 		ref: &ar.ref,
 	}
+
 	return afr
 }
 
@@ -43,6 +45,7 @@ func NewArtifactReference(input string) (ArtifactReference, error) {
 	if err != nil {
 		return ArtifactReference{}, err
 	}
+
 	return ArtifactReference{ref: named}, nil
 }
 
@@ -52,6 +55,7 @@ func stringToNamed(s string) (reference.Named, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	_, isTagged := named.(reference.NamedTagged)
 	_, isDigested := named.(reference.Digested)
 

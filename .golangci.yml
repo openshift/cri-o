@@ -43,7 +43,7 @@ linters:
     - godot
     - goheader
     - gomoddirectives
-    - gomodguard
+    - gomodguard_v2
     - goprintffuncname
     - gosmopolitan
     - govet
@@ -72,6 +72,7 @@ linters:
     - reassign
     - recvcheck
     - revive
+    - sloglint
     - rowserrcheck
     - spancheck
     - staticcheck
@@ -86,8 +87,10 @@ linters:
     - usestdlibvars
     - usetesting
     - wastedassign
+    - whitespace
     - wsl_v5
     - zerologlint
+    # - clickhouselint
     # - containedctx
     # - contextcheck
     # - cyclop
@@ -95,7 +98,7 @@ linters:
     # - err113
     # - errname
     # - exhaustive
-    # - exhaustruct
+    # - exhaustruct_v5
     # - forbidigo
     # - funcorder
     # - funlen
@@ -117,13 +120,11 @@ linters:
     # - noinlineerr
     # - nonamedreturns
     # - paralleltest
-    # - sloglint
     # - sqlclosecheck
     # - tagliatelle
     # - testpackage
     # - thelper
     # - varnamelen
-    # - whitespace
     # - wrapcheck
   settings:
     errcheck:
@@ -131,8 +132,23 @@ linters:
       check-blank: true
     goconst:
       min-occurrences: 6
+      ignore-string-values:
+        - bind
+        - tmpfs
+        - cgroup
+        - nodev
+        - nosuid
+        - noexec
+        - rbind
+        - /sys
     gocritic:
       enable-all: true
+    gomoddirectives:
+      replace-allow-list:
+        - github.com/cyphar/filepath-securejoin
+        - go.podman.io/common
+        - go.podman.io/image/v5
+        - go.podman.io/storage
     gocyclo:
       min-complexity: 60
     nakedret:
@@ -152,11 +168,22 @@ linters:
     presets:
       - comments
       - std-error-handling
+    rules:
+      # Keep these carried implementations aligned with container-libs.
+      - path: internal/libartifact/
+        linters:
+          - gocritic
+      - path: _test\.go
+        linters:
+          - goconst
 formatters:
   enable:
     - gci
+    - gofmt
     - gofumpt
     - goimports
+    - golines
+    - swaggo
   settings:
     gci:
       sections:

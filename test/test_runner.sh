@@ -43,13 +43,20 @@ if [[ "$RUN_CRITEST" == "1" ]]; then
 fi
 
 # The number of parallel jobs to execute tests
-export JOBS=${JOBS:-$(nproc --all)}
+export JOBS=${JOBS:-$(($(nproc --all) * 2))}
 # The maximum number of additional attempts that will be made on a failed test before it is finally considered failed.
 # https://bats-core.readthedocs.io/en/stable/writing-tests.html#special-variables
 export BATS_TEST_RETRIES=1
 
 bats --version
 
+# The --allow-empty-suite flag got introduced in bats v1.14.0, while the CI
+# machine images may still ship an older version.
+BATS_ARGS=()
+if bats --help 2>&1 | grep -qF -- --allow-empty-suite; then
+    BATS_ARGS+=(--allow-empty-suite)
+fi
+
 # Run the tests.
-execute bats --jobs "$JOBS" --tap "${TESTS[@]}" --filter-tags '!crio:serial'
-execute bats --tap "${TESTS[@]}" --filter-tags 'crio:serial'
+execute bats --jobs "$JOBS" --tap "${BATS_ARGS[@]}" "${TESTS[@]}" --filter-tags '!crio:serial'
+execute bats --tap "${BATS_ARGS[@]}" "${TESTS[@]}" --filter-tags 'crio:serial'

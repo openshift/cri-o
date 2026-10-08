@@ -57,7 +57,6 @@ var (
 		"network_dir":             "cni-config-dir",
 		"plugin_dir":              "cni-plugin-dir",
 		"plugin_dirs":             "cni-plugin-dir",
-		"insecure_registries":     "insecure-registry",
 		"log_to_journald":         "log-journald",
 		"storage_option":          "storage-opt",
 		"container_level_enabled": "checkpoint-restore-level",
@@ -290,7 +289,7 @@ func recursiveEntries(
 				switch {
 				case field.Type.Implements(reflect.TypeFor[stringer]()):
 					// We need a checked type assertion to make golangci-lint happy...
-					if str, ok := vv.MethodByName("String").Interface().(func() string); ok {
+					if str, ok := reflect.TypeAssert[func() string](vv.MethodByName("String")); ok {
 						// if the field is a pointer and nil, skip validation
 						if vv.Kind() == reflect.Pointer && vv.IsNil() {
 							break

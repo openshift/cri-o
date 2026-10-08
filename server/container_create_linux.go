@@ -15,7 +15,6 @@ import (
 	"github.com/intel/goresctrl/pkg/blockio"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
-	libartTypes "github.com/cri-o/cri-o/internal/libartifact/types"
 	"go.podman.io/storage/pkg/idtools"
 	"go.podman.io/storage/pkg/mount"
 	"golang.org/x/sys/unix"
@@ -25,7 +24,9 @@ import (
 	"github.com/cri-o/cri-o/internal/config/device"
 	"github.com/cri-o/cri-o/internal/config/node"
 	ctrfactory "github.com/cri-o/cri-o/internal/factory/container"
+	"github.com/cri-o/cri-o/internal/lib"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
+	libartTypes "github.com/cri-o/cri-o/internal/libartifact/types"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/internal/ociartifact"
@@ -39,7 +40,12 @@ const (
 )
 
 // createContainerPlatform performs platform dependent intermediate steps before calling the container's oci.Runtime().CreateContainer().
-func (s *Server) createContainerPlatform(ctx context.Context, container *oci.Container, cgroupParent string, idMappings *idtools.IDMappings) error {
+func (s *Server) createContainerPlatform(
+	ctx context.Context,
+	container *oci.Container,
+	cgroupParent string,
+	idMappings *idtools.IDMappings,
+) error {
 	ctx, span := log.StartSpan(ctx)
 	defer span.End()
 
@@ -47,7 +53,13 @@ func (s *Server) createContainerPlatform(ctx context.Context, container *oci.Con
 		rootPair := idMappings.RootPair()
 		for _, path := range []string{container.BundlePath(), container.MountPoint()} {
 			if err := makeAccessible(path, rootPair.UID, rootPair.GID); err != nil {
-				return fmt.Errorf("cannot make %s accessible to %d:%d: %w", path, rootPair.UID, rootPair.GID, err)
+				return fmt.Errorf(
+					"cannot make %s accessible to %d:%d: %w",
+					path,
+					rootPair.UID,
+					rootPair.GID,
+					err,
+				)
 			}
 		}
 	}
@@ -56,7 +68,11 @@ func (s *Server) createContainerPlatform(ctx context.Context, container *oci.Con
 }
 
 // finalizeUserMapping changes the UID, GID and additional GIDs to reflect the new value in the user namespace.
-func (s *Server) finalizeUserMapping(sb *sandbox.Sandbox, specgen *generate.Generator, mappings *idtools.IDMappings) {
+func (s *Server) finalizeUserMapping(
+	sb *sandbox.Sandbox,
+	specgen *generate.Generator,
+	mappings *idtools.IDMappings,
+) {
 	if mappings == nil {
 		return
 	}
@@ -82,7 +98,9 @@ func (s *Server) finalizeUserMapping(sb *sandbox.Sandbox, specgen *generate.Gene
 
 // this function takes a container config and makes sure its SecurityContext
 // is not nil. If it is, it makes sure to set default values for every field.
-func setContainerConfigSecurityContext(containerConfig *types.ContainerConfig) *types.LinuxContainerSecurityContext {
+func setContainerConfigSecurityContext(
+	containerConfig *types.ContainerConfig,
+) *types.LinuxContainerSecurityContext {
 	if containerConfig.GetLinux() == nil {
 		containerConfig.Linux = &types.LinuxContainerConfig{}
 	}
@@ -148,7 +166,13 @@ func clearReadOnly(m *rspec.Mount) {
 	m.Options = append(m.Options, "rw")
 }
 
-func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container, ctrInfo *storage.ContainerInfo, maybeRelabel, skipRelabel, cgroup2RW, idMapSupport, rroSupport bool) ([]oci.ContainerVolume, []rspec.Mount, []*safeMountInfo, error) {
+func (s *Server) addOCIBindMounts(
+	ctx context.Context,
+	ctr ctrfactory.Container,
+	ctrInfo *storage.ContainerInfo,
+	maybeRelabel, skipRelabel, cgroup2RW, idMapSupport, rroSupport bool,
+	sb *sandbox.Sandbox,
+) ([]oci.ContainerVolume, []rspec.Mount, []*safeMountInfo, error) {
 	ctx, span := log.StartSpan(ctx)
 	defer span.End()
 
@@ -215,7 +239,14 @@ func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container,
 		if m.GetImage().GetImage() != "" {
 			if s.config.OCIArtifactMountSupport {
 				// Try mountArtifact first, and fall back to mountImage if it fails with ErrNotFound
-				artifactVolumes, err := s.mountArtifact(ctx, specgen, m, ctrInfo.MountLabel, skipRelabel, maybeRelabel)
+				artifactVolumes, err := s.mountArtifact(
+					ctx,
+					specgen,
+					m,
+					ctrInfo.MountLabel,
+					skipRelabel,
+					maybeRelabel,
+				)
 				if err == nil {
 					volumes = append(volumes, artifactVolumes...)
 
@@ -224,15 +255,30 @@ func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container,
 
 				// Don't fall back to an image mount if we encounter an error other than ociartifact.ErrNotFound
 				if !errors.Is(err, ociartifact.ErrNotFound) {
-					return nil, nil, nil, fmt.Errorf("%w: %w", crierrors.ErrImageVolumeMountFailed, err)
+					return nil, nil, nil, fmt.Errorf(
+						"%w: %w",
+						crierrors.ErrImageVolumeMountFailed,
+						err,
+					)
 				}
 
 				log.Warnf(ctx, "Artifact mount failed, falling back to image mount: %v", err)
 			} else {
-				log.Debugf(ctx, "Skipping artifact mount because OCI artifact mount support is disabled")
+				log.Debugf(
+					ctx,
+					"Skipping artifact mount because OCI artifact mount support is disabled",
+				)
 			}
 
-			volume, safeMount, err := s.mountImage(ctx, specgen, imageVolumesPath, m, ctrInfo.RunDir, namespace)
+			volume, safeMount, err := s.mountImage(
+				ctx,
+				specgen,
+				imageVolumesPath,
+				m,
+				ctrInfo.RunDir,
+				namespace,
+				sb,
+			)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("%w: %w", crierrors.ErrImageVolumeMountFailed, err)
 			}
@@ -248,11 +294,19 @@ func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container,
 		}
 
 		if m.GetHostPath() == "/" && dest == "/" {
-			log.Warnf(ctx, "Configuration specifies mounting host root to the container root.  This is dangerous (especially with privileged containers) and should be avoided.")
+			log.Warnf(
+				ctx,
+				"Configuration specifies mounting host root to the container root.  This is dangerous (especially with privileged containers) and should be avoided.",
+			)
 		}
 
-		if isSubDirectoryOf(s.config.Root, m.GetHostPath()) && m.GetPropagation() == types.MountPropagation_PROPAGATION_PRIVATE {
-			log.Infof(ctx, "Mount propogration for the host path %s will be set to HostToContainer as it includes the container storage root", m.GetHostPath())
+		if isSubDirectoryOf(s.config.Root, m.GetHostPath()) &&
+			m.GetPropagation() == types.MountPropagation_PROPAGATION_PRIVATE {
+			log.Infof(
+				ctx,
+				"Mount propogration for the host path %s will be set to HostToContainer as it includes the container storage root",
+				m.GetHostPath(),
+			)
 			m.Propagation = types.MountPropagation_PROPAGATION_HOST_TO_CONTAINER
 		}
 
@@ -270,6 +324,8 @@ func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container,
 			originalSrc := filepath.Join(s.config.BindMountPrefix, m.GetHostPath())
 			for _, toReject := range s.config.AbsentMountSourcesToReject {
 				if originalSrc == toReject || src == toReject {
+					// special-case /etc/hostname, as we don't want it to be created as a directory
+					// This can cause issues with node reboot.
 					return nil, nil, nil, fmt.Errorf(
 						"cannot mount %s: path does not exist and will cause issues as a directory",
 						toReject,
@@ -342,7 +398,8 @@ func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container,
 			if m.GetPropagation() != types.MountPropagation_PROPAGATION_PRIVATE {
 				return nil, nil, nil, fmt.Errorf(
 					"recursive read-only mount requires private propagation for hostPath %q, got: %s",
-					m.GetHostPath(), m.GetPropagation(),
+					m.GetHostPath(),
+					m.GetPropagation(),
 				)
 			}
 
@@ -360,7 +417,11 @@ func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container,
 
 		if m.GetSelinuxRelabel() {
 			if skipRelabel {
-				log.Debugf(ctx, "Skipping relabel for %s because of super privileged container (type: spc_t)", src)
+				log.Debugf(
+					ctx,
+					"Skipping relabel for %s because of super privileged container (type: spc_t)",
+					src,
+				)
 			} else if err := securityLabel(src, ctrInfo.MountLabel, false, maybeRelabel); err != nil {
 				return nil, nil, nil, err
 			}
@@ -378,11 +439,13 @@ func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container,
 			Image:             m.GetImage(),
 		})
 
-		uidMappings := getOCIMappings(m.GetUidMappings())
-		gidMappings := getOCIMappings(m.GetGidMappings())
+		uidMappings := lib.ConvertCRIToOCIMappings(m.GetUidMappings())
+		gidMappings := lib.ConvertCRIToOCIMappings(m.GetGidMappings())
 
 		if (uidMappings != nil || gidMappings != nil) && !idMapSupport {
-			return nil, nil, nil, errors.New("idmap mounts specified but OCI runtime does not support them. Perhaps the OCI runtime is too old")
+			return nil, nil, nil, errors.New(
+				"idmap mounts specified but OCI runtime does not support them. Perhaps the OCI runtime is too old",
+			)
 		}
 
 		ociMounts = append(ociMounts, rspec.Mount{
@@ -415,7 +478,13 @@ func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container,
 }
 
 // mountArtifact binds artifact blobs to the container filesystem based on the provided mount configuration.
-func (s *Server) mountArtifact(ctx context.Context, specgen *generate.Generator, m *types.Mount, mountLabel string, isSPC, maybeRelabel bool) ([]oci.ContainerVolume, error) {
+func (s *Server) mountArtifact(
+	ctx context.Context,
+	specgen *generate.Generator,
+	m *types.Mount,
+	mountLabel string,
+	isSPC, maybeRelabel bool,
+) ([]oci.ContainerVolume, error) {
 	artifact, err := s.ArtifactStore().Status(ctx, m.GetImage().GetImage())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get artifact status: %w", err)
@@ -431,11 +500,19 @@ func (s *Server) mountArtifact(ctx context.Context, specgen *generate.Generator,
 	selinuxRelabel := true
 
 	if !m.GetSelinuxRelabel() {
-		log.Debugf(ctx, "Skipping relabel for %s because kubelet did not request it", m.GetImage().GetImage())
+		log.Debugf(
+			ctx,
+			"Skipping relabel for %s because kubelet did not request it",
+			m.GetImage().GetImage(),
+		)
 
 		selinuxRelabel = false
 	} else if isSPC {
-		log.Debugf(ctx, "Skipping relabel for %s because of super privileged container (type: spc_t)", m.GetImage().GetImage())
+		log.Debugf(
+			ctx,
+			"Skipping relabel for %s because of super privileged container (type: spc_t)",
+			m.GetImage().GetImage(),
+		)
 
 		selinuxRelabel = false
 	}
@@ -449,7 +526,12 @@ func (s *Server) mountArtifact(ctx context.Context, specgen *generate.Generator,
 	for _, path := range paths {
 		dest, err := securejoin.SecureJoin(m.GetContainerPath(), path.Name)
 		if err != nil {
-			return nil, fmt.Errorf("failed to join container path %q and artifact blob path %q: %w", m.GetContainerPath(), path.Name, err)
+			return nil, fmt.Errorf(
+				"failed to join container path %q and artifact blob path %q: %w",
+				m.GetContainerPath(),
+				path.Name,
+				err,
+			)
 		}
 
 		if selinuxRelabel {
@@ -473,15 +555,19 @@ func (s *Server) mountArtifact(ctx context.Context, specgen *generate.Generator,
 			Source:      path.SourcePath,
 			Destination: dest,
 			Options:     options,
-			UIDMappings: getOCIMappings(m.GetUidMappings()),
-			GIDMappings: getOCIMappings(m.GetGidMappings()),
+			UIDMappings: lib.ConvertCRIToOCIMappings(m.GetUidMappings()),
+			GIDMappings: lib.ConvertCRIToOCIMappings(m.GetGidMappings()),
 		})
 	}
 
 	return volumes, nil
 }
 
-func FilterMountPathsBySubPath(ctx context.Context, artifact, subPath string, paths []libartTypes.BlobMountPath) (filteredPaths []libartTypes.BlobMountPath, err error) {
+func FilterMountPathsBySubPath(
+	ctx context.Context,
+	artifact, subPath string,
+	paths []libartTypes.BlobMountPath,
+) (filteredPaths []libartTypes.BlobMountPath, err error) {
 	if subPath == "" || subPath == "." {
 		return paths, nil
 	}
@@ -491,31 +577,63 @@ func FilterMountPathsBySubPath(ctx context.Context, artifact, subPath string, pa
 	if !slices.ContainsFunc(paths, func(val libartTypes.BlobMountPath) bool {
 		return strings.HasPrefix(val.Name, cleanSubPath)
 	}) {
-		return nil, fmt.Errorf("%w: sub path %q does not exist in OCI artifact volume %q", crierrors.ErrImageVolumeMountFailed, subPath, artifact)
+		return nil, fmt.Errorf(
+			"%w: sub path %q does not exist in OCI artifact volume %q",
+			crierrors.ErrImageVolumeMountFailed,
+			subPath,
+			artifact,
+		)
 	}
 
 	for _, path := range paths {
 		if !strings.HasPrefix(path.Name, cleanSubPath) {
-			log.Debugf(ctx, "Skipping to mount artifact path %q because it's not a sub path of %q", path.Name, subPath)
+			log.Debugf(
+				ctx,
+				"Skipping to mount artifact path %q because it's not a sub path of %q",
+				path.Name,
+				subPath,
+			)
 
 			continue
 		}
 
 		newPath := strings.TrimPrefix(path.Name, cleanSubPath)
-		log.Debugf(ctx, "Modifying artifact mount path from %q to %q because of user specified sub path %q", path.Name, newPath, cleanSubPath)
-		filteredPaths = append(filteredPaths, libartTypes.BlobMountPath{Name: newPath, SourcePath: path.SourcePath})
+		log.Debugf(
+			ctx,
+			"Modifying artifact mount path from %q to %q because of user specified sub path %q",
+			path.Name,
+			newPath,
+			cleanSubPath,
+		)
+		filteredPaths = append(
+			filteredPaths,
+			libartTypes.BlobMountPath{Name: newPath, SourcePath: path.SourcePath},
+		)
 	}
 
 	return filteredPaths, nil
 }
 
 // mountImage adds required image mounts to the provided spec generator and returns a corresponding ContainerVolume.
-func (s *Server) mountImage(ctx context.Context, specgen *generate.Generator, imageVolumesPath string, m *types.Mount, runDir, namespace string) (*oci.ContainerVolume, *safeMountInfo, error) {
-	if m == nil || m.GetImage() == nil || m.GetImage().GetImage() == "" || m.GetContainerPath() == "" {
+func (s *Server) mountImage(
+	ctx context.Context,
+	specgen *generate.Generator,
+	imageVolumesPath string,
+	m *types.Mount,
+	runDir, namespace string,
+	sb *sandbox.Sandbox,
+) (*oci.ContainerVolume, *safeMountInfo, error) {
+	if m == nil || m.GetImage() == nil || m.GetImage().GetImage() == "" ||
+		m.GetContainerPath() == "" {
 		return nil, nil, fmt.Errorf("invalid mount specified: %+v", m)
 	}
 
-	log.Debugf(ctx, "Image ref to mount under sub path %q: %s", m.GetImageSubPath(), m.GetImage().GetImage())
+	log.Debugf(
+		ctx,
+		"Image ref to mount under sub path %q: %s",
+		m.GetImageSubPath(),
+		m.GetImage().GetImage(),
+	)
 
 	status, err := s.storageImageStatus(ctx, &types.ImageSpec{Image: m.GetImage().GetImage()})
 	if err != nil {
@@ -531,7 +649,13 @@ func (s *Server) mountImage(ctx context.Context, specgen *generate.Generator, im
 	imageID := status.ID.IDStringForOutOfProcessConsumptionOnly()
 
 	// Check the signature of the image
-	if err := s.verifyImageSignature(ctx, namespace, m.GetImage().GetUserSpecifiedImage(), status); err != nil {
+	if err := s.verifyImageSignature(
+		ctx,
+		namespace,
+		m.GetImage().GetUserSpecifiedImage(),
+		status,
+		sb,
+	); err != nil {
 		return nil, nil, err
 	}
 
@@ -554,7 +678,11 @@ func (s *Server) mountImage(ctx context.Context, specgen *generate.Generator, im
 		if err != nil {
 			if errors.Is(err, unix.ENOENT) {
 				// This is a user-facing error message from a kubelet event, means we should make it as meaningful as possible.
-				return nil, nil, fmt.Errorf("sub path %q does not exist in image volume %q", m.GetImageSubPath(), m.GetImage().GetImage())
+				return nil, nil, fmt.Errorf(
+					"sub path %q does not exist in image volume %q",
+					m.GetImageSubPath(),
+					m.GetImage().GetImage(),
+				)
 			}
 
 			return nil, nil, fmt.Errorf("safe mount sub path: %w", err)
@@ -573,8 +701,8 @@ func (s *Server) mountImage(ctx context.Context, specgen *generate.Generator, im
 		Options: []string{
 			"lowerdir=" + mountPoint + ":" + imageVolumesPath,
 		},
-		UIDMappings: getOCIMappings(m.GetUidMappings()),
-		GIDMappings: getOCIMappings(m.GetGidMappings()),
+		UIDMappings: lib.ConvertCRIToOCIMappings(m.GetUidMappings()),
+		GIDMappings: lib.ConvertCRIToOCIMappings(m.GetGidMappings()),
 	})
 	log.Debugf(ctx, "Added overlay mount from %s to %s", mountPoint, imageVolumesPath)
 
@@ -589,7 +717,10 @@ func (s *Server) mountImage(ctx context.Context, specgen *generate.Generator, im
 	}, safeMount, nil
 }
 
-func (s *Server) ensureImageVolumesPath(ctx context.Context, mounts []*types.Mount) (string, error) {
+func (s *Server) ensureImageVolumesPath(
+	ctx context.Context,
+	mounts []*types.Mount,
+) (string, error) {
 	// Check if we need to anything at all
 	if !slices.ContainsFunc(mounts, func(m *types.Mount) bool {
 		if m.GetImage() != nil && m.GetImage().GetImage() != "" {
@@ -601,7 +732,10 @@ func (s *Server) ensureImageVolumesPath(ctx context.Context, mounts []*types.Mou
 		return "", nil
 	}
 
-	imageVolumesPath := filepath.Join(filepath.Dir(s.ContainerServer.Config().ContainerExitsDir), "image-volumes")
+	imageVolumesPath := filepath.Join(
+		filepath.Dir(s.ContainerServer.Config().ContainerExitsDir),
+		"image-volumes",
+	)
 	log.Debugf(ctx, "Using image volumes path: %s", imageVolumesPath)
 
 	if err := os.MkdirAll(imageVolumesPath, 0o700); err != nil {
@@ -615,7 +749,11 @@ func (s *Server) ensureImageVolumesPath(ctx context.Context, mounts []*types.Mou
 
 	_, readErr := f.ReadDir(1)
 	if readErr != nil && !errors.Is(readErr, io.EOF) {
-		return "", fmt.Errorf("unable to read dir names of image volumes path %s: %w", imageVolumesPath, readErr)
+		return "", fmt.Errorf(
+			"unable to read dir names of image volumes path %s: %w",
+			imageVolumesPath,
+			readErr,
+		)
 	}
 
 	if readErr == nil {
@@ -623,23 +761,6 @@ func (s *Server) ensureImageVolumesPath(ctx context.Context, mounts []*types.Mou
 	}
 
 	return imageVolumesPath, nil
-}
-
-func getOCIMappings(m []*types.IDMapping) []rspec.LinuxIDMapping {
-	if len(m) == 0 {
-		return nil
-	}
-
-	ids := make([]rspec.LinuxIDMapping, 0, len(m))
-	for _, m := range m {
-		ids = append(ids, rspec.LinuxIDMapping{
-			ContainerID: m.GetContainerId(),
-			HostID:      m.GetHostId(),
-			Size:        m.GetLength(),
-		})
-	}
-
-	return ids
 }
 
 // mountExists returns true if dest exists in the list of mounts.
@@ -719,7 +840,8 @@ func setupSystemdMounts(g *generate.Generator) {
 
 func hasCgroupMount(mounts []rspec.Mount) bool {
 	for _, m := range mounts {
-		if (m.Destination == cgroupSysFsPath || m.Destination == "/sys/fs" || m.Destination == "/sys") && isBindMount(m.Options) {
+		if (m.Destination == cgroupSysFsPath || m.Destination == "/sys/fs" || m.Destination == "/sys") &&
+			isBindMount(m.Options) {
 			return true
 		}
 	}
@@ -777,7 +899,10 @@ func isSubDirectoryOf(base, target string) bool {
 }
 
 // Returns the spec Generator for the container, with some values set.
-func (s *Server) getSpecGen(ctr ctrfactory.Container, containerConfig *types.ContainerConfig) *generate.Generator {
+func (s *Server) getSpecGen(
+	ctr ctrfactory.Container,
+	containerConfig *types.ContainerConfig,
+) *generate.Generator {
 	specgen := ctr.Spec()
 	specgen.HostSpecific = true
 	specgen.ClearProcessRlimits()
@@ -814,7 +939,12 @@ func (s *Server) getSpecGen(ctr ctrfactory.Container, containerConfig *types.Con
 	return specgen
 }
 
-func (s *Server) specSetApparmorProfile(ctx context.Context, specgen *generate.Generator, ctr ctrfactory.Container, securityContext *types.LinuxContainerSecurityContext) error {
+func (s *Server) specSetApparmorProfile(
+	ctx context.Context,
+	specgen *generate.Generator,
+	ctr ctrfactory.Container,
+	securityContext *types.LinuxContainerSecurityContext,
+) error {
 	// set this container's apparmor profile if it is set by sandbox
 	if s.ContainerServer.Config().AppArmor().IsEnabled() && !ctr.Privileged() {
 		profile, err := s.ContainerServer.Config().AppArmor().Apply(securityContext)
@@ -829,10 +959,19 @@ func (s *Server) specSetApparmorProfile(ctx context.Context, specgen *generate.G
 	return nil
 }
 
-func (s *Server) specSetBlockioClass(specgen *generate.Generator, containerName string, containerAnnotations, sandboxAnnotations map[string]string) error {
+func (s *Server) specSetBlockioClass(
+	specgen *generate.Generator,
+	containerName string,
+	containerAnnotations, sandboxAnnotations map[string]string,
+) error {
 	// Get blockio class
 	if s.ContainerServer.Config().BlockIO().Enabled() {
-		if blockioClass, err := blockio.ContainerClassFromAnnotations(containerName, containerAnnotations, sandboxAnnotations); blockioClass != "" && err == nil {
+		if blockioClass, err := blockio.ContainerClassFromAnnotations(
+			containerName,
+			containerAnnotations,
+			sandboxAnnotations,
+		); blockioClass != "" &&
+			err == nil {
 			if s.ContainerServer.Config().BlockIO().ReloadRequired() {
 				if err := s.ContainerServer.Config().BlockIO().Reload(); err != nil {
 					return err
@@ -855,22 +994,35 @@ func (s *Server) specSetBlockioClass(specgen *generate.Generator, containerName 
 func (s *Server) specSetDevices(ctr ctrfactory.Container, sb *sandbox.Sandbox) error {
 	configuredDevices := s.config.Devices()
 
-	privilegedWithoutHostDevices, err := s.ContainerServer.Runtime().PrivilegedWithoutHostDevices(sb.RuntimeHandler())
+	privilegedWithoutHostDevices, err := s.ContainerServer.Runtime().
+		PrivilegedWithoutHostDevices(sb.RuntimeHandler())
 	if err != nil {
 		return err
 	}
 
 	devicesAnnotationValue, _ := v2.GetAnnotationValue(sb.Annotations(), v2.Devices)
 
-	annotationDevices, err := device.DevicesFromAnnotation(devicesAnnotationValue, s.config.AllowedDevices)
+	annotationDevices, err := device.DevicesFromAnnotation(
+		devicesAnnotationValue,
+		s.config.AllowedDevices,
+	)
 	if err != nil {
 		return err
 	}
 
-	return ctr.SpecAddDevices(configuredDevices, annotationDevices, privilegedWithoutHostDevices, s.config.DeviceOwnershipFromSecurityContext)
+	return ctr.SpecAddDevices(
+		configuredDevices,
+		annotationDevices,
+		privilegedWithoutHostDevices,
+		s.config.DeviceOwnershipFromSecurityContext,
+	)
 }
 
-func addSysfsMounts(ctr ctrfactory.Container, containerConfig *types.ContainerConfig, hostNet, usernsEnabled bool) {
+func addSysfsMounts(
+	ctr ctrfactory.Container,
+	containerConfig *types.ContainerConfig,
+	hostNet, usernsEnabled bool,
+) {
 	// If the sandbox is configured to run in the host network, do not create a new network namespace
 	if hostNet {
 		if !isInCRIMounts("/sys", containerConfig.GetMounts()) {
@@ -881,7 +1033,7 @@ func addSysfsMounts(ctr ctrfactory.Container, containerConfig *types.ContainerCo
 					Destination: "/sys",
 					Type:        "bind",
 					Source:      "/sys",
-					Options:     []string{"nosuid", "noexec", "nodev", "ro", "rbind"},
+					Options:     []string{"nosuid", "noexec", "nodev", "rro", "rbind"},
 				})
 			} else {
 				ctr.SpecAddMount(rspec.Mount{

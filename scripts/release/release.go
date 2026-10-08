@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"regexp"
 
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/release-sdk/git"
@@ -50,7 +51,11 @@ func run() error {
 
 		sv, err := utils.GetCurrentVersionFromReleaseBranch(repo, baseBranchName) // returns "x.y.z"
 		if err != nil {
-			return fmt.Errorf("unable to read current version from release branch %q: %w", baseBranchName, err)
+			return fmt.Errorf(
+				"unable to read current version from release branch %q: %w",
+				baseBranchName,
+				err,
+			)
 		}
 
 		// Bump up the patch version
@@ -92,7 +97,8 @@ func updateVersionAndCreatePR(
 			return fmt.Errorf("unable to rebase branch %q: %w", newBranch, err)
 		}
 
-		if err := command.NewWithWorkDir(repo.Dir(), "git", "push", "-f").RunSilentSuccess(); err != nil {
+		if err := command.NewWithWorkDir(repo.Dir(), "git", "push", "-f").
+			RunSilentSuccess(); err != nil {
 			return fmt.Errorf("unable to force push to remote: %q: %w", newBranch, err)
 		}
 
@@ -115,9 +121,15 @@ func updateVersionAndCreatePR(
 		return fmt.Errorf("unable to update dependencies YAML file: %w", err)
 	}
 
+	logrus.Infof("Updating version in spec file %s", utils.SpecFile)
+
+	if err := updateSpecFile(newVersion); err != nil {
+		return fmt.Errorf("unable to update spec file: %w", err)
+	}
+
 	logrus.Info("Committing changes")
 
-	for _, file := range []string{utils.VersionFile, utils.DependenciesYAMLFile} {
+	for _, file := range []string{utils.VersionFile, utils.DependenciesYAMLFile, utils.SpecFile} {
 		if err := repo.Add(file); err != nil {
 			return fmt.Errorf("unable to add file %q to repo: %w", file, err)
 		}
@@ -177,6 +189,27 @@ func modifyVersionFile(filePath, oldVersion, newVersion string) error {
 	return nil
 }
 
+func updateSpecFile(newVersion string) error {
+	content, err := os.ReadFile(utils.SpecFile)
+	if err != nil {
+		return fmt.Errorf("read file %s: %w", utils.SpecFile, err)
+	}
+
+	re := regexp.MustCompile(`(?m)^Version:\s+\S+\s*$`)
+	if !re.Match(content) {
+		return fmt.Errorf("version string not found in %s", utils.SpecFile)
+	}
+
+	modifiedContent := re.ReplaceAll(content, []byte("Version: "+newVersion))
+
+	err = os.WriteFile(utils.SpecFile, modifiedContent, 0o644)
+	if err != nil {
+		return fmt.Errorf("update file %s: %w", utils.SpecFile, err)
+	}
+
+	return nil
+}
+
 func updateDependenciesYAML(oldVersion, newVersion string) error {
 	content, err := os.ReadFile(utils.DependenciesYAMLFile)
 	if err != nil {
@@ -185,7 +218,11 @@ func updateDependenciesYAML(oldVersion, newVersion string) error {
 
 	const developmentVersion = "name: development version\n    version: "
 
-	modifiedContent := bytes.ReplaceAll(content, []byte(developmentVersion+oldVersion), []byte(developmentVersion+newVersion))
+	modifiedContent := bytes.ReplaceAll(
+		content,
+		[]byte(developmentVersion+oldVersion),
+		[]byte(developmentVersion+newVersion),
+	)
 
 	err = os.WriteFile(utils.DependenciesYAMLFile, modifiedContent, 0o644)
 	if err != nil {

@@ -92,8 +92,20 @@ func newRuntimeVM(handler *config.RuntimeHandler, exitsPath string) RuntimeImpl 
 	major := strconv.Itoa(rspec.VersionMajor)
 	typeurl.Register(&rspec.Spec{}, prefix, "opencontainers/runtime-spec", major, "Spec")
 	typeurl.Register(&rspec.Process{}, prefix, "opencontainers/runtime-spec", major, "Process")
-	typeurl.Register(&rspec.LinuxResources{}, prefix, "opencontainers/runtime-spec", major, "LinuxResources")
-	typeurl.Register(&rspec.WindowsResources{}, prefix, "opencontainers/runtime-spec", major, "WindowsResources")
+	typeurl.Register(
+		&rspec.LinuxResources{},
+		prefix,
+		"opencontainers/runtime-spec",
+		major,
+		"LinuxResources",
+	)
+	typeurl.Register(
+		&rspec.WindowsResources{},
+		prefix,
+		"opencontainers/runtime-spec",
+		major,
+		"WindowsResources",
+	)
 
 	return &runtimeVM{
 		path:       handler.RuntimePath,
@@ -112,7 +124,11 @@ func (r *runtimeVM) getFIFOPath() string {
 	return filepath.Join(r.handler.RuntimeRoot, "crio", "fifo")
 }
 
-func addVolumeMountsToCreateRequest(ctx context.Context, request *task.CreateTaskRequest, c *Container) error {
+func addVolumeMountsToCreateRequest(
+	ctx context.Context,
+	request *task.CreateTaskRequest,
+	c *Container,
+) error {
 	// To make the kata agent pull the image{"volume_type":"image_guest_pull","source":"quay.io/kata-containers/confidential-containers:unsigned","fs_type":"overlayfs","image_pull":{"metadata":{}}}
 	someNameOfTheImageSource := c.Spec().Annotations[annotations.SomeNameOfTheImage]
 	log.Infof(ctx, "Adding mount info to pull image %s", someNameOfTheImageSource)
@@ -148,9 +164,22 @@ func addVolumeMountsToCreateRequest(ctx context.Context, request *task.CreateTas
 }
 
 // CreateContainer creates a container.
-func (r *runtimeVM) CreateContainer(ctx context.Context, c *Container, cgroupParent string, restore bool) (retErr error) {
+func (r *runtimeVM) CreateContainer(
+	ctx context.Context,
+	c *Container,
+	cgroupParent string,
+	restore bool,
+) (retErr error) {
 	log.Debugf(ctx, "RuntimeVM.CreateContainer() start")
 	defer log.Debugf(ctx, "RuntimeVM.CreateContainer() end")
+
+	// This runtime will not drop the infra container, so we don't expect
+	// to run into this. But if the default runtimeHandler is kata, we might end
+	// here for a spoofed container, which is always set with the default handler.
+	// This test guards against it.
+	if c.Spoofed() {
+		return nil
+	}
 
 	// Lock the container
 	c.opLock.Lock()
@@ -183,7 +212,11 @@ func (r *runtimeVM) CreateContainer(ctx context.Context, c *Container, cgroupPar
 		return err
 	}
 
-	containerIO, err := r.createContainerIO(ctx, c, cio.WithNewFIFOs(r.getFIFOPath(), c.terminal, c.stdin))
+	containerIO, err := r.createContainerIO(
+		ctx,
+		c,
+		cio.WithNewFIFOs(r.getFIFOPath(), c.terminal, c.stdin),
+	)
 	if err != nil {
 		return err
 	}
@@ -197,7 +230,12 @@ func (r *runtimeVM) CreateContainer(ctx context.Context, c *Container, cgroupPar
 			}
 
 			if err := os.Remove(c.logPath); err != nil {
-				log.Warnf(ctx, "Failed to remove log path %s after failing to create container: %v", c.logPath, err)
+				log.Warnf(
+					ctx,
+					"Failed to remove log path %s after failing to create container: %v",
+					c.logPath,
+					err,
+				)
 			}
 		}
 	}()
@@ -216,7 +254,11 @@ func (r *runtimeVM) CreateContainer(ctx context.Context, c *Container, cgroupPar
 	if r.handler.RuntimePullImage {
 		err := addVolumeMountsToCreateRequest(ctx, request, c)
 		if err != nil {
-			log.Warnf(ctx, "Failed to add KataVirtualVolume information to CreateContainer: %v", err)
+			log.Warnf(
+				ctx,
+				"Failed to add KataVirtualVolume information to CreateContainer: %v",
+				err,
+			)
 		}
 	}
 
@@ -245,13 +287,45 @@ func (r *runtimeVM) CreateContainer(ctx context.Context, c *Container, cgroupPar
 		}
 	case <-taskCtx.Done():
 		if err := r.remove(c.ID(), ""); err != nil {
-			log.Warnf(ctx, "Failed to cleanup container %s after timeout (%v): %v", c.ID(), timeout, err)
+			log.Warnf(
+				ctx,
+				"Failed to cleanup container %s after timeout (%v): %v",
+				c.ID(),
+				timeout,
+				err,
+			)
 		}
 
 		return fmt.Errorf("Container creation timeout (%v)", timeout)
 	}
 
 	return nil
+}
+
+// ParseShimAddress extracts the shim's ttrpc address from its "start" stdout
+// output. It mirrors containerd's own parseStartResponse:
+// https://github.com/containerd/containerd/blob/v1.7.31/runtime/v2/shim.go#L211
+//
+// Modern shims (the containerd v2 shim API, including gVisor's
+// containerd-shim-runsc-v1) emit a JSON BootstrapParams object; legacy shims
+// emit just the address string. If the output does not unmarshal into a
+// versioned (>= 2) BootstrapParams object, it is treated as a raw address.
+func ParseShimAddress(out []byte) (string, error) {
+	var params client.BootstrapParams
+	if err := json.Unmarshal(out, &params); err != nil || params.Version < 2 {
+		// Legacy shim: the raw output is the ttrpc address.
+		return strings.TrimSpace(string(out)), nil
+	}
+
+	if params.Version > 2 {
+		return "", fmt.Errorf(
+			"unsupported shim version (%d): %w",
+			params.Version,
+			errdefs.ErrNotImplemented,
+		)
+	}
+
+	return params.Address, nil
 }
 
 func (r *runtimeVM) startRuntimeDaemon(ctx context.Context, c *Container) error {
@@ -301,14 +375,22 @@ func (r *runtimeVM) startRuntimeDaemon(ctx context.Context, c *Container) error 
 		}
 	}()
 
-	// Start the server
-	out, err := cmd.CombinedOutput()
+	// Capture stderr separately so that anything the shim writes
+	// there cannot corrupt the BootstrapParams JSON (or raw address)
+	// it emits on stdout, which we can parse below.
+	var stderr bytes.Buffer
+
+	cmd.Stderr = &stderr
+
+	out, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("%s: %w", string(out), err)
+		return fmt.Errorf("%s: %w", stderr.String(), err)
 	}
 
-	// Retrieve the address from the output
-	address := strings.TrimSpace(string(out))
+	address, err := ParseShimAddress(out)
+	if err != nil {
+		return fmt.Errorf("parsing shim address: %w", err)
+	}
 
 	// Now the RPC server is running, let's connect to it
 	conn, err := client.Connect(address, client.AnonDialer)
@@ -330,6 +412,10 @@ func (r *runtimeVM) startRuntimeDaemon(ctx context.Context, c *Container) error 
 func (r *runtimeVM) StartContainer(ctx context.Context, c *Container) error {
 	log.Debugf(ctx, "RuntimeVM.StartContainer() start")
 	defer log.Debugf(ctx, "RuntimeVM.StartContainer() end")
+
+	if c.Spoofed() {
+		return nil
+	}
 
 	// Lock the container
 	c.opLock.Lock()
@@ -364,7 +450,15 @@ func (r *runtimeVM) StartContainer(ctx context.Context, c *Container) error {
 }
 
 // ExecContainer prepares a streaming endpoint to execute a command in the container.
-func (r *runtimeVM) ExecContainer(ctx context.Context, c *Container, cmd []string, stdin io.Reader, stdout, stderr io.WriteCloser, tty bool, resizeChan <-chan remotecommand.TerminalSize) error {
+func (r *runtimeVM) ExecContainer(
+	ctx context.Context,
+	c *Container,
+	cmd []string,
+	stdin io.Reader,
+	stdout, stderr io.WriteCloser,
+	tty bool,
+	resizeChan <-chan remotecommand.TerminalSize,
+) error {
 	log.Debugf(ctx, "RuntimeVM.ExecContainer() start")
 	defer log.Debugf(ctx, "RuntimeVM.ExecContainer() end")
 
@@ -397,7 +491,12 @@ func (w *writeCloserWrapper) Close() error {
 }
 
 // ExecSyncContainer execs a command in a container and returns it's stdout, stderr and return code.
-func (r *runtimeVM) ExecSyncContainer(ctx context.Context, c *Container, command []string, timeout int64) (*types.ExecSyncResponse, error) {
+func (r *runtimeVM) ExecSyncContainer(
+	ctx context.Context,
+	c *Container,
+	command []string,
+	timeout int64,
+) (*types.ExecSyncResponse, error) {
 	log.Debugf(ctx, "RuntimeVM.ExecSyncContainer() start")
 	defer log.Debugf(ctx, "RuntimeVM.ExecSyncContainer() end")
 
@@ -406,7 +505,17 @@ func (r *runtimeVM) ExecSyncContainer(ctx context.Context, c *Container, command
 	stdout := &writeCloserWrapper{limitWriter(&stdoutBuf, maxExecSyncSize)}
 	stderr := &writeCloserWrapper{limitWriter(&stderrBuf, maxExecSyncSize)}
 
-	exitCode, err := r.execContainerCommon(ctx, c, command, timeout, nil, stdout, stderr, c.terminal, nil)
+	exitCode, err := r.execContainerCommon(
+		ctx,
+		c,
+		command,
+		timeout,
+		nil,
+		stdout,
+		stderr,
+		c.terminal,
+		nil,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("ExecSyncContainer failed: %w", err)
 	}
@@ -464,7 +573,16 @@ func (l *limitedWriter) Write(p []byte) (n int, err error) {
 	return n, err
 }
 
-func (r *runtimeVM) execContainerCommon(ctx context.Context, c *Container, cmd []string, timeout int64, stdin io.Reader, stdout, stderr io.WriteCloser, tty bool, resizeChan <-chan remotecommand.TerminalSize) (exitCode int32, retErr error) {
+func (r *runtimeVM) execContainerCommon(
+	ctx context.Context,
+	c *Container,
+	cmd []string,
+	timeout int64,
+	stdin io.Reader,
+	stdout, stderr io.WriteCloser,
+	tty bool,
+	resizeChan <-chan remotecommand.TerminalSize,
+) (exitCode int32, retErr error) {
 	log.Debugf(ctx, "RuntimeVM.execContainerCommon() start")
 	defer log.Debugf(ctx, "RuntimeVM.execContainerCommon() end")
 
@@ -614,7 +732,11 @@ func (r *runtimeVM) execContainerCommon(ctx context.Context, c *Container, cmd [
 }
 
 // UpdateContainer updates container resources.
-func (r *runtimeVM) UpdateContainer(ctx context.Context, c *Container, res *rspec.LinuxResources) error {
+func (r *runtimeVM) UpdateContainer(
+	ctx context.Context,
+	c *Container,
+	res *rspec.LinuxResources,
+) error {
 	log.Debugf(ctx, "RuntimeVM.UpdateContainer() start")
 	defer log.Debugf(ctx, "RuntimeVM.UpdateContainer() end")
 
@@ -642,6 +764,13 @@ func (r *runtimeVM) UpdateContainer(ctx context.Context, c *Container, res *rspe
 func (r *runtimeVM) StopContainer(ctx context.Context, c *Container, timeout int64) error {
 	log.Debugf(ctx, "RuntimeVM.StopContainer() start")
 	defer log.Debugf(ctx, "RuntimeVM.StopContainer() end")
+
+	if c.Spoofed() {
+		c.state.Status = ContainerStateStopped
+		c.state.Finished = time.Now()
+
+		return nil
+	}
 
 	if err := r.shouldBeStopped(ctx, c); err != nil {
 		if errors.Is(err, ErrContainerStopped) {
@@ -734,7 +863,11 @@ func (r *runtimeVM) shouldBeStopped(ctx context.Context, c *Container) error {
 	return nil
 }
 
-func (r *runtimeVM) waitCtrTerminate(sig syscall.Signal, stopCh chan error, timeout time.Duration) error {
+func (r *runtimeVM) waitCtrTerminate(
+	sig syscall.Signal,
+	stopCh chan error,
+	timeout time.Duration,
+) error {
 	select {
 	case err := <-stopCh:
 		return err
@@ -751,6 +884,10 @@ func (r *runtimeVM) DeleteContainer(ctx context.Context, c *Container) error {
 	// Lock the container
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
+
+	if c.Spoofed() {
+		return nil
+	}
 
 	if c.state.OOMKilled {
 		// Collect metric by container name
@@ -894,7 +1031,11 @@ func (r *runtimeVM) updateContainerStatus(ctx context.Context, c *Container) err
 	return nil
 }
 
-func (r *runtimeVM) restoreContainerIO(ctx context.Context, c *Container, state *task.StateResponse) error {
+func (r *runtimeVM) restoreContainerIO(
+	ctx context.Context,
+	c *Container,
+	state *task.StateResponse,
+) error {
 	r.Lock()
 
 	_, ok := r.ctrs[c.ID()]
@@ -946,7 +1087,11 @@ func (r *runtimeVM) restoreContainerIO(ctx context.Context, c *Container, state 
 	return err
 }
 
-func (r *runtimeVM) createContainerIO(ctx context.Context, c *Container, cioOpts ...cio.ContainerIOOpts) (_ *cio.ContainerIO, retErr error) {
+func (r *runtimeVM) createContainerIO(
+	ctx context.Context,
+	c *Container,
+	cioOpts ...cio.ContainerIOOpts,
+) (_ *cio.ContainerIO, retErr error) {
 	// Create IO fifos
 	containerIO, err := cio.NewContainerIO(c.ID(), cioOpts...)
 	if err != nil {
@@ -977,7 +1122,10 @@ func (r *runtimeVM) createContainerIO(ctx context.Context, c *Container, cioOpts
 }
 
 // createContainerLoggers creates container loggers and return write closer for stdout and stderr.
-func (r *runtimeVM) createContainerLoggers(ctx context.Context, logPath string) (stdout, stderr io.WriteCloser, err error) {
+func (r *runtimeVM) createContainerLoggers(
+	ctx context.Context,
+	logPath string,
+) (stdout, stderr io.WriteCloser, err error) {
 	f, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, nil, err
@@ -1042,7 +1190,14 @@ func (r *runtimeVM) UnpauseContainer(ctx context.Context, c *Container) error {
 }
 
 // AttachContainer attaches IO to a running container.
-func (r *runtimeVM) AttachContainer(ctx context.Context, c *Container, inputStream io.Reader, outputStream, errorStream io.WriteCloser, tty bool, resizeChan <-chan remotecommand.TerminalSize) error {
+func (r *runtimeVM) AttachContainer(
+	ctx context.Context,
+	c *Container,
+	inputStream io.Reader,
+	outputStream, errorStream io.WriteCloser,
+	tty bool,
+	resizeChan <-chan remotecommand.TerminalSize,
+) error {
 	log.Debugf(ctx, "RuntimeVM.AttachContainer() start")
 	defer log.Debugf(ctx, "RuntimeVM.AttachContainer() end")
 
@@ -1080,7 +1235,13 @@ func (r *runtimeVM) AttachContainer(ctx context.Context, c *Container, inputStre
 }
 
 // PortForwardContainer forwards the specified port provides statistics of a container.
-func (r *runtimeVM) PortForwardContainer(ctx context.Context, c *Container, netNsPath string, port int32, stream io.ReadWriteCloser) error {
+func (r *runtimeVM) PortForwardContainer(
+	ctx context.Context,
+	c *Container,
+	netNsPath string,
+	port int32,
+	stream io.ReadWriteCloser,
+) error {
 	log.Debugf(ctx, "RuntimeVM.PortForwardContainer() start")
 	defer log.Debugf(ctx, "RuntimeVM.PortForwardContainer() end")
 
@@ -1197,7 +1358,12 @@ func (r *runtimeVM) closeIO(ctrID, execID string) error {
 }
 
 // CheckpointContainer not implemented for runtimeVM.
-func (r *runtimeVM) CheckpointContainer(ctx context.Context, c *Container, specgen *rspec.Spec, leaveRunning bool) error {
+func (r *runtimeVM) CheckpointContainer(
+	ctx context.Context,
+	c *Container,
+	specgen *rspec.Spec,
+	leaveRunning bool,
+) error {
 	log.Debugf(ctx, "RuntimeVM.CheckpointContainer() start")
 	defer log.Debugf(ctx, "RuntimeVM.CheckpointContainer() end")
 
@@ -1205,14 +1371,21 @@ func (r *runtimeVM) CheckpointContainer(ctx context.Context, c *Container, specg
 }
 
 // RestoreContainer not implemented for runtimeVM.
-func (r *runtimeVM) RestoreContainer(ctx context.Context, c *Container, cgroupParent, mountLabel string) error {
+func (r *runtimeVM) RestoreContainer(
+	ctx context.Context,
+	c *Container,
+	cgroupParent, mountLabel string,
+) error {
 	log.Debugf(ctx, "RuntimeVM.RestoreContainer() start")
 	defer log.Debugf(ctx, "RuntimeVM.RestoreContainer() end")
 
 	return errors.New("restoring not implemented for runtimeVM")
 }
 
-func EncodeKataVirtualVolumeToBase64(ctx context.Context, volume *katavolume.KataVirtualVolume) (string, error) {
+func EncodeKataVirtualVolumeToBase64(
+	ctx context.Context,
+	volume *katavolume.KataVirtualVolume,
+) (string, error) {
 	validKataVirtualVolumeJSON, err := json.Marshal(volume)
 	if err != nil {
 		return "", fmt.Errorf("marshal KataVirtualVolume object; error=%w", err)
@@ -1233,10 +1406,24 @@ func (r *runtimeVM) ProbeMonitor(ctx context.Context, c *Container) error {
 	return nil
 }
 
-func (r *runtimeVM) ServeExecContainer(context.Context, *Container, []string, bool, bool, bool, bool) (string, error) {
+func (r *runtimeVM) ServeExecContainer(
+	context.Context,
+	*Container,
+	[]string,
+	bool,
+	bool,
+	bool,
+	bool,
+) (string, error) {
 	return "", nil
 }
 
-func (r *runtimeVM) ServeAttachContainer(context.Context, *Container, bool, bool, bool) (string, error) {
+func (r *runtimeVM) ServeAttachContainer(
+	context.Context,
+	*Container,
+	bool,
+	bool,
+	bool,
+) (string, error) {
 	return "", nil
 }

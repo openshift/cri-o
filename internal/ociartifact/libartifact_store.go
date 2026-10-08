@@ -5,8 +5,9 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	"go.podman.io/common/libimage"
-	"github.com/cri-o/cri-o/internal/libartifact"
 	"go.podman.io/image/v5/types"
+
+	"github.com/cri-o/cri-o/internal/libartifact"
 )
 
 // LibartifactStore abstracts the libartifact storage operations so that
@@ -14,8 +15,15 @@ import (
 type LibartifactStore interface {
 	Remove(ctx context.Context, asr libartifact.ArtifactStoreReference) (*digest.Digest, error)
 	List(ctx context.Context) (libartifact.ArtifactList, error)
-	Pull(ctx context.Context, ref libartifact.ArtifactReference, opts libimage.CopyOptions) (digest.Digest, error)
-	Inspect(ctx context.Context, asr libartifact.ArtifactStoreReference) (*libartifact.Artifact, error)
+	Pull(
+		ctx context.Context,
+		ref libartifact.ArtifactReference,
+		opts libimage.CopyOptions,
+	) (digest.Digest, error)
+	Inspect(
+		ctx context.Context,
+		asr libartifact.ArtifactStoreReference,
+	) (*libartifact.Artifact, error)
 	SystemContext() *types.SystemContext
 }
 

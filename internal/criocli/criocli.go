@@ -58,7 +58,9 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 	}
 
 	if ctx.IsSet("checkpoint-restore-level") {
-		config.ContainerLevelEnabled = libconfig.ContainerCheckpointRestoreLevel(ctx.String("checkpoint-restore-level"))
+		config.ContainerLevelEnabled = libconfig.ContainerCheckpointRestoreLevel(
+			ctx.String("checkpoint-restore-level"),
+		)
 	}
 
 	mergeNetworkConfig(config, ctx)
@@ -179,11 +181,6 @@ func mergeImageConfig(config *libconfig.Config, ctx *cli.Context) {
 
 	if ctx.IsSet("signature-policy-dir") {
 		config.SignaturePolicyDir = ctx.String("signature-policy-dir")
-	}
-
-	if ctx.IsSet("insecure-registry") {
-		//nolint:staticcheck // SA1019: InsecureRegistries is deprecated but still supported for backward compatibility
-		config.InsecureRegistries = StringSliceTrySplit(ctx, "insecure-registry")
 	}
 
 	if ctx.IsSet("default-transport") {
@@ -315,7 +312,9 @@ func mergeRuntimeConfig(config *libconfig.Config, ctx *cli.Context) error {
 	}
 
 	if ctx.IsSet("device-ownership-from-security-context") {
-		config.DeviceOwnershipFromSecurityContext = ctx.Bool("device-ownership-from-security-context")
+		config.DeviceOwnershipFromSecurityContext = ctx.Bool(
+			"device-ownership-from-security-context",
+		)
 	}
 
 	// Decryption
@@ -378,7 +377,10 @@ func mergeRuntimeConfig(config *libconfig.Config, ctx *cli.Context) error {
 	}
 
 	if ctx.IsSet("absent-mount-sources-to-reject") {
-		config.AbsentMountSourcesToReject = StringSliceTrySplit(ctx, "absent-mount-sources-to-reject")
+		config.AbsentMountSourcesToReject = StringSliceTrySplit(
+			ctx,
+			"absent-mount-sources-to-reject",
+		)
 	}
 
 	// User namespaces
@@ -484,7 +486,11 @@ func mergeRuntimesConfig(config *libconfig.Config, ctx *cli.Context) error {
 		case 7:
 			containerMinMemory = fields[6]
 			if _, err := units.RAMInBytes(containerMinMemory); err != nil {
-				return fmt.Errorf("invalid value %q for --runtimes:container_min_memory: %w", containerMinMemory, err)
+				return fmt.Errorf(
+					"invalid value %q for --runtimes:container_min_memory: %w",
+					containerMinMemory,
+					err,
+				)
 			}
 
 			fallthrough
@@ -682,31 +688,46 @@ func mergeNRIConfig(config *libconfig.Config, ctx *cli.Context) {
 	}
 
 	if ctx.IsSet("nri-validator-reject-oci-hook-adjustment") {
-		config.NRI.DefaultValidator.RejectOCIHookAdjustment = ctx.Bool("nri-validator-reject-oci-hook-adjustment")
+		config.NRI.DefaultValidator.RejectOCIHookAdjustment = ctx.Bool(
+			"nri-validator-reject-oci-hook-adjustment",
+		)
 	}
 
 	if ctx.IsSet("nri-validator-reject-runtime-default-seccomp-adjustment") {
-		config.NRI.DefaultValidator.RejectRuntimeDefaultSeccompAdjustment = ctx.Bool("nri-validator-reject-runtime-default-seccomp-adjustment")
+		config.NRI.DefaultValidator.RejectRuntimeDefaultSeccompAdjustment = ctx.Bool(
+			"nri-validator-reject-runtime-default-seccomp-adjustment",
+		)
 	}
 
 	if ctx.IsSet("nri-validator-reject-unconfined-seccomp-adjustment") {
-		config.NRI.DefaultValidator.RejectUnconfinedSeccompAdjustment = ctx.Bool("nri-validator-reject-unconfined-seccomp-adjustment")
+		config.NRI.DefaultValidator.RejectUnconfinedSeccompAdjustment = ctx.Bool(
+			"nri-validator-reject-unconfined-seccomp-adjustment",
+		)
 	}
 
 	if ctx.IsSet("nri-validator-reject-custom-seccomp-adjustment") {
-		config.NRI.DefaultValidator.RejectCustomSeccompAdjustment = ctx.Bool("nri-validator-reject-custom-seccomp-adjustment")
+		config.NRI.DefaultValidator.RejectCustomSeccompAdjustment = ctx.Bool(
+			"nri-validator-reject-custom-seccomp-adjustment",
+		)
 	}
 
 	if ctx.IsSet("nri-validator-reject-namespace-adjustment") {
-		config.NRI.DefaultValidator.RejectNamespaceAdjustment = ctx.Bool("nri-validator-reject-namespace-adjustment")
+		config.NRI.DefaultValidator.RejectNamespaceAdjustment = ctx.Bool(
+			"nri-validator-reject-namespace-adjustment",
+		)
 	}
 
 	if ctx.IsSet("nri-validator-required-plugins") {
-		config.NRI.DefaultValidator.RequiredPlugins = StringSliceTrySplit(ctx, "nri-validator-required-plugins")
+		config.NRI.DefaultValidator.RequiredPlugins = StringSliceTrySplit(
+			ctx,
+			"nri-validator-required-plugins",
+		)
 	}
 
 	if ctx.IsSet("nri-validator-tolerate-missing-plugins-annotation") {
-		config.NRI.DefaultValidator.TolerateMissingAnnotation = ctx.String("nri-validator-tolerate-missing-plugins-annotation")
+		config.NRI.DefaultValidator.TolerateMissingAnnotation = ctx.String(
+			"nri-validator-tolerate-missing-plugins-annotation",
+		)
 	}
 }
 
@@ -868,53 +889,32 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 		&cli.StringFlag{
 			Name:      "root",
 			Aliases:   []string{"r"},
-			Usage:     "The CRI-O root directory.",
-			Value:     defConf.Root,
+			Usage:     "The CRI-O root directory. Defaults to the value from containers/storage configuration.",
 			EnvVars:   []string{"CONTAINER_ROOT"},
 			TakesFile: true,
 		},
 		&cli.StringFlag{
 			Name:      "runroot",
-			Usage:     "The CRI-O state directory.",
-			Value:     defConf.RunRoot,
+			Usage:     "The CRI-O state directory. Defaults to the value from containers/storage configuration.",
 			EnvVars:   []string{"CONTAINER_RUNROOT"},
 			TakesFile: true,
 		},
 		&cli.StringFlag{
 			Name:      "imagestore",
-			Usage:     "Store newly pulled images in the specified path, rather than the path provided by --root.",
-			Value:     defConf.ImageStore,
+			Usage:     "Store newly pulled images in the specified path, rather than the path provided by --root. Defaults to the value from containers/storage configuration.",
 			EnvVars:   []string{"CONTAINER_IMAGESTORE"},
 			TakesFile: true,
 		},
 		&cli.StringFlag{
 			Name:    "storage-driver",
 			Aliases: []string{"s"},
-			Usage:   "OCI storage driver.",
+			Usage:   "OCI storage driver. Defaults to the value from containers/storage configuration.",
 			EnvVars: []string{"CONTAINER_STORAGE_DRIVER"},
 		},
 		&cli.StringSliceFlag{
 			Name:    "storage-opt",
-			Value:   cli.NewStringSlice(defConf.StorageOptions...),
-			Usage:   "OCI storage driver option.",
+			Usage:   "OCI storage driver option. Defaults to the value from containers/storage configuration.",
 			EnvVars: []string{"CONTAINER_STORAGE_OPT"},
-		},
-		&cli.StringSliceFlag{
-			Name: "insecure-registry",
-			//nolint:staticcheck // SA1019: InsecureRegistries is deprecated but still supported for backward compatibility
-			Value: cli.NewStringSlice(defConf.InsecureRegistries...),
-			Usage: "Enable insecure registry communication, i.e., enable un-encrypted and/or untrusted communication." + `
-    This option is deprecated. Please use "insecure" in registries.conf instead.
-    1. List of insecure registries can contain an element with CIDR notation to
-       specify a whole subnet.
-    2. Insecure registries accept HTTP or accept HTTPS with certificates from
-       unknown CAs.
-    3. Enabling '--insecure-registry' is useful when running a local registry.
-       However, because its use creates security vulnerabilities, **it should ONLY
-       be enabled for testing purposes**. For increased security, users should add
-       their CA to their system's list of trusted CAs instead of using
-       '--insecure-registry'.`,
-			EnvVars: []string{"CONTAINER_INSECURE_REGISTRY"},
 		},
 		&cli.StringFlag{
 			Name:    "default-transport",
@@ -1317,7 +1317,7 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 		},
 		&cli.StringSliceFlag{
 			Name:    "allowed-devices",
-			Usage:   "Devices a user is allowed to specify with the \"io.kubernetes.cri-o.Devices\" allowed annotation.",
+			Usage:   "Devices a user is allowed to specify with the \"devices.crio.io\" allowed annotation.",
 			Value:   cli.NewStringSlice(defConf.AllowedDevices...),
 			EnvVars: []string{"CONTAINER_ALLOWED_DEVICES"},
 		},
@@ -1384,7 +1384,7 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 		},
 		&cli.IntFlag{
 			Name:    "grpc-max-send-msg-size",
-			Usage:   "Maximum grpc receive message size.",
+			Usage:   "Maximum grpc send message size in bytes.",
 			Value:   defConf.GRPCMaxSendMsgSize,
 			EnvVars: []string{"CONTAINER_GRPC_MAX_SEND_MSG_SIZE"},
 		},
@@ -1584,7 +1584,7 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 		},
 		&cli.StringSliceFlag{
 			Name:    "pinned-images",
-			Usage:   "A list of images that will be excluded from the kubelet's garbage collection.",
+			Usage:   "A list of images and OCI artifacts that will be excluded from the kubelet's garbage collection.",
 			EnvVars: []string{"CONTAINER_PINNED_IMAGES"},
 			Value:   cli.NewStringSlice(defConf.PinnedImages...),
 		},

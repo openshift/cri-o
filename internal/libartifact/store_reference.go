@@ -3,8 +3,9 @@ package libartifact
 import (
 	"errors"
 
-	"github.com/cri-o/cri-o/internal/libartifact/types"
 	"go.podman.io/image/v5/docker/reference"
+
+	"github.com/cri-o/cri-o/internal/libartifact/types"
 )
 
 type ArtifactStoreReference struct {
@@ -25,11 +26,14 @@ func NewArtifactStorageReference(nameOrDigest string) (ArtifactStoreReference, e
 	if errors.Is(err, types.ErrTaggedAndDigested) {
 		return asr, err
 	}
+
 	if err == nil {
 		asr.ref = &named
+
 		return asr, nil
 	}
 	// The input is not a valid oci ref, so we store the input as possible digest
 	asr.possibleDigest = nameOrDigest
+
 	return asr, nil
 }

@@ -178,19 +178,19 @@ func GetGraphDriverOptions(driverName string, options OptionsConfig) []string {
 		} else if options.ForceMask != 0 {
 			doptions = append(doptions, fmt.Sprintf("%s.force_mask=%s", driverName, options.ForceMask))
 		}
-	        if options.Overlay.UseComposefs != "" {
-	                doptions = append(doptions, fmt.Sprintf("%s.overlay.use_composefs=%s", driverName, options.Overlay.UseComposefs))
-	        }
-	        if options.Overlay.Sync != "" {
-	                doptions = append(doptions, fmt.Sprintf("%s.overlay.sync=%s", driverName, options.Overlay.Sync))
-	        }
+		if options.Overlay.UseComposefs != "" {
+			doptions = append(doptions, fmt.Sprintf("%s.overlay.use_composefs=%s", driverName, options.Overlay.UseComposefs))
+		}
+		if options.Overlay.Sync != "" {
+			doptions = append(doptions, fmt.Sprintf("%s.overlay.sync=%s", driverName, options.Overlay.Sync))
+		}
 
 	case "vfs":
 		if options.Vfs.IgnoreChownErrors != "" {
 			doptions = append(doptions, fmt.Sprintf("%s.ignore_chown_errors=%s", driverName, options.Vfs.IgnoreChownErrors))
 		} else if options.IgnoreChownErrors != "" {
 			doptions = append(doptions, fmt.Sprintf("%s.ignore_chown_errors=%s", driverName, options.IgnoreChownErrors))
-		}		
+		}
 		if options.Vfs.Sync != "" {
 			doptions = append(doptions, fmt.Sprintf("%s.vfs.sync=%s", driverName, options.Vfs.Sync))
 		}

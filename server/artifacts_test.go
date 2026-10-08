@@ -5,8 +5,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	libartTypes "github.com/cri-o/cri-o/internal/libartifact/types"
 
+	libartTypes "github.com/cri-o/cri-o/internal/libartifact/types"
 	"github.com/cri-o/cri-o/server"
 )
 

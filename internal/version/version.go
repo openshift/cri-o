@@ -20,11 +20,13 @@ import (
 	"go.podman.io/common/pkg/seccomp"
 )
 
-// Version is the version of the build.
-const Version = "1.36.5"
+// Version is the version of the build. Declared as a var (not const) so
+// downstream builds can override it via -ldflags -X at link time instead
+// of source patching.
+var Version = "1.37.2"
 
 // ReleaseMinorVersions are the currently supported minor versions.
-var ReleaseMinorVersions = []string{"1.35", "1.34", "1.33"}
+var ReleaseMinorVersions = []string{"1.37", "1.36", "1.35", "1.34"}
 
 // Variables injected during build-time.
 var (
@@ -78,7 +80,7 @@ func shouldCrioWipe(versionFileName, versionString string) (bool, error) {
 	// parse the version of the current binary
 	newVersion, err := parseVersionConstant(versionString, "")
 	if err != nil {
-		return true, fmt.Errorf("version constant %s malformatted: %w", versionString, err)
+		return true, fmt.Errorf("version string %s malformatted: %w", versionString, err)
 	}
 
 	// in every case that the minor and major version are out of sync,
@@ -126,12 +128,10 @@ func writeVersionFile(file, gitCommit, version string) error {
 	return renameio.WriteFile(file, j, 0o644)
 }
 
-// parseVersionConstant parses the Version variable above
-// a const crioVersion would be kept, but golang doesn't support
-// const structs. We will instead spend some runtime on CRI-O startup
+// parseVersionConstant parses versionString into a semver.Version.
 // Because the version string doesn't keep track of the git commit,
-// but it could be useful for debugging, we pass it in here
-// If our version constant is properly formatted, this should never error.
+// but it could be useful for debugging, we pass it in here.
+// If Version is properly formatted, this should never error.
 func parseVersionConstant(versionString, gitCommit string) (*semver.Version, error) {
 	v, err := semver.Make(versionString)
 	if err != nil {
@@ -245,7 +245,7 @@ func (i *Info) String() string {
 
 		case reflect.Slice:
 			// Only expecting []string here; ignore other slices.
-			if s, ok := value.Interface().([]string); ok {
+			if s, ok := reflect.TypeAssert[[]string](value); ok {
 				const sep = "\n  "
 
 				valueString = sep + strings.Join(s, sep)

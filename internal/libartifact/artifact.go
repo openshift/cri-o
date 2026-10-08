@@ -2,8 +2,9 @@ package libartifact
 
 import (
 	"github.com/opencontainers/go-digest"
-	"github.com/cri-o/cri-o/internal/libartifact/types"
 	"go.podman.io/image/v5/manifest"
+
+	"github.com/cri-o/cri-o/internal/libartifact/types"
 )
 
 type Artifact struct {
@@ -24,6 +25,7 @@ func (a *Artifact) TotalSizeBytes() int64 {
 	for _, layer := range a.Manifest.Layers {
 		s += layer.Size
 	}
+
 	return s
 }
 

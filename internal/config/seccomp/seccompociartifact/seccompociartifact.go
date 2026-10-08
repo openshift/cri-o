@@ -35,9 +35,6 @@ const (
 	// SeccompProfilePodAnnotation is the annotation used for matching a whole pod
 	// rather than a specific container.
 	SeccompProfilePodAnnotation = v2.SeccompProfile + "/POD"
-
-	// requiredConfigMediaType is the config media type for OCI artifact seccomp profiles.
-	requiredConfigMediaType = "application/vnd.cncf.seccomp-profile.config.v1+json"
 )
 
 // TryPull tries to pull the OCI artifact seccomp profile while evaluating
@@ -64,11 +61,22 @@ func (s *SeccompOCIArtifact) TryPull(
 		profileRef = val
 	} else if val, key, ok := v2.GetAnnotationValueWithKey(imageAnnotations, containerKey); ok {
 		baseKey := strings.TrimSuffix(key, "/"+containerName)
-		log.Infof(ctx, "Found image specific seccomp profile annotation for container %s: %s=%s", containerName, baseKey, val)
+		log.Infof(
+			ctx,
+			"Found image specific seccomp profile annotation for container %s: %s=%s",
+			containerName,
+			baseKey,
+			val,
+		)
 		profileRef = val
 	} else if val, key, ok := v2.GetAnnotationValueWithKey(imageAnnotations, SeccompProfilePodAnnotation); ok {
 		baseKey := strings.TrimSuffix(key, "/POD")
-		log.Infof(ctx, "Found image specific seccomp profile annotation for pod: %s=%s", baseKey, val)
+		log.Infof(
+			ctx,
+			"Found image specific seccomp profile annotation for pod: %s=%s",
+			baseKey,
+			val,
+		)
 		profileRef = val
 	}
 
@@ -76,7 +84,7 @@ func (s *SeccompOCIArtifact) TryPull(
 		return nil, nil
 	}
 
-	artifactData, err := s.impl.PullData(ctx, profileRef, &datastore.PullOptions{EnforceConfigMediaType: requiredConfigMediaType})
+	artifactData, err := s.impl.PullData(ctx, profileRef, nil)
 	if err != nil {
 		return nil, fmt.Errorf("pull OCI artifact: %w", err)
 	}

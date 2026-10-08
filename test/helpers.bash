@@ -87,6 +87,20 @@ function crictl() {
     "$CRICTL_BINARY" -t "$CRICTL_TIMEOUT" --config "$CRICTL_CONFIG_FILE" -r "unix://$CRIO_SOCKET" -i "unix://$CRIO_SOCKET" "$@"
 }
 
+# Pull an image, tolerating transient registry failures. copyimg already
+# retries for the preloaded images, but that only covers get_img(): a pull
+# issued inside a test goes through CRI-O and gets none. Fixed delay rather
+# than copyimg's backoff - neither jitters, and CRICTL_TIMEOUT dominates.
+#
+# Only for pulls expected to succeed: one expected to fail would be retried
+# three times first.
+# retry captures stdout, so re-emit it: callers parse the pulled reference out
+# of it, and it belongs in the log for a failing test either way.
+function crictl_pull() {
+    retry 3 5 crictl pull "$@" || return 1
+    printf '%s\n' "$output"
+}
+
 # Run the runtime binary with the specified RUNTIME_ROOT
 function runtime() {
     "$RUNTIME_BINARY_PATH" --root "$RUNTIME_ROOT" "$@"
@@ -247,7 +261,16 @@ function check_journald() {
 
 # get a random available port
 function free_port() {
-    python -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()'
+    local port
+    for _ in {1..5}; do
+        port=$((RANDOM % 22768 + 10000))
+        if ! host_and_port_listens ".*" "$port"; then
+            echo "$port"
+            return 0
+        fi
+    done
+    echo "ERROR: free_port: could not find a free port after 5 attempts" >&2
+    return 1
 }
 
 # Check whether a port is listening

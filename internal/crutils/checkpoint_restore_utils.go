@@ -27,6 +27,7 @@ func CRImportCheckpointWithoutConfig(destination, input string) error {
 	}
 
 	defer archiveFile.Close()
+
 	options := &archive.TarOptions{
 		ExcludePatterns: []string{
 			// Import everything else besides the container config
@@ -51,6 +52,7 @@ func CRImportCheckpointConfigOnly(destination, input string) error {
 	}
 
 	defer archiveFile.Close()
+
 	options := &archive.TarOptions{
 		// Here we only need the files config.dump and spec.dump
 		ExcludePatterns: []string{
@@ -88,7 +90,11 @@ func CRRemoveDeletedFiles(id, baseDirectory, containerRootDirectory string) erro
 		// Using RemoveAll as deletedFiles, which is generated from 'podman diff'
 		// lists completely deleted directories as a single entry: 'D /root'.
 		if err := os.RemoveAll(filepath.Join(containerRootDirectory, deleteFile)); err != nil {
-			return fmt.Errorf("failed to delete files from container %s during restore: %w", id, err)
+			return fmt.Errorf(
+				"failed to delete files from container %s during restore: %w",
+				id,
+				err,
+			)
 		}
 	}
 
@@ -105,6 +111,7 @@ func CRApplyRootFsDiffTar(baseDirectory, containerRootDirectory string) error {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
+
 		return fmt.Errorf("failed to open root file-system diff file: %w", err)
 	}
 	defer rootfsDiffFile.Close()
@@ -122,31 +129,42 @@ func CRApplyRootFsDiffTar(baseDirectory, containerRootDirectory string) error {
 // With these two files it is possible to restore the container file system to the same
 // state it was during checkpointing.
 // Changes to directories (owner, mode) are not handled.
-func CRCreateRootFsDiffTar(changes *[]archive.Change, mountPoint, destination string) (includeFiles []string, err error) {
+func CRCreateRootFsDiffTar(
+	changes *[]archive.Change,
+	mountPoint, destination string,
+) (includeFiles []string, err error) {
 	if len(*changes) == 0 {
 		return includeFiles, nil
 	}
 
-	var rootfsIncludeFiles []string
-	var deletedFiles []string
+	var (
+		rootfsIncludeFiles []string
+		deletedFiles       []string
+	)
 
 	rootfsDiffPath := filepath.Join(destination, metadata.RootFsDiffTar)
 
 	for _, file := range *changes {
 		if file.Kind == archive.ChangeAdd {
 			rootfsIncludeFiles = append(rootfsIncludeFiles, file.Path)
+
 			continue
 		}
+
 		if file.Kind == archive.ChangeDelete {
 			deletedFiles = append(deletedFiles, file.Path)
+
 			continue
 		}
+
 		fileName, err := os.Stat(file.Path)
 		if err != nil {
 			continue
 		}
+
 		if !fileName.IsDir() && file.Kind == archive.ChangeModify {
 			rootfsIncludeFiles = append(rootfsIncludeFiles, file.Path)
+
 			continue
 		}
 	}
@@ -158,13 +176,23 @@ func CRCreateRootFsDiffTar(changes *[]archive.Change, mountPoint, destination st
 			IncludeFiles:     rootfsIncludeFiles,
 		})
 		if err != nil {
-			return includeFiles, fmt.Errorf("exporting root file-system diff to %q: %w", rootfsDiffPath, err)
+			return includeFiles, fmt.Errorf(
+				"exporting root file-system diff to %q: %w",
+				rootfsDiffPath,
+				err,
+			)
 		}
+
 		rootfsDiffFile, err := os.Create(rootfsDiffPath)
 		if err != nil {
-			return includeFiles, fmt.Errorf("creating root file-system diff file %q: %w", rootfsDiffPath, err)
+			return includeFiles, fmt.Errorf(
+				"creating root file-system diff file %q: %w",
+				rootfsDiffPath,
+				err,
+			)
 		}
 		defer rootfsDiffFile.Close()
+
 		if _, err = io.Copy(rootfsDiffFile, rootfsTar); err != nil {
 			return includeFiles, err
 		}
@@ -176,7 +204,11 @@ func CRCreateRootFsDiffTar(changes *[]archive.Change, mountPoint, destination st
 		return includeFiles, nil
 	}
 
-	if _, err := metadata.WriteJSONFile(deletedFiles, destination, metadata.DeletedFilesFile); err != nil {
+	if _, err := metadata.WriteJSONFile(
+		deletedFiles,
+		destination,
+		metadata.DeletedFilesFile,
+	); err != nil {
 		return includeFiles, nil
 	}
 
@@ -198,6 +230,7 @@ func CRCreateFileWithLabel(directory, fileName, fileLabel string) error {
 		return fmt.Errorf("failed to create file %q: %w", logFileName, err)
 	}
 	defer logFile.Close()
+
 	if err = label.SetFileLabel(logFileName, fileLabel); err != nil {
 		return fmt.Errorf("failed to label file %q: %w", logFileName, err)
 	}
@@ -216,9 +249,11 @@ func CRRuntimeSupportsCheckpointRestore(runtimePath string) bool {
 	if err := cmd.Start(); err != nil {
 		return false
 	}
+
 	if err := cmd.Wait(); err == nil {
 		return true
 	}
+
 	return false
 }
 
@@ -228,7 +263,8 @@ func CRRuntimeSupportsCheckpointRestore(runtimePath string) bool {
 // by this function. In addition it is necessary to at least have CRIU 3.16.
 func CRRuntimeSupportsPodCheckpointRestore(runtimePath string) bool {
 	cmd := exec.Command(runtimePath, "restore", "--lsm-mount-context")
-	out, _ := cmd.CombinedOutput()
+	out, _ := cmd.CombinedOutput() //nolint:errcheck // A supported flag deliberately produces an argument error.
+
 	return bytes.Contains(out, []byte("flag needs an argument"))
 }
 

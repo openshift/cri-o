@@ -3,12 +3,13 @@ package ociartifact
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/opencontainers/go-digest"
-	"github.com/cri-o/cri-o/internal/libartifact"
 	"go.podman.io/image/v5/docker/reference"
 	critypes "k8s.io/cri-api/pkg/apis/runtime/v1"
 
+	"github.com/cri-o/cri-o/internal/libartifact"
 	"github.com/cri-o/cri-o/internal/log"
 )
 
@@ -35,7 +36,12 @@ type Artifact struct {
 }
 
 // newArtifact creates a new Artifact from a libartifact.Artifact.
-func (s *Store) newArtifact(art *libartifact.Artifact, rootPath string, pinned bool) *Artifact {
+func (s *Store) newArtifact(
+	ctx context.Context,
+	art *libartifact.Artifact,
+	rootPath string,
+	pinned bool,
+) *Artifact {
 	artifact := &Artifact{
 		Artifact: art,
 		rootPath: rootPath,
@@ -43,14 +49,27 @@ func (s *Store) newArtifact(art *libartifact.Artifact, rootPath string, pinned b
 	}
 
 	if art.Name != "" {
-		namedRef, err := reference.ParseNormalizedNamed(art.Name)
-		if err != nil {
-			log.Warnf(context.Background(), "Failed to parse artifact name %s with the error %s", art.Name, err)
+		// Guard against bare tags from OCI layout annotations written by
+		// external tools (e.g. skopeo writes "1.14.4" instead of the full
+		// "docker.io/coredns/coredns:1.14.4"). ParseNormalizedNamed would
+		// turn these into nonsensical refs like "docker.io/library/1.14.4".
+		// The upstream fix lives in libartifact (container-libs #1027).
+		if !strings.Contains(art.Name, "/") {
+			log.Warnf(
+				ctx,
+				"Artifact name %q looks like a bare tag, not a fully qualified reference; skipping normalization",
+				art.Name,
+			)
+		} else {
+			namedRef, err := reference.ParseNormalizedNamed(art.Name)
+			if err != nil {
+				log.Warnf(ctx, "Failed to parse artifact name %s: %v", art.Name, err)
 
-			namedRef = unknownRef{}
+				namedRef = unknownRef{}
+			}
+
+			artifact.namedRef = namedRef
 		}
-
-		artifact.namedRef = namedRef
 	}
 
 	artifact.pinned = pinned || s.isArtifactPinned(artifact)

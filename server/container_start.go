@@ -15,7 +15,10 @@ import (
 )
 
 // StartContainer starts the container.
-func (s *Server) StartContainer(ctx context.Context, req *types.StartContainerRequest) (res *types.StartContainerResponse, retErr error) {
+func (s *Server) StartContainer(
+	ctx context.Context,
+	req *types.StartContainerRequest,
+) (res *types.StartContainerResponse, retErr error) {
 	ctx, span := log.StartSpan(ctx)
 	defer span.End()
 
@@ -23,7 +26,12 @@ func (s *Server) StartContainer(ctx context.Context, req *types.StartContainerRe
 
 	c, err := s.GetContainerFromShortID(ctx, req.GetContainerId())
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "could not find container %q: %v", req.GetContainerId(), err)
+		return nil, status.Errorf(
+			codes.NotFound,
+			"could not find container %q: %v",
+			req.GetContainerId(),
+			err,
+		)
 	}
 
 	if c.Restore() {
@@ -47,7 +55,19 @@ func (s *Server) StartContainer(ctx context.Context, req *types.StartContainerRe
 
 			s.ReleaseContainerName(ctx, ociContainer.Name())
 
-			err2 := s.ContainerServer.StorageRuntimeServer().DeleteContainer(ctx, c.ID())
+			sb, err2 := s.LookupSandbox(c.Sandbox())
+			if err2 != nil {
+				// log the error, but proceed with a "nil" sandbox
+				// This will continue the cleanup process using the default
+				// runtime server, as "best effort" cleanup.
+				log.Warnf(ctx, "Failed to lookup sandbox %s: %v", c.Sandbox(), err2)
+			}
+
+			runtimeSvc, err2 := s.StorageRuntimeServer(sb)
+			if err2 == nil {
+				err2 = runtimeSvc.DeleteContainer(ctx, c.ID())
+			}
+
 			if err2 != nil {
 				log.Warnf(ctx, "Failed to cleanup container directory: %v", err2)
 			}
