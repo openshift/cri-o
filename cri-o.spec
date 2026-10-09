@@ -8,6 +8,7 @@
 %endif
 
 %global import_path github.com/cri-o/cri-o
+%global repository_path github.com/openshift/cri-o
 
 # https://github.com/cri-o/cri-o/issues/8860
 # RHEL 9 go-rpm-macros patches out %%{?__golang_extldflags} from %%gobuild,
@@ -43,9 +44,9 @@ Version:        %{version}
 Release:        %{release}%{?dist}
 Summary:        Kubernetes Container Runtime Interface for OCI-based containers
 License:        ASL 2.0
-URL:            https://%{import_path}
+URL:            https://%{repository_path}
 
-Source0:        https://%{import_path}/archive/%{commit}/%{name}-%{version}.tar.gz
+Source0:        https://%{repository_path}/archive/%{commit}/%{name}-%{version}.tar.gz
 
 # If go_arches not defined fall through to implicit golang archs
 %if 0%{?go_arches:1}
