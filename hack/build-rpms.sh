@@ -9,6 +9,37 @@ source "$(dirname "${BASH_SOURCE}")/lib/init.sh"
 os::util::ensure::system_binary_exists rpmbuild
 os::util::ensure::system_binary_exists createrepo
 
+# Create version file if git describe fails (e.g., release branches without reachable tags)
+if ! git describe --long --tags --abbrev=7 --match 'v[0-9]*' HEAD >/dev/null 2>&1; then
+    os::log::info "No version tags found, extracting version from source..."
+    # Extract version from internal/version/version.go
+    CRIO_VERSION=$(grep 'const Version = ' "${OS_ROOT}/internal/version/version.go" | cut -d'"' -f2)
+    GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    GIT_TREE_STATE="clean"
+    if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+        GIT_TREE_STATE="dirty"
+    fi
+
+    # Extract major.minor.patch
+    VERSION_MAJOR=$(echo "${CRIO_VERSION}" | cut -d. -f1)
+    VERSION_MINOR=$(echo "${CRIO_VERSION}" | cut -d. -f2)
+    VERSION_PATCH=$(echo "${CRIO_VERSION}" | cut -d. -f3)
+
+    # Create temporary version file
+    VERSION_FILE="${BASETMPDIR}/version"
+    mkdir -p "$(dirname "${VERSION_FILE}")"
+    cat > "${VERSION_FILE}" <<EOF
+OS_GIT_COMMIT='${GIT_COMMIT}'
+OS_GIT_TREE_STATE='${GIT_TREE_STATE}'
+OS_GIT_VERSION='v${CRIO_VERSION}+${GIT_COMMIT}-0'
+OS_GIT_MAJOR='${VERSION_MAJOR}'
+OS_GIT_MINOR='${VERSION_MINOR}'
+OS_GIT_PATCH='${VERSION_PATCH}'
+EOF
+    export OS_VERSION_FILE="${VERSION_FILE}"
+    os::log::info "Using version v${CRIO_VERSION} from source"
+fi
+
 os::build::rpm::get_nvra_vars
 
 OS_RPM_SPECFILE="$(find "${OS_ROOT}" -name *cri-o.spec)"
