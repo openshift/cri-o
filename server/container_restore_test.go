@@ -7,7 +7,7 @@ import (
 	"os"
 
 	criu "github.com/checkpoint-restore/go-criu/v7/utils"
-	"github.com/containers/storage/pkg/archive"
+	"go.podman.io/storage/pkg/archive"
 	"github.com/cri-o/cri-o/internal/mockutils"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/internal/storage"

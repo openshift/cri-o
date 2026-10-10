@@ -9,7 +9,7 @@ import (
 	"syscall"
 
 	nspkg "github.com/containernetworking/plugins/pkg/ns"
-	"github.com/containers/storage/pkg/idtools"
+	"go.podman.io/storage/pkg/idtools"
 	"github.com/cri-o/cri-o/utils"
 	"github.com/cri-o/cri-o/utils/cmdrunner"
 	"github.com/google/uuid"

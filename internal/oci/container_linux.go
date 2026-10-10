@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/containers/common/pkg/cgroups"
+	"go.podman.io/common/pkg/cgroups"
 	"github.com/cri-o/cri-o/internal/log"
 	"golang.org/x/net/context"
 )

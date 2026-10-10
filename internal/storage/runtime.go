@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	istorage "github.com/containers/image/v5/storage"
-	"github.com/containers/image/v5/types"
-	"github.com/containers/storage"
+	istorage "go.podman.io/image/v5/storage"
+	"go.podman.io/image/v5/types"
+	"go.podman.io/storage"
 	"github.com/cri-o/cri-o/internal/log"
 	json "github.com/json-iterator/go"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"

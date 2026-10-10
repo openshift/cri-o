@@ -57,8 +57,6 @@ func (c *commitPathIter) Next() (*Commit, error) {
 }
 
 func (c *commitPathIter) getNextFileCommit() (*Commit, error) {
-	var parentTree, currentTree *Tree
-
 	for {
 		// Parent-commit can be nil if the current-commit is the initial commit
 		parentCommit, parentCommitErr := c.sourceIter.Next()
@@ -70,17 +68,13 @@ func (c *commitPathIter) getNextFileCommit() (*Commit, error) {
 			parentCommit = nil
 		}
 
-		if parentTree == nil {
-			var currTreeErr error
-			currentTree, currTreeErr = c.currentCommit.Tree()
-			if currTreeErr != nil {
-				return nil, currTreeErr
-			}
-		} else {
-			currentTree = parentTree
-			parentTree = nil
+		// Fetch the trees of the current and parent commits
+		currentTree, currTreeErr := c.currentCommit.Tree()
+		if currTreeErr != nil {
+			return nil, currTreeErr
 		}
 
+		var parentTree *Tree
 		if parentCommit != nil {
 			var parentTreeErr error
 			parentTree, parentTreeErr = parentCommit.Tree()
@@ -121,8 +115,7 @@ func (c *commitPathIter) hasFileChange(changes Changes, parent *Commit) bool {
 
 		// filename matches, now check if source iterator contains all commits (from all refs)
 		if c.checkParent {
-			// Check if parent is beyond the initial commit
-			if parent == nil || isParentHash(parent.Hash, c.currentCommit) {
+			if parent != nil && isParentHash(parent.Hash, c.currentCommit) {
 				return true
 			}
 			continue

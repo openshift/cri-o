@@ -11,9 +11,9 @@ import (
 
 	cnitypes "github.com/containernetworking/cni/pkg/types"
 	current "github.com/containernetworking/cni/pkg/types/100"
-	"github.com/containers/storage"
-	"github.com/containers/storage/pkg/idtools"
-	"github.com/containers/storage/pkg/unshare"
+	"go.podman.io/storage"
+	"go.podman.io/storage/pkg/idtools"
+	"go.podman.io/storage/pkg/unshare"
 	"github.com/cri-o/cri-o/internal/config/nsmgr"
 	ctrfactory "github.com/cri-o/cri-o/internal/factory/container"
 	sboxfactory "github.com/cri-o/cri-o/internal/factory/sandbox"

@@ -7,8 +7,8 @@ import (
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
 	criu "github.com/checkpoint-restore/go-criu/v7/utils"
-	cstorage "github.com/containers/storage"
-	"github.com/containers/storage/pkg/archive"
+	cstorage "go.podman.io/storage"
+	"go.podman.io/storage/pkg/archive"
 	"github.com/cri-o/cri-o/internal/lib"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/golang/mock/gomock"

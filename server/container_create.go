@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/containers/storage/pkg/idtools"
-	"github.com/containers/storage/pkg/mount"
-	"github.com/containers/storage/pkg/stringid"
+	"go.podman.io/storage/pkg/idtools"
+	"go.podman.io/storage/pkg/mount"
+	"go.podman.io/storage/pkg/stringid"
 	"github.com/cri-o/cri-o/internal/factory/container"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/log"
@@ -26,7 +26,7 @@ import (
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
-// sync with https://github.com/containers/storage/blob/7fe03f6c765f2adbc75a5691a1fb4f19e56e7071/pkg/truncindex/truncindex.go#L92
+// sync with https://go.podman.io/storage/blob/7fe03f6c765f2adbc75a5691a1fb4f19e56e7071/pkg/truncindex/truncindex.go#L92
 const noSuchID = "no such id"
 
 type orderedMounts []rspec.Mount

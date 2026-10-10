@@ -4,7 +4,7 @@
 package cgmgr
 
 import (
-	"github.com/containers/storage/pkg/system"
+	"go.podman.io/storage/pkg/system"
 )
 
 type CgroupStats struct {

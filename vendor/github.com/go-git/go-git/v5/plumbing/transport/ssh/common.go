@@ -49,9 +49,7 @@ type runner struct {
 func (r *runner) Command(cmd string, ep *transport.Endpoint, auth transport.AuthMethod) (common.Command, error) {
 	c := &command{command: cmd, endpoint: ep, config: r.config}
 	if auth != nil {
-		if err := c.setAuth(auth); err != nil {
-			return nil, err
-		}
+		c.setAuth(auth)
 	}
 
 	if err := c.connect(); err != nil {
