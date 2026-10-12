@@ -4,7 +4,7 @@
 package cgmgr
 
 import (
-	"github.com/containers/storage/pkg/system"
+	"go.podman.io/storage/pkg/system"
 )
 
 // MemLimitGivenSystem limit returns the memory limit for a given cgroup

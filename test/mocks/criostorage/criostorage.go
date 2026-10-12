@@ -8,11 +8,11 @@ import (
 	context "context"
 	reflect "reflect"
 
-	types "github.com/containers/image/v5/types"
-	storage "github.com/containers/storage"
-	types0 "github.com/containers/storage/types"
-	storage0 "github.com/cri-o/cri-o/internal/storage"
+	storage "github.com/cri-o/cri-o/internal/storage"
 	gomock "github.com/golang/mock/gomock"
+	types "go.podman.io/image/v5/types"
+	storage0 "go.podman.io/storage"
+	types0 "go.podman.io/storage/types"
 )
 
 // MockImageServer is a mock of ImageServer interface.
@@ -39,10 +39,10 @@ func (m *MockImageServer) EXPECT() *MockImageServerMockRecorder {
 }
 
 // GetStore mocks base method.
-func (m *MockImageServer) GetStore() storage.Store {
+func (m *MockImageServer) GetStore() storage0.Store {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetStore")
-	ret0, _ := ret[0].(storage.Store)
+	ret0, _ := ret[0].(storage0.Store)
 	return ret0
 }
 
@@ -53,10 +53,10 @@ func (mr *MockImageServerMockRecorder) GetStore() *gomock.Call {
 }
 
 // ImageStatus mocks base method.
-func (m *MockImageServer) ImageStatus(arg0 *types.SystemContext, arg1 string) (*storage0.ImageResult, error) {
+func (m *MockImageServer) ImageStatus(arg0 *types.SystemContext, arg1 string) (*storage.ImageResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ImageStatus", arg0, arg1)
-	ret0, _ := ret[0].(*storage0.ImageResult)
+	ret0, _ := ret[0].(*storage.ImageResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -68,10 +68,10 @@ func (mr *MockImageServerMockRecorder) ImageStatus(arg0, arg1 interface{}) *gomo
 }
 
 // ListImages mocks base method.
-func (m *MockImageServer) ListImages(arg0 *types.SystemContext, arg1 string) ([]storage0.ImageResult, error) {
+func (m *MockImageServer) ListImages(arg0 *types.SystemContext, arg1 string) ([]storage.ImageResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListImages", arg0, arg1)
-	ret0, _ := ret[0].([]storage0.ImageResult)
+	ret0, _ := ret[0].([]storage.ImageResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -98,7 +98,7 @@ func (mr *MockImageServerMockRecorder) PrepareImage(arg0, arg1 interface{}) *gom
 }
 
 // PullImage mocks base method.
-func (m *MockImageServer) PullImage(arg0 *types.SystemContext, arg1 string, arg2 *storage0.ImageCopyOptions) (types.ImageReference, error) {
+func (m *MockImageServer) PullImage(arg0 *types.SystemContext, arg1 string, arg2 *storage.ImageCopyOptions) (types.ImageReference, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PullImage", arg0, arg1, arg2)
 	ret0, _ := ret[0].(types.ImageReference)
@@ -165,10 +165,10 @@ func (m *MockRuntimeServer) EXPECT() *MockRuntimeServerMockRecorder {
 }
 
 // CreateContainer mocks base method.
-func (m *MockRuntimeServer) CreateContainer(arg0 *types.SystemContext, arg1, arg2, arg3, arg4, arg5, arg6, arg7 string, arg8 uint32, arg9 *types0.IDMappingOptions, arg10 []string, arg11 bool) (storage0.ContainerInfo, error) {
+func (m *MockRuntimeServer) CreateContainer(arg0 *types.SystemContext, arg1, arg2, arg3, arg4, arg5, arg6, arg7 string, arg8 uint32, arg9 *types0.IDMappingOptions, arg10 []string, arg11 bool) (storage.ContainerInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateContainer", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11)
-	ret0, _ := ret[0].(storage0.ContainerInfo)
+	ret0, _ := ret[0].(storage.ContainerInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -180,10 +180,10 @@ func (mr *MockRuntimeServerMockRecorder) CreateContainer(arg0, arg1, arg2, arg3,
 }
 
 // CreatePodSandbox mocks base method.
-func (m *MockRuntimeServer) CreatePodSandbox(arg0 *types.SystemContext, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9 string, arg10 uint32, arg11 *types0.IDMappingOptions, arg12 []string, arg13 bool) (storage0.ContainerInfo, error) {
+func (m *MockRuntimeServer) CreatePodSandbox(arg0 *types.SystemContext, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9 string, arg10 uint32, arg11 *types0.IDMappingOptions, arg12 []string, arg13 bool) (storage.ContainerInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreatePodSandbox", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13)
-	ret0, _ := ret[0].(storage0.ContainerInfo)
+	ret0, _ := ret[0].(storage.ContainerInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -209,10 +209,10 @@ func (mr *MockRuntimeServerMockRecorder) DeleteContainer(arg0, arg1 interface{})
 }
 
 // GetContainerMetadata mocks base method.
-func (m *MockRuntimeServer) GetContainerMetadata(arg0 string) (storage0.RuntimeContainerMetadata, error) {
+func (m *MockRuntimeServer) GetContainerMetadata(arg0 string) (storage.RuntimeContainerMetadata, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetContainerMetadata", arg0)
-	ret0, _ := ret[0].(storage0.RuntimeContainerMetadata)
+	ret0, _ := ret[0].(storage.RuntimeContainerMetadata)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -254,7 +254,7 @@ func (mr *MockRuntimeServerMockRecorder) GetWorkDir(arg0 interface{}) *gomock.Ca
 }
 
 // SetContainerMetadata mocks base method.
-func (m *MockRuntimeServer) SetContainerMetadata(arg0 string, arg1 *storage0.RuntimeContainerMetadata) error {
+func (m *MockRuntimeServer) SetContainerMetadata(arg0 string, arg1 *storage.RuntimeContainerMetadata) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SetContainerMetadata", arg0, arg1)
 	ret0, _ := ret[0].(error)

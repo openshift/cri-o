@@ -15,17 +15,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/containers/image/v5/copy"
-	"github.com/containers/image/v5/docker/reference"
-	"github.com/containers/image/v5/pkg/shortnames"
-	"github.com/containers/image/v5/signature"
-	istorage "github.com/containers/image/v5/storage"
-	"github.com/containers/image/v5/transports/alltransports"
-	"github.com/containers/image/v5/types"
+	"go.podman.io/image/v5/copy"
+	"go.podman.io/image/v5/docker/reference"
+	"go.podman.io/image/v5/pkg/shortnames"
+	"go.podman.io/image/v5/signature"
+	istorage "go.podman.io/image/v5/storage"
+	"go.podman.io/image/v5/transports/alltransports"
+	"go.podman.io/image/v5/types"
 	encconfig "github.com/containers/ocicrypt/config"
-	"github.com/containers/podman/v4/pkg/rootless"
-	"github.com/containers/storage"
-	"github.com/containers/storage/pkg/reexec"
+	"github.com/containers/podman/v5/pkg/rootless"
+	"go.podman.io/storage"
+	"go.podman.io/storage/pkg/reexec"
 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
 	"github.com/cri-o/cri-o/internal/config/node"
 	"github.com/cri-o/cri-o/internal/dbusmgr"
@@ -841,7 +841,7 @@ func (svc *imageService) ResolveNames(systemContext *types.SystemContext, imageN
 func GetImageService(ctx context.Context, store storage.Store, serverConfig *config.Config) (ImageServer, error) {
 	if store == nil {
 		var err error
-		storeOpts, err := storage.DefaultStoreOptions(rootless.IsRootless(), rootless.GetRootlessUID())
+		storeOpts, err := storage.DefaultStoreOptions()
 		if err != nil {
 			return nil, err
 		}

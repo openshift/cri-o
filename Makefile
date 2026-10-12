@@ -346,7 +346,7 @@ mock-containerstorage: ${MOCKGEN}
 	${MOCKGEN} \
 		-package containerstoragemock \
 		-destination ${MOCK_PATH}/containerstorage/containerstorage.go \
-		github.com/containers/storage Store
+		go.podman.io/storage Store
 
 mock-cmdrunner: ${MOCKGEN}
 	${MOCKGEN} \
@@ -376,7 +376,7 @@ mock-image-types: ${MOCKGEN}
 	${BUILD_BIN_PATH}/mockgen \
 		-package imagetypesmock \
 		-destination ${MOCK_PATH}/containers/image/v5/types.go \
-		github.com/containers/image/v5/types ImageCloser
+		go.podman.io/image/v5/types ImageCloser
 
 mock-ocicni-types: ${MOCKGEN}
 	${BUILD_BIN_PATH}/mockgen \

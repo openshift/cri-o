@@ -8,10 +8,9 @@ import (
 	"strings"
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
-	istorage "github.com/containers/image/v5/storage"
-	"github.com/containers/podman/v4/pkg/annotations"
-	"github.com/containers/podman/v4/pkg/errorhandling"
-	"github.com/containers/storage/pkg/archive"
+	istorage "go.podman.io/image/v5/storage"
+	"github.com/containers/podman/v5/pkg/errorhandling"
+	"go.podman.io/storage/pkg/archive"
 	"github.com/cri-o/cri-o/internal/factory/container"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/log"
@@ -157,7 +156,7 @@ func (s *Server) CRImportCheckpoint(
 
 	if sbID == "" {
 		// restore into previous sandbox
-		sbID = dumpSpec.Annotations[annotations.SandboxID]
+		sbID = dumpSpec.Annotations[crioann.SandboxID]
 		ctrID = config.ID
 	} else {
 		ctrID = ""
@@ -165,8 +164,8 @@ func (s *Server) CRImportCheckpoint(
 
 	originalAnnotations := make(map[string]string)
 
-	if err := json.Unmarshal([]byte(dumpSpec.Annotations[annotations.Annotations]), &originalAnnotations); err != nil {
-		return "", fmt.Errorf("failed to read %q: %w", annotations.Annotations, err)
+	if err := json.Unmarshal([]byte(dumpSpec.Annotations[crioann.Annotations]), &originalAnnotations); err != nil {
+		return "", fmt.Errorf("failed to read %q: %w", crioann.Annotations, err)
 	}
 
 	if sandboxUID != "" {

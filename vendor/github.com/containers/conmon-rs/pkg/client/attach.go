@@ -9,8 +9,8 @@ import (
 	"os"
 	"syscall"
 
+	"github.com/containers/common/pkg/detach"
 	"github.com/containers/common/pkg/resize"
-	"github.com/containers/common/pkg/util"
 	"github.com/containers/conmon-rs/internal/proto"
 	"github.com/google/uuid"
 )
@@ -74,7 +74,7 @@ type AttachConfig struct {
 	Passthrough bool
 
 	// Channel of resize events.
-	Resize chan resize.TerminalSize
+	Resize <-chan resize.TerminalSize
 
 	// The standard streams for this attach session.
 	Streams AttachStreams
@@ -121,12 +121,8 @@ func (c *ConmonClient) AttachContainer(ctx context.Context, cfg *AttachConfig) e
 			return fmt.Errorf("create request: %w", err)
 		}
 
-		metadata, err := c.metadataBytes(ctx)
-		if err != nil {
-			return fmt.Errorf("get metadata: %w", err)
-		}
-		if err := req.SetMetadata(metadata); err != nil {
-			return fmt.Errorf("set metadata: %w", err)
+		if err := c.setMetadata(ctx, req); err != nil {
+			return err
 		}
 
 		if err := req.SetId(cfg.ID); err != nil {
@@ -233,7 +229,7 @@ func (c *ConmonClient) setupStdioChannels(
 		c.attachReaders.Store(id, value)
 
 		go func() {
-			_, err := util.CopyDetachable(conn, stdin, cfg.DetachKeys)
+			_, err := detach.Copy(conn, stdin, cfg.DetachKeys)
 			if !errors.Is(err, io.ErrClosedPipe) {
 				stdinDone <- err
 			}
@@ -407,7 +403,7 @@ func (c *ConmonClient) readStdio(
 		c.tryCloseAttachReaderForID(id)
 
 		if closeErr := conn.CloseWrite(); closeErr != nil {
-			return fmt.Errorf("%v: %w", closeErr, err)
+			return errors.Join(closeErr, err)
 		}
 
 		if err != nil {
@@ -430,9 +426,9 @@ func (c *ConmonClient) readStdio(
 
 		c.tryCloseAttachReaderForID(id)
 
-		if errors.Is(err, util.ErrDetach) {
+		if errors.Is(err, detach.ErrDetach) {
 			if closeErr := conn.CloseWrite(); closeErr != nil {
-				return fmt.Errorf("%v: %w", closeErr, err)
+				return errors.Join(closeErr, err)
 			}
 
 			return err
@@ -484,12 +480,8 @@ func (c *ConmonClient) SetWindowSizeContainer(ctx context.Context, cfg *SetWindo
 			return fmt.Errorf("create request: %w", err)
 		}
 
-		metadata, err := c.metadataBytes(ctx)
-		if err != nil {
-			return fmt.Errorf("get metadata: %w", err)
-		}
-		if err := req.SetMetadata(metadata); err != nil {
-			return fmt.Errorf("set metadata: %w", err)
+		if err := c.setMetadata(ctx, req); err != nil {
+			return err
 		}
 
 		if err := req.SetId(cfg.ID); err != nil {
@@ -498,10 +490,6 @@ func (c *ConmonClient) SetWindowSizeContainer(ctx context.Context, cfg *SetWindo
 
 		req.SetWidth(cfg.Size.Width)
 		req.SetHeight(cfg.Size.Height)
-
-		if err := p.SetRequest(req); err != nil {
-			return fmt.Errorf("set request: %w", err)
-		}
 
 		return nil
 	})

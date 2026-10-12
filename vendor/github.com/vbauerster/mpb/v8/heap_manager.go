@@ -1,8 +1,6 @@
 package mpb
 
-import (
-	"container/heap"
-)
+import "container/heap"
 
 type heapManager chan heapRequest
 
@@ -12,7 +10,6 @@ const (
 	h_sync heapCmd = iota
 	h_push
 	h_iter
-	h_drain
 	h_fix
 	h_state
 	h_end
@@ -24,8 +21,9 @@ type heapRequest struct {
 }
 
 type iterData struct {
-	iter chan<- *Bar
-	drop <-chan struct{}
+	drop    <-chan struct{}
+	iter    chan<- *Bar
+	iterPop chan<- *Bar
 }
 
 type pushData struct {
@@ -36,6 +34,7 @@ type pushData struct {
 type fixData struct {
 	bar      *Bar
 	priority int
+	lazy     bool
 }
 
 func (m heapManager) run() {
@@ -46,14 +45,11 @@ func (m heapManager) run() {
 	var sync bool
 
 	for req := range m {
-	next:
 		switch req.cmd {
 		case h_push:
 			data := req.data.(pushData)
 			heap.Push(&bHeap, data.bar)
-			if !sync {
-				sync = data.sync
-			}
+			sync = sync || data.sync
 		case h_sync:
 			if sync || l != bHeap.Len() {
 				pMatrix = make(map[int][]chan int)
@@ -75,34 +71,39 @@ func (m heapManager) run() {
 			syncWidth(aMatrix, drop)
 		case h_iter:
 			data := req.data.(iterData)
+		loop: // unordered iteration
 			for _, b := range bHeap {
 				select {
 				case data.iter <- b:
 				case <-data.drop:
-					close(data.iter)
-					break next
+					data.iterPop = nil
+					break loop
 				}
 			}
 			close(data.iter)
-		case h_drain:
-			data := req.data.(iterData)
-			for bHeap.Len() != 0 {
-				select {
-				case data.iter <- heap.Pop(&bHeap).(*Bar):
-				case <-data.drop:
-					close(data.iter)
-					break next
-				}
-			}
-			close(data.iter)
-		case h_fix:
-			data := req.data.(fixData)
-			bar, priority := data.bar, data.priority
-			if bar.index < 0 {
+			if data.iterPop == nil {
 				break
 			}
-			bar.priority = priority
-			heap.Fix(&bHeap, bar.index)
+		loop_pop: // ordered iteration
+			for bHeap.Len() != 0 {
+				bar := heap.Pop(&bHeap).(*Bar)
+				select {
+				case data.iterPop <- bar:
+				case <-data.drop:
+					heap.Push(&bHeap, bar)
+					break loop_pop
+				}
+			}
+			close(data.iterPop)
+		case h_fix:
+			data := req.data.(fixData)
+			if data.bar.index < 0 {
+				break
+			}
+			data.bar.priority = data.priority
+			if !data.lazy {
+				heap.Fix(&bHeap, data.bar.index)
+			}
 		case h_state:
 			ch := req.data.(chan<- bool)
 			ch <- sync || l != bHeap.Len()
@@ -124,21 +125,23 @@ func (m heapManager) sync(drop <-chan struct{}) {
 
 func (m heapManager) push(b *Bar, sync bool) {
 	data := pushData{b, sync}
-	m <- heapRequest{cmd: h_push, data: data}
+	req := heapRequest{cmd: h_push, data: data}
+	select {
+	case m <- req:
+	default:
+		go func() {
+			m <- req
+		}()
+	}
 }
 
-func (m heapManager) iter(iter chan<- *Bar, drop <-chan struct{}) {
-	data := iterData{iter, drop}
+func (m heapManager) iter(drop <-chan struct{}, iter, iterPop chan<- *Bar) {
+	data := iterData{drop, iter, iterPop}
 	m <- heapRequest{cmd: h_iter, data: data}
 }
 
-func (m heapManager) drain(iter chan<- *Bar, drop <-chan struct{}) {
-	data := iterData{iter, drop}
-	m <- heapRequest{cmd: h_drain, data: data}
-}
-
-func (m heapManager) fix(b *Bar, priority int) {
-	data := fixData{b, priority}
+func (m heapManager) fix(b *Bar, priority int, lazy bool) {
+	data := fixData{b, priority, lazy}
 	m <- heapRequest{cmd: h_fix, data: data}
 }
 

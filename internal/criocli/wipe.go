@@ -4,7 +4,7 @@ import (
 	"errors"
 	"os"
 
-	cstorage "github.com/containers/storage"
+	cstorage "go.podman.io/storage"
 	"github.com/cri-o/cri-o/internal/lib"
 	"github.com/cri-o/cri-o/internal/storage"
 	"github.com/cri-o/cri-o/internal/version"

@@ -6,9 +6,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/containers/podman/v4/pkg/criu"
-	cs "github.com/containers/storage"
-	"github.com/containers/storage/pkg/archive"
+	"github.com/containers/podman/v5/pkg/criu"
+	cs "go.podman.io/storage"
+	"go.podman.io/storage/pkg/archive"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/internal/storage"
 	crioann "github.com/cri-o/cri-o/pkg/annotations"

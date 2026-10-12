@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
-	"github.com/containers/podman/v4/libpod"
+	"github.com/containers/podman/v5/libpod"
 	"github.com/cri-o/cri-o/internal/log"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"

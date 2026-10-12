@@ -9,9 +9,9 @@ import (
 	"time"
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
-	"github.com/containers/podman/v4/libpod"
-	"github.com/containers/podman/v4/pkg/criu"
-	"github.com/containers/storage/pkg/archive"
+	"github.com/containers/podman/v5/libpod"
+	"github.com/containers/podman/v5/pkg/criu"
+	"go.podman.io/storage/pkg/archive"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"

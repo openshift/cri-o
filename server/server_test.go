@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	cstorage "github.com/containers/storage"
+	cstorage "go.podman.io/storage"
 	"github.com/cri-o/cri-o/server"
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"

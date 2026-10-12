@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/containers/common/pkg/cgroups"
+	"go.podman.io/common/pkg/cgroups"
 	"github.com/cri-o/cri-o/internal/config/node"
-	libctrcgroups "github.com/opencontainers/runc/libcontainer/cgroups"
+	libctrcgroups "github.com/opencontainers/cgroups"
 	"github.com/sirupsen/logrus"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )

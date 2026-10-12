@@ -19,8 +19,8 @@ import (
 	"github.com/cri-o/cri-o/internal/oci"
 	crioannotations "github.com/cri-o/cri-o/pkg/annotations"
 	"github.com/cri-o/cri-o/utils/cmdrunner"
-	"github.com/opencontainers/runc/libcontainer/cgroups"
-	libCtrMgr "github.com/opencontainers/runc/libcontainer/cgroups/manager"
+	"github.com/opencontainers/cgroups"
+	libCtrMgr "github.com/opencontainers/cgroups/manager"
 	"github.com/opencontainers/runc/libcontainer/configs"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
@@ -233,7 +233,7 @@ func (*HighPerformanceHooks) PostStop(ctx context.Context, c *oci.Container, s *
 
 func shouldCPULoadBalancingBeDisabled(annotations fields.Set) bool {
 	if annotations[crioannotations.CPULoadBalancingAnnotation] == annotationTrue {
-		log.Warnf(context.TODO(), annotationValueDeprecationWarning(crioannotations.CPULoadBalancingAnnotation))
+		log.Warnf(context.TODO(), "%s", annotationValueDeprecationWarning(crioannotations.CPULoadBalancingAnnotation))
 	}
 
 	return annotations[crioannotations.CPULoadBalancingAnnotation] == annotationTrue ||
@@ -242,7 +242,7 @@ func shouldCPULoadBalancingBeDisabled(annotations fields.Set) bool {
 
 func shouldCPUQuotaBeDisabled(annotations fields.Set) bool {
 	if annotations[crioannotations.CPUQuotaAnnotation] == annotationTrue {
-		log.Warnf(context.TODO(), annotationValueDeprecationWarning(crioannotations.CPUQuotaAnnotation))
+		log.Warnf(context.TODO(), "%s", annotationValueDeprecationWarning(crioannotations.CPUQuotaAnnotation))
 	}
 
 	return annotations[crioannotations.CPUQuotaAnnotation] == annotationTrue ||
@@ -251,7 +251,7 @@ func shouldCPUQuotaBeDisabled(annotations fields.Set) bool {
 
 func shouldIRQLoadBalancingBeDisabled(annotations fields.Set) bool {
 	if annotations[crioannotations.IRQLoadBalancingAnnotation] == annotationTrue {
-		log.Warnf(context.TODO(), annotationValueDeprecationWarning(crioannotations.IRQLoadBalancingAnnotation))
+		log.Warnf(context.TODO(), "%s", annotationValueDeprecationWarning(crioannotations.IRQLoadBalancingAnnotation))
 	}
 
 	return annotations[crioannotations.IRQLoadBalancingAnnotation] == annotationTrue ||
@@ -967,7 +967,7 @@ func ShouldCPUQuotaBeDisabled(ctx context.Context, cid string, cSpec *specs.Spec
 		return false
 	}
 	if annotations[crioannotations.CPUQuotaAnnotation] == annotationTrue {
-		log.Warnf(context.TODO(), annotationValueDeprecationWarning(crioannotations.CPUQuotaAnnotation))
+		log.Warnf(context.TODO(), "%s", annotationValueDeprecationWarning(crioannotations.CPUQuotaAnnotation))
 	}
 
 	return annotations[crioannotations.CPUQuotaAnnotation] == annotationTrue ||

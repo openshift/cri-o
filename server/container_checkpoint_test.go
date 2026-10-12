@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/containers/podman/v4/pkg/criu"
+	"github.com/containers/podman/v5/pkg/criu"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
