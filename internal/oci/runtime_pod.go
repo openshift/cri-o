@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"syscall"
 
+	// NOTE: must match the resize package used by conmon-rs's AttachConfig
+	// (github.com/containers/common), not go.podman.io/common.
 	"github.com/containers/common/pkg/resize"
 	conmonClient "github.com/containers/conmon-rs/pkg/client"
 	conmonconfig "github.com/containers/conmon/runner/config"

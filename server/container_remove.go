@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/containers/storage"
-	"github.com/containers/storage/pkg/truncindex"
+	"go.podman.io/storage"
+	"go.podman.io/storage/pkg/truncindex"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 
 	"github.com/cri-o/cri-o/internal/log"

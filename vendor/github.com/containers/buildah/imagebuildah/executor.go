@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,26 +14,28 @@ import (
 
 	"github.com/containers/buildah"
 	"github.com/containers/buildah/define"
+	"github.com/containers/buildah/internal"
+	internalUtil "github.com/containers/buildah/internal/util"
 	"github.com/containers/buildah/pkg/parse"
 	"github.com/containers/buildah/pkg/sshagent"
 	"github.com/containers/buildah/util"
-	"github.com/containers/common/libimage"
-	nettypes "github.com/containers/common/libnetwork/types"
-	"github.com/containers/common/pkg/config"
-	"github.com/containers/image/v5/docker/reference"
-	"github.com/containers/image/v5/manifest"
-	storageTransport "github.com/containers/image/v5/storage"
-	"github.com/containers/image/v5/transports"
-	"github.com/containers/image/v5/transports/alltransports"
-	"github.com/containers/image/v5/types"
 	encconfig "github.com/containers/ocicrypt/config"
-	"github.com/containers/storage"
-	"github.com/containers/storage/pkg/archive"
 	digest "github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/openshift/imagebuilder"
 	"github.com/openshift/imagebuilder/dockerfile/parser"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/libimage"
+	nettypes "go.podman.io/common/libnetwork/types"
+	"go.podman.io/common/pkg/config"
+	"go.podman.io/image/v5/docker/reference"
+	"go.podman.io/image/v5/manifest"
+	storageTransport "go.podman.io/image/v5/storage"
+	"go.podman.io/image/v5/transports"
+	"go.podman.io/image/v5/transports/alltransports"
+	"go.podman.io/image/v5/types"
+	"go.podman.io/storage"
+	"go.podman.io/storage/pkg/archive"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -41,19 +43,20 @@ import (
 // complain if we're given values for arguments which have no corresponding ARG
 // instruction in the Dockerfile, since that's usually an indication of a user
 // error, but for these values we make exceptions and ignore them.
-var builtinAllowedBuildArgs = map[string]bool{
-	"HTTP_PROXY":     true,
-	"http_proxy":     true,
-	"HTTPS_PROXY":    true,
-	"https_proxy":    true,
-	"FTP_PROXY":      true,
-	"ftp_proxy":      true,
-	"NO_PROXY":       true,
-	"no_proxy":       true,
-	"TARGETARCH":     true,
-	"TARGETOS":       true,
-	"TARGETPLATFORM": true,
-	"TARGETVARIANT":  true,
+var builtinAllowedBuildArgs = map[string]struct{}{
+	"HTTP_PROXY":                 {},
+	"http_proxy":                 {},
+	"HTTPS_PROXY":                {},
+	"https_proxy":                {},
+	"FTP_PROXY":                  {},
+	"ftp_proxy":                  {},
+	"NO_PROXY":                   {},
+	"no_proxy":                   {},
+	"TARGETARCH":                 {},
+	"TARGETOS":                   {},
+	"TARGETPLATFORM":             {},
+	"TARGETVARIANT":              {},
+	internal.SourceDateEpochName: {},
 }
 
 // Executor is a buildah-based implementation of the imagebuilder.Executor
@@ -79,8 +82,10 @@ type Executor struct {
 	output                         string
 	outputFormat                   string
 	additionalTags                 []string
-	log                            func(format string, args ...interface{}) // can be nil
+	log                            func(format string, args ...any) // can be nil
 	in                             io.Reader
+	inheritLabels                  types.OptionalBool
+	inheritAnnotations             types.OptionalBool
 	out                            io.Writer
 	err                            io.Writer
 	signaturePolicyPath            string
@@ -93,64 +98,80 @@ type Executor struct {
 	cniPluginPath                  string
 	cniConfigDir                   string
 	// NetworkInterface is the libnetwork network interface used to setup CNI or netavark networks.
-	networkInterface        nettypes.ContainerNetwork
-	idmappingOptions        *define.IDMappingOptions
-	commonBuildOptions      *define.CommonBuildOptions
-	defaultMountsFilePath   string
-	iidfile                 string
-	squash                  bool
-	labels                  []string
-	layerLabels             []string
-	annotations             []string
-	layers                  bool
-	noHostname              bool
-	noHosts                 bool
-	useCache                bool
-	removeIntermediateCtrs  bool
-	forceRmIntermediateCtrs bool
-	imageMap                map[string]string           // Used to map images that we create to handle the AS construct.
-	containerMap            map[string]*buildah.Builder // Used to map from image names to only-created-for-the-rootfs containers.
-	baseMap                 map[string]bool             // Holds the names of every base image, as given.
-	rootfsMap               map[string]bool             // Holds the names of every stage whose rootfs is referenced in a COPY or ADD instruction.
-	blobDirectory           string
-	excludes                []string
-	groupAdd                []string
-	ignoreFile              string
-	args                    map[string]string
-	globalArgs              map[string]string
-	unusedArgs              map[string]struct{}
-	capabilities            []string
-	devices                 define.ContainerDevices
-	signBy                  string
-	architecture            string
-	timestamp               *time.Time
-	os                      string
-	maxPullPushRetries      int
-	retryPullPushDelay      time.Duration
-	ociDecryptConfig        *encconfig.DecryptConfig
-	lastError               error
-	terminatedStage         map[string]error
-	stagesLock              sync.Mutex
-	stagesSemaphore         *semaphore.Weighted
-	logRusage               bool
-	rusageLogFile           io.Writer
-	imageInfoLock           sync.Mutex
-	imageInfoCache          map[string]imageTypeAndHistoryAndDiffIDs
-	fromOverride            string
-	additionalBuildContexts map[string]*define.AdditionalBuildContext
-	manifest                string
-	secrets                 map[string]define.Secret
-	sshsources              map[string]*sshagent.Source
-	logPrefix               string
-	unsetEnvs               []string
-	unsetLabels             []string
-	processLabel            string // Shares processLabel of first stage container with containers of other stages in same build
-	mountLabel              string // Shares mountLabel of first stage container with containers of other stages in same build
-	buildOutput             string // Specifies instructions for any custom build output
-	osVersion               string
-	osFeatures              []string
-	envs                    []string
-	confidentialWorkload    define.ConfidentialWorkloadOptions
+	networkInterface                        nettypes.ContainerNetwork
+	idmappingOptions                        *define.IDMappingOptions
+	commonBuildOptions                      *define.CommonBuildOptions
+	defaultMountsFilePath                   string
+	iidfile                                 string
+	squash                                  bool
+	labels                                  []string
+	layerLabels                             []string
+	annotations                             []string
+	layers                                  bool
+	noHostname                              bool
+	noHosts                                 bool
+	useCache                                bool
+	removeIntermediateCtrs                  bool
+	forceRmIntermediateCtrs                 bool
+	imageMap                                map[string]string           // Used to map images that we create to handle the AS construct.
+	containerMap                            map[string]*buildah.Builder // Used to map from image names to only-created-for-the-rootfs containers.
+	baseMap                                 map[string]struct{}         // Holds the names of every base image, as given.
+	rootfsMap                               map[string]struct{}         // Holds the names of every stage whose rootfs is referenced in a COPY or ADD instruction.
+	blobDirectory                           string
+	excludes                                []string
+	groupAdd                                []string
+	ignoreFile                              string
+	args                                    map[string]string
+	globalArgs                              map[string]string
+	unusedArgs                              map[string]struct{}
+	capabilities                            []string
+	devices                                 define.ContainerDevices
+	deviceSpecs                             []string
+	signBy                                  string
+	architecture                            string
+	timestamp                               *time.Time
+	os                                      string
+	maxPullPushRetries                      int
+	retryPullPushDelay                      time.Duration
+	cachePullSourceLookupReferenceFunc      libimage.LookupReferenceFunc
+	cachePullDestinationLookupReferenceFunc func(srcRef types.ImageReference) libimage.LookupReferenceFunc
+	cachePushSourceLookupReferenceFunc      func(dest types.ImageReference) libimage.LookupReferenceFunc
+	cachePushDestinationLookupReferenceFunc libimage.LookupReferenceFunc
+	ociDecryptConfig                        *encconfig.DecryptConfig
+	lastError                               error
+	terminatedStage                         map[string]error
+	stagesLock                              sync.Mutex
+	stagesSemaphore                         *semaphore.Weighted
+	logRusage                               bool
+	rusageLogFile                           io.Writer
+	imageInfoLock                           sync.Mutex
+	imageInfoCache                          map[string]imageTypeAndHistoryAndDiffIDs
+	fromOverride                            string
+	additionalBuildContexts                 map[string]*define.AdditionalBuildContext
+	manifest                                string
+	secrets                                 map[string]define.Secret
+	sshsources                              map[string]*sshagent.Source
+	logPrefix                               string
+	unsetEnvs                               []string
+	unsetLabels                             []string
+	unsetAnnotations                        []string
+	processLabel                            string   // Shares processLabel of first stage container with containers of other stages in same build
+	mountLabel                              string   // Shares mountLabel of first stage container with containers of other stages in same build
+	buildOutputs                            []string // Specifies instructions for any custom build output
+	osVersion                               string
+	osFeatures                              []string
+	envs                                    []string
+	confidentialWorkload                    define.ConfidentialWorkloadOptions
+	sbomScanOptions                         []define.SBOMScanOptions
+	cdiConfigDir                            string
+	compatSetParent                         types.OptionalBool
+	compatVolumes                           types.OptionalBool
+	compatScratchConfig                     types.OptionalBool
+	compatLayerOmissions                    types.OptionalBool
+	noPivotRoot                             bool
+	sourceDateEpoch                         *time.Time
+	rewriteTimestamp                        bool
+	createdAnnotation                       types.OptionalBool
 }
 
 type imageTypeAndHistoryAndDiffIDs struct {
@@ -158,6 +179,8 @@ type imageTypeAndHistoryAndDiffIDs struct {
 	history      []v1.History
 	diffIDs      []digest.Digest
 	err          error
+	architecture string
+	os           string
 }
 
 // newExecutor creates a new instance of the imagebuilder.Executor interface.
@@ -179,16 +202,8 @@ func newExecutor(logger *logrus.Logger, logPrefix string, store storage.Store, o
 		return nil, err
 	}
 
-	devices := define.ContainerDevices{}
-	for _, device := range append(defaultContainerConfig.Containers.Devices.Get(), options.Devices...) {
-		dev, err := parse.DeviceFromPath(device)
-		if err != nil {
-			return nil, err
-		}
-		devices = append(dev, devices...)
-	}
+	var transientMounts []Mount
 
-	transientMounts := []Mount{}
 	for _, volume := range append(defaultContainerConfig.Volumes(), options.TransientMounts...) {
 		mount, err := parse.Volume(volume)
 		if err != nil {
@@ -217,99 +232,126 @@ func newExecutor(logger *logrus.Logger, logPrefix string, store storage.Store, o
 		if options.RusageLogFile == "" {
 			rusageLogFile = options.Out
 		} else {
-			rusageLogFile, err = os.OpenFile(options.RusageLogFile, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
+			rusageLogFile, err = os.OpenFile(options.RusageLogFile, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0o644)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("creating file to store rusage logs: %w", err)
 			}
 		}
 	}
 
-	exec := Executor{
-		args:                           options.Args,
-		cacheFrom:                      options.CacheFrom,
-		cacheTo:                        options.CacheTo,
-		cacheTTL:                       options.CacheTTL,
-		containerSuffix:                options.ContainerSuffix,
-		logger:                         logger,
-		stages:                         make(map[string]*StageExecutor),
-		store:                          store,
-		contextDir:                     options.ContextDirectory,
-		excludes:                       excludes,
-		groupAdd:                       options.GroupAdd,
-		ignoreFile:                     options.IgnoreFile,
-		pullPolicy:                     options.PullPolicy,
-		registry:                       options.Registry,
-		ignoreUnrecognizedInstructions: options.IgnoreUnrecognizedInstructions,
-		quiet:                          options.Quiet,
-		runtime:                        options.Runtime,
-		runtimeArgs:                    options.RuntimeArgs,
-		transientMounts:                transientMounts,
-		compression:                    options.Compression,
-		output:                         options.Output,
-		outputFormat:                   options.OutputFormat,
-		additionalTags:                 options.AdditionalTags,
-		signaturePolicyPath:            options.SignaturePolicyPath,
-		skipUnusedStages:               options.SkipUnusedStages,
-		systemContext:                  options.SystemContext,
-		log:                            options.Log,
-		in:                             options.In,
-		out:                            options.Out,
-		err:                            options.Err,
-		reportWriter:                   writer,
-		isolation:                      options.Isolation,
-		namespaceOptions:               options.NamespaceOptions,
-		configureNetwork:               options.ConfigureNetwork,
-		cniPluginPath:                  options.CNIPluginPath,
-		cniConfigDir:                   options.CNIConfigDir,
-		networkInterface:               options.NetworkInterface,
-		idmappingOptions:               options.IDMappingOptions,
-		commonBuildOptions:             options.CommonBuildOpts,
-		defaultMountsFilePath:          options.DefaultMountsFilePath,
-		iidfile:                        options.IIDFile,
-		squash:                         options.Squash,
-		labels:                         append([]string{}, options.Labels...),
-		layerLabels:                    append([]string{}, options.LayerLabels...),
-		annotations:                    append([]string{}, options.Annotations...),
-		layers:                         options.Layers,
-		noHostname:                     options.CommonBuildOpts.NoHostname,
-		noHosts:                        options.CommonBuildOpts.NoHosts,
-		useCache:                       !options.NoCache,
-		removeIntermediateCtrs:         options.RemoveIntermediateCtrs,
-		forceRmIntermediateCtrs:        options.ForceRmIntermediateCtrs,
-		imageMap:                       make(map[string]string),
-		containerMap:                   make(map[string]*buildah.Builder),
-		baseMap:                        make(map[string]bool),
-		rootfsMap:                      make(map[string]bool),
-		blobDirectory:                  options.BlobDirectory,
-		unusedArgs:                     make(map[string]struct{}),
-		capabilities:                   capabilities,
-		devices:                        devices,
-		signBy:                         options.SignBy,
-		architecture:                   options.Architecture,
-		timestamp:                      options.Timestamp,
-		os:                             options.OS,
-		maxPullPushRetries:             options.MaxPullPushRetries,
-		retryPullPushDelay:             options.PullPushRetryDelay,
-		ociDecryptConfig:               options.OciDecryptConfig,
-		terminatedStage:                make(map[string]error),
-		stagesSemaphore:                options.JobSemaphore,
-		logRusage:                      options.LogRusage,
-		rusageLogFile:                  rusageLogFile,
-		imageInfoCache:                 make(map[string]imageTypeAndHistoryAndDiffIDs),
-		fromOverride:                   options.From,
-		additionalBuildContexts:        options.AdditionalBuildContexts,
-		manifest:                       options.Manifest,
-		secrets:                        secrets,
-		sshsources:                     sshsources,
-		logPrefix:                      logPrefix,
-		unsetEnvs:                      append([]string{}, options.UnsetEnvs...),
-		unsetLabels:                    append([]string{}, options.UnsetLabels...),
-		buildOutput:                    options.BuildOutput,
-		osVersion:                      options.OSVersion,
-		osFeatures:                     append([]string{}, options.OSFeatures...),
-		envs:                           append([]string{}, options.Envs...),
-		confidentialWorkload:           options.ConfidentialWorkload,
+	buildOutputs := slices.Clone(options.BuildOutputs)
+	if options.BuildOutput != "" { //nolint:staticcheck
+		buildOutputs = append(buildOutputs, options.BuildOutput) //nolint:staticcheck
 	}
+
+	exec := Executor{
+		args:                                    options.Args,
+		cacheFrom:                               options.CacheFrom,
+		cacheTo:                                 options.CacheTo,
+		cacheTTL:                                options.CacheTTL,
+		containerSuffix:                         options.ContainerSuffix,
+		logger:                                  logger,
+		stages:                                  make(map[string]*StageExecutor),
+		store:                                   store,
+		contextDir:                              options.ContextDirectory,
+		excludes:                                excludes,
+		groupAdd:                                options.GroupAdd,
+		ignoreFile:                              options.IgnoreFile,
+		pullPolicy:                              options.PullPolicy,
+		registry:                                options.Registry,
+		ignoreUnrecognizedInstructions:          options.IgnoreUnrecognizedInstructions,
+		quiet:                                   options.Quiet,
+		runtime:                                 options.Runtime,
+		runtimeArgs:                             options.RuntimeArgs,
+		transientMounts:                         transientMounts,
+		compression:                             options.Compression,
+		output:                                  options.Output,
+		outputFormat:                            options.OutputFormat,
+		additionalTags:                          options.AdditionalTags,
+		signaturePolicyPath:                     options.SignaturePolicyPath,
+		skipUnusedStages:                        options.SkipUnusedStages,
+		systemContext:                           options.SystemContext,
+		log:                                     options.Log,
+		in:                                      options.In,
+		out:                                     options.Out,
+		err:                                     options.Err,
+		reportWriter:                            writer,
+		isolation:                               options.Isolation,
+		inheritLabels:                           options.InheritLabels,
+		inheritAnnotations:                      options.InheritAnnotations,
+		namespaceOptions:                        options.NamespaceOptions,
+		configureNetwork:                        options.ConfigureNetwork,
+		cniPluginPath:                           options.CNIPluginPath,
+		cniConfigDir:                            options.CNIConfigDir,
+		networkInterface:                        options.NetworkInterface,
+		idmappingOptions:                        options.IDMappingOptions,
+		commonBuildOptions:                      options.CommonBuildOpts,
+		defaultMountsFilePath:                   options.DefaultMountsFilePath,
+		iidfile:                                 options.IIDFile,
+		squash:                                  options.Squash,
+		labels:                                  slices.Clone(options.Labels),
+		layerLabels:                             slices.Clone(options.LayerLabels),
+		annotations:                             slices.Clone(options.Annotations),
+		layers:                                  options.Layers,
+		noHostname:                              options.CommonBuildOpts.NoHostname,
+		noHosts:                                 options.CommonBuildOpts.NoHosts,
+		useCache:                                !options.NoCache,
+		removeIntermediateCtrs:                  options.RemoveIntermediateCtrs,
+		forceRmIntermediateCtrs:                 options.ForceRmIntermediateCtrs,
+		imageMap:                                make(map[string]string),
+		containerMap:                            make(map[string]*buildah.Builder),
+		baseMap:                                 make(map[string]struct{}),
+		rootfsMap:                               make(map[string]struct{}),
+		blobDirectory:                           options.BlobDirectory,
+		unusedArgs:                              make(map[string]struct{}),
+		capabilities:                            capabilities,
+		deviceSpecs:                             options.Devices,
+		signBy:                                  options.SignBy,
+		architecture:                            options.Architecture,
+		timestamp:                               options.Timestamp,
+		os:                                      options.OS,
+		maxPullPushRetries:                      options.MaxPullPushRetries,
+		retryPullPushDelay:                      options.PullPushRetryDelay,
+		cachePullSourceLookupReferenceFunc:      options.CachePullSourceLookupReferenceFunc,
+		cachePullDestinationLookupReferenceFunc: options.CachePullDestinationLookupReferenceFunc,
+		cachePushSourceLookupReferenceFunc:      options.CachePushSourceLookupReferenceFunc,
+		cachePushDestinationLookupReferenceFunc: options.CachePushDestinationLookupReferenceFunc,
+		ociDecryptConfig:                        options.OciDecryptConfig,
+		terminatedStage:                         make(map[string]error),
+		stagesSemaphore:                         options.JobSemaphore,
+		logRusage:                               options.LogRusage,
+		rusageLogFile:                           rusageLogFile,
+		imageInfoCache:                          make(map[string]imageTypeAndHistoryAndDiffIDs),
+		fromOverride:                            options.From,
+		additionalBuildContexts:                 options.AdditionalBuildContexts,
+		manifest:                                options.Manifest,
+		secrets:                                 secrets,
+		sshsources:                              sshsources,
+		logPrefix:                               logPrefix,
+		unsetEnvs:                               slices.Clone(options.UnsetEnvs),
+		unsetLabels:                             slices.Clone(options.UnsetLabels),
+		unsetAnnotations:                        slices.Clone(options.UnsetAnnotations),
+		buildOutputs:                            buildOutputs,
+		osVersion:                               options.OSVersion,
+		osFeatures:                              slices.Clone(options.OSFeatures),
+		envs:                                    slices.Clone(options.Envs),
+		confidentialWorkload:                    options.ConfidentialWorkload,
+		sbomScanOptions:                         options.SBOMScanOptions,
+		cdiConfigDir:                            options.CDIConfigDir,
+		compatSetParent:                         options.CompatSetParent,
+		compatVolumes:                           options.CompatVolumes,
+		compatScratchConfig:                     options.CompatScratchConfig,
+		compatLayerOmissions:                    options.CompatLayerOmissions,
+		noPivotRoot:                             options.NoPivotRoot,
+		sourceDateEpoch:                         options.SourceDateEpoch,
+		rewriteTimestamp:                        options.RewriteTimestamp,
+		createdAnnotation:                       options.CreatedAnnotation,
+	}
+	// sort unsetAnnotations because we will later write these
+	// values to the history of the image therefore we want to
+	// make sure that order is always consistent.
+	slices.Sort(exec.unsetAnnotations)
+
 	if exec.err == nil {
 		exec.err = os.Stderr
 	}
@@ -337,13 +379,13 @@ func newExecutor(logger *logrus.Logger, logPrefix string, store storage.Store, o
 					// We have to be careful here - it's either an argument
 					// and value, or just an argument, since they can be
 					// separated by either "=" or whitespace.
-					list := strings.SplitN(arg.Value, "=", 2)
+					argName, argValue, hasValue := strings.Cut(arg.Value, "=")
 					if !foundFirstStage {
-						if len(list) > 1 {
-							globalArgs[list[0]] = list[1]
+						if hasValue {
+							globalArgs[argName] = argValue
 						}
 					}
-					delete(exec.unusedArgs, list[0])
+					delete(exec.unusedArgs, argName)
 				}
 			case "FROM":
 				foundFirstStage = true
@@ -358,9 +400,12 @@ func newExecutor(logger *logrus.Logger, logPrefix string, store storage.Store, o
 // startStage creates a new stage executor that will be referenced whenever a
 // COPY or ADD statement uses a --from=NAME flag.
 func (b *Executor) startStage(ctx context.Context, stage *imagebuilder.Stage, stages imagebuilder.Stages, output string) *StageExecutor {
+	// create a copy of systemContext for each stage executor.
+	systemContext := *b.systemContext
 	stageExec := &StageExecutor{
 		ctx:             ctx,
 		executor:        b,
+		systemContext:   &systemContext,
 		log:             b.log,
 		index:           stage.Position,
 		stages:          stages,
@@ -433,30 +478,30 @@ func (b *Executor) waitForStage(ctx context.Context, name string, stages imagebu
 	}
 }
 
-// getImageTypeAndHistoryAndDiffIDs returns the manifest type, history, and diff IDs list of imageID.
-func (b *Executor) getImageTypeAndHistoryAndDiffIDs(ctx context.Context, imageID string) (string, []v1.History, []digest.Digest, error) {
+// getImageTypeAndHistoryAndDiffIDs returns the os, architecture, manifest type, history, and diff IDs list of imageID.
+func (b *Executor) getImageTypeAndHistoryAndDiffIDs(ctx context.Context, imageID string) (string, string, string, []v1.History, []digest.Digest, error) {
 	b.imageInfoLock.Lock()
 	imageInfo, ok := b.imageInfoCache[imageID]
 	b.imageInfoLock.Unlock()
 	if ok {
-		return imageInfo.manifestType, imageInfo.history, imageInfo.diffIDs, imageInfo.err
+		return imageInfo.os, imageInfo.architecture, imageInfo.manifestType, imageInfo.history, imageInfo.diffIDs, imageInfo.err
 	}
 	imageRef, err := storageTransport.Transport.ParseStoreReference(b.store, "@"+imageID)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("getting image reference %q: %w", imageID, err)
+		return "", "", "", nil, nil, fmt.Errorf("getting image reference %q: %w", imageID, err)
 	}
 	ref, err := imageRef.NewImage(ctx, nil)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("creating new image from reference to image %q: %w", imageID, err)
+		return "", "", "", nil, nil, fmt.Errorf("creating new image from reference to image %q: %w", imageID, err)
 	}
 	defer ref.Close()
 	oci, err := ref.OCIConfig(ctx)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("getting possibly-converted OCI config of image %q: %w", imageID, err)
+		return "", "", "", nil, nil, fmt.Errorf("getting possibly-converted OCI config of image %q: %w", imageID, err)
 	}
 	manifestBytes, manifestFormat, err := ref.Manifest(ctx)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("getting manifest of image %q: %w", imageID, err)
+		return "", "", "", nil, nil, fmt.Errorf("getting manifest of image %q: %w", imageID, err)
 	}
 	if manifestFormat == "" && len(manifestBytes) > 0 {
 		manifestFormat = manifest.GuessMIMEType(manifestBytes)
@@ -467,9 +512,11 @@ func (b *Executor) getImageTypeAndHistoryAndDiffIDs(ctx context.Context, imageID
 		history:      oci.History,
 		diffIDs:      oci.RootFS.DiffIDs,
 		err:          nil,
+		architecture: oci.Architecture,
+		os:           oci.OS,
 	}
 	b.imageInfoLock.Unlock()
-	return manifestFormat, oci.History, oci.RootFS.DiffIDs, nil
+	return oci.OS, oci.Architecture, manifestFormat, oci.History, oci.RootFS.DiffIDs, nil
 }
 
 func (b *Executor) buildStage(ctx context.Context, cleanupStages map[int]*StageExecutor, stages imagebuilder.Stages, stageIndex int) (imageID string, ref reference.Canonical, onlyBaseImage bool, err error) {
@@ -491,17 +538,12 @@ func (b *Executor) buildStage(ctx context.Context, cleanupStages map[int]*StageE
 		// to the Dockerfile that would provide the same result.
 		// Reason: Docker adds label modification as a last step which can be
 		// processed like regular steps, and if no modification is done to
-		// layers, its easier to re-use cached layers.
+		// layers, its easier to reuse cached layers.
 		if len(b.labels) > 0 {
 			var labelLine string
-			labels := append([]string{}, b.labels...)
+			labels := slices.Clone(b.labels)
 			for _, labelSpec := range labels {
-				label := strings.SplitN(labelSpec, "=", 2)
-				key := label[0]
-				value := ""
-				if len(label) > 1 {
-					value = label[1]
-				}
+				key, value, _ := strings.Cut(labelSpec, "=")
 				// check only for an empty key since docker allows empty values
 				if key != "" {
 					labelLine += fmt.Sprintf(" %q=%q", key, value)
@@ -523,10 +565,8 @@ func (b *Executor) buildStage(ctx context.Context, cleanupStages map[int]*StageE
 	if len(b.envs) > 0 {
 		var envLine string
 		for _, envSpec := range b.envs {
-			env := strings.SplitN(envSpec, "=", 2)
-			key := env[0]
-			if len(env) > 1 {
-				value := env[1]
+			key, value, hasValue := strings.Cut(envSpec, "=")
+			if hasValue {
 				envLine += fmt.Sprintf(" %q=%q", key, value)
 			} else {
 				return "", nil, false, fmt.Errorf("BUG: unresolved environment variable: %q", key)
@@ -546,7 +586,7 @@ func (b *Executor) buildStage(ctx context.Context, cleanupStages map[int]*StageE
 	stageExecutor := b.startStage(ctx, &stage, stages, output)
 	if stageExecutor.log == nil {
 		stepCounter := 0
-		stageExecutor.log = func(format string, args ...interface{}) {
+		stageExecutor.log = func(format string, args ...any) {
 			prefix := b.logPrefix
 			if len(stages) > 1 {
 				prefix += fmt.Sprintf("[%d/%d] ", stageIndex+1, len(stages))
@@ -613,7 +653,7 @@ func markDependencyStagesForTarget(dependencyMap map[string]*stageDependencyInfo
 }
 
 func (b *Executor) warnOnUnsetBuildArgs(stages imagebuilder.Stages, dependencyMap map[string]*stageDependencyInfo, args map[string]string) {
-	argFound := make(map[string]bool)
+	argFound := make(map[string]struct{})
 	for _, stage := range stages {
 		node := stage.Node // first line
 		for node != nil {  // each line
@@ -624,12 +664,12 @@ func (b *Executor) warnOnUnsetBuildArgs(stages imagebuilder.Stages, dependencyMa
 					if strings.Contains(argName, "=") {
 						res := strings.Split(argName, "=")
 						if res[1] != "" {
-							argFound[res[0]] = true
+							argFound[res[0]] = struct{}{}
 						}
 					}
 					argHasValue := true
 					if !strings.Contains(argName, "=") {
-						argHasValue = argFound[argName]
+						argHasValue = internalUtil.SetHas(argFound, argName)
 					}
 					if _, ok := args[argName]; !argHasValue && !ok {
 						shouldWarn := true
@@ -769,18 +809,19 @@ func (b *Executor) Build(ctx context.Context, stages imagebuilder.Stages) (image
 									base = child.Next.Value
 								}
 							}
+							builtinArgs := argsMapToSlice(stage.Builder.BuiltinArgDefaults)
 							headingArgs := argsMapToSlice(stage.Builder.HeadingArgs)
 							userArgs := argsMapToSlice(stage.Builder.Args)
 							// append heading args so if --build-arg key=value is not
 							// specified but default value is set in Containerfile
 							// via `ARG key=value` so default value can be used.
-							userArgs = append(headingArgs, userArgs...)
+							userArgs = append(builtinArgs, append(userArgs, headingArgs...)...)
 							baseWithArg, err := imagebuilder.ProcessWord(base, userArgs)
 							if err != nil {
 								return "", nil, fmt.Errorf("while replacing arg variables with values for format %q: %w", base, err)
 							}
-							b.baseMap[baseWithArg] = true
-							logrus.Debugf("base for stage %d: %q", stageIndex, base)
+							b.baseMap[baseWithArg] = struct{}{}
+							logrus.Debugf("base for stage %d: %q resolves to %q", stageIndex, base, baseWithArg)
 							// Check if selected base is not an additional
 							// build context and if base is a valid stage
 							// add it to current stage's dependency tree.
@@ -795,31 +836,33 @@ func (b *Executor) Build(ctx context.Context, stages imagebuilder.Stages) (image
 					}
 				case "ADD", "COPY":
 					for _, flag := range child.Flags { // flags for this instruction
-						if strings.HasPrefix(flag, "--from=") {
+						if after, ok := strings.CutPrefix(flag, "--from="); ok {
 							// TODO: this didn't undergo variable and
 							// arg expansion, so if the previous stage
 							// was named using argument values, we might
 							// not record the right value here.
-							rootfs := strings.TrimPrefix(flag, "--from=")
-							b.rootfsMap[rootfs] = true
+							rootfs := after
+							b.rootfsMap[rootfs] = struct{}{}
 							logrus.Debugf("rootfs needed for COPY in stage %d: %q", stageIndex, rootfs)
 							// Populate dependency tree and check
 							// if following ADD or COPY needs any other
 							// stage.
 							stageName := rootfs
+							builtinArgs := argsMapToSlice(stage.Builder.BuiltinArgDefaults)
 							headingArgs := argsMapToSlice(stage.Builder.HeadingArgs)
 							userArgs := argsMapToSlice(stage.Builder.Args)
 							// append heading args so if --build-arg key=value is not
 							// specified but default value is set in Containerfile
 							// via `ARG key=value` so default value can be used.
-							userArgs = append(headingArgs, userArgs...)
+							userArgs = append(builtinArgs, append(userArgs, headingArgs...)...)
 							baseWithArg, err := imagebuilder.ProcessWord(stageName, userArgs)
 							if err != nil {
 								return "", nil, fmt.Errorf("while replacing arg variables with values for format %q: %w", stageName, err)
 							}
+							logrus.Debugf("stage %d name: %q resolves to %q", stageIndex, stageName, baseWithArg)
 							stageName = baseWithArg
 							// If --from=<index> convert index to name
-							if index, err := strconv.Atoi(stageName); err == nil {
+							if index, err := strconv.Atoi(stageName); err == nil && index >= 0 && index < stageIndex {
 								stageName = stages[index].Name
 							}
 							// Check if selected base is not an additional
@@ -842,26 +885,20 @@ func (b *Executor) Build(ctx context.Context, stages imagebuilder.Stages) (image
 						// dependency calculation.
 						if strings.HasPrefix(flag, "--mount=") && strings.Contains(flag, "from") {
 							mountFlags := strings.TrimPrefix(flag, "--mount=")
-							fields := strings.Split(mountFlags, ",")
-							for _, field := range fields {
-								if strings.HasPrefix(field, "from=") {
-									fromField := strings.SplitN(field, "=", 2)
-									if len(fromField) > 1 {
-										mountFrom := fromField[1]
-										// Check if this base is a stage if yes
-										// add base to current stage's dependency tree
-										// but also confirm if this is not in additional context.
-										if _, ok := b.additionalBuildContexts[mountFrom]; !ok {
-											// Treat from as a rootfs we need to preserve
-											b.rootfsMap[mountFrom] = true
-											if _, ok := dependencyMap[mountFrom]; ok {
-												// update current stage's dependency info
-												currentStageInfo := dependencyMap[stage.Name]
-												currentStageInfo.Needs = append(currentStageInfo.Needs, mountFrom)
-											}
+							fields := strings.SplitSeq(mountFlags, ",")
+							for field := range fields {
+								if mountFrom, hasFrom := strings.CutPrefix(field, "from="); hasFrom {
+									// Check if this base is a stage if yes
+									// add base to current stage's dependency tree
+									// but also confirm if this is not in additional context.
+									if _, ok := b.additionalBuildContexts[mountFrom]; !ok {
+										// Treat from as a rootfs we need to preserve
+										b.rootfsMap[mountFrom] = struct{}{}
+										if _, ok := dependencyMap[mountFrom]; ok {
+											// update current stage's dependency info
+											currentStageInfo := dependencyMap[stage.Name]
+											currentStageInfo.Needs = append(currentStageInfo.Needs, mountFrom)
 										}
-									} else {
-										return "", nil, fmt.Errorf("invalid value for field `from=`: %q", fromField[1])
 									}
 								}
 							}
@@ -1010,7 +1047,7 @@ func (b *Executor) Build(ctx context.Context, stages imagebuilder.Stages) (image
 		for k := range b.unusedArgs {
 			unusedList = append(unusedList, k)
 		}
-		sort.Strings(unusedList)
+		slices.Sort(unusedList)
 		fmt.Fprintf(b.out, "[Warning] one or more build args were not consumed: %v\n", unusedList)
 	}
 
@@ -1049,7 +1086,11 @@ func (b *Executor) Build(ctx context.Context, stages imagebuilder.Stages) (image
 	}
 	logrus.Debugf("printing final image id %q", imageID)
 	if b.iidfile != "" {
-		if err = os.WriteFile(b.iidfile, []byte("sha256:"+imageID), 0644); err != nil {
+		iid := imageID
+		if iid != "" {
+			iid = "sha256:" + iid // only prepend a digest algorithm name if we actually got a value back
+		}
+		if err = os.WriteFile(b.iidfile, []byte(iid), 0o644); err != nil {
 			return imageID, ref, fmt.Errorf("failed to write image ID to file %q: %w", b.iidfile, err)
 		}
 	} else {

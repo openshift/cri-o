@@ -1,15 +1,23 @@
+// Package configs provides various container-related configuration types
+// used by libcontainer.
 package configs
 
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
+	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 
-	"github.com/opencontainers/runc/libcontainer/devices"
+	"github.com/opencontainers/cgroups"
+	devices "github.com/opencontainers/cgroups/devices/config"
 	"github.com/opencontainers/runtime-spec/specs-go"
 )
 
@@ -21,9 +29,9 @@ type Rlimit struct {
 
 // IDMap represents UID/GID Mappings for User Namespaces.
 type IDMap struct {
-	ContainerID int `json:"container_id"`
-	HostID      int `json:"host_id"`
-	Size        int `json:"size"`
+	ContainerID int64 `json:"container_id"`
+	HostID      int64 `json:"host_id"`
+	Size        int64 `json:"size"`
 }
 
 // Seccomp represents syscall restrictions
@@ -31,12 +39,13 @@ type IDMap struct {
 // for syscalls. Additional architectures can be added by specifying them in
 // Architectures.
 type Seccomp struct {
-	DefaultAction    Action     `json:"default_action"`
-	Architectures    []string   `json:"architectures"`
-	Syscalls         []*Syscall `json:"syscalls"`
-	DefaultErrnoRet  *uint      `json:"default_errno_ret"`
-	ListenerPath     string     `json:"listener_path,omitempty"`
-	ListenerMetadata string     `json:"listener_metadata,omitempty"`
+	DefaultAction    Action                   `json:"default_action"`
+	Architectures    []string                 `json:"architectures"`
+	Flags            []specs.LinuxSeccompFlag `json:"flags"`
+	Syscalls         []*Syscall               `json:"syscalls"`
+	DefaultErrnoRet  *uint                    `json:"default_errno_ret"`
+	ListenerPath     string                   `json:"listener_path,omitempty"`
+	ListenerMetadata string                   `json:"listener_metadata,omitempty"`
 }
 
 // Action is taken upon rule match in Seccomp
@@ -83,9 +92,6 @@ type Syscall struct {
 	Args     []*Arg `json:"args"`
 }
 
-// TODO Windows. Many of these fields should be factored out into those parts
-// which are common across platforms, and those which are platform specific.
-
 // Config defines configuration options for executing a process inside a contained environment.
 type Config struct {
 	// NoPivotRoot will use MS_MOVE and a chroot to jail the process into the container's rootfs
@@ -121,6 +127,9 @@ type Config struct {
 	// Hostname optionally sets the container's hostname if provided
 	Hostname string `json:"hostname"`
 
+	// Domainname optionally sets the container's domainname if provided
+	Domainname string `json:"domainname"`
+
 	// Namespaces specifies the container's namespaces that it should setup when cloning the init process
 	// If a namespace is not provided that namespace is shared from the container's parent process
 	Namespaces Namespaces `json:"namespaces"`
@@ -136,8 +145,8 @@ type Config struct {
 	Routes []*Route `json:"routes"`
 
 	// Cgroups specifies specific cgroup settings for the various subsystems that the container is
-	// placed into to limit the resources the container has available
-	Cgroups *Cgroup `json:"cgroups"`
+	// placed into to limit the resources the container has available.
+	Cgroups *cgroups.Cgroup `json:"cgroups"`
 
 	// AppArmorProfile specifies the profile to apply to the process running in the container and is
 	// change at the time the process is execed
@@ -158,11 +167,11 @@ type Config struct {
 	// More information about kernel oom score calculation here: https://lwn.net/Articles/317814/
 	OomScoreAdj *int `json:"oom_score_adj,omitempty"`
 
-	// UidMappings is an array of User ID mappings for User Namespaces
-	UidMappings []IDMap `json:"uid_mappings"`
+	// UIDMappings is an array of User ID mappings for User Namespaces
+	UIDMappings []IDMap `json:"uid_mappings"`
 
-	// GidMappings is an array of Group ID mappings for User Namespaces
-	GidMappings []IDMap `json:"gid_mappings"`
+	// GIDMappings is an array of Group ID mappings for User Namespaces
+	GIDMappings []IDMap `json:"gid_mappings"`
 
 	// MaskPaths specifies paths within the container's rootfs to mask over with a bind
 	// mount pointing to /dev/null as to prevent reads of the file.
@@ -211,6 +220,166 @@ type Config struct {
 	// RootlessCgroups is set when unlikely to have the full access to cgroups.
 	// When RootlessCgroups is set, cgroups errors are ignored.
 	RootlessCgroups bool `json:"rootless_cgroups,omitempty"`
+
+	// TimeOffsets specifies the offset for supporting time namespaces.
+	TimeOffsets map[string]specs.LinuxTimeOffset `json:"time_offsets,omitempty"`
+
+	// Scheduler represents the scheduling attributes for a process.
+	Scheduler *Scheduler `json:"scheduler,omitempty"`
+
+	// Personality contains configuration for the Linux personality syscall.
+	Personality *LinuxPersonality `json:"personality,omitempty"`
+
+	// IOPriority is the container's I/O priority.
+	IOPriority *IOPriority `json:"io_priority,omitempty"`
+
+	// ExecCPUAffinity is CPU affinity for a non-init process to be run in the container.
+	ExecCPUAffinity *CPUAffinity `json:"exec_cpu_affinity,omitempty"`
+}
+
+// Scheduler is based on the Linux sched_setattr(2) syscall.
+type Scheduler = specs.Scheduler
+
+// ToSchedAttr is to convert *configs.Scheduler to *unix.SchedAttr.
+func ToSchedAttr(scheduler *Scheduler) (*unix.SchedAttr, error) {
+	var policy uint32
+	switch scheduler.Policy {
+	case specs.SchedOther:
+		policy = 0
+	case specs.SchedFIFO:
+		policy = 1
+	case specs.SchedRR:
+		policy = 2
+	case specs.SchedBatch:
+		policy = 3
+	case specs.SchedISO:
+		policy = 4
+	case specs.SchedIdle:
+		policy = 5
+	case specs.SchedDeadline:
+		policy = 6
+	default:
+		return nil, fmt.Errorf("invalid scheduler policy: %s", scheduler.Policy)
+	}
+
+	var flags uint64
+	for _, flag := range scheduler.Flags {
+		switch flag {
+		case specs.SchedFlagResetOnFork:
+			flags |= 0x01
+		case specs.SchedFlagReclaim:
+			flags |= 0x02
+		case specs.SchedFlagDLOverrun:
+			flags |= 0x04
+		case specs.SchedFlagKeepPolicy:
+			flags |= 0x08
+		case specs.SchedFlagKeepParams:
+			flags |= 0x10
+		case specs.SchedFlagUtilClampMin:
+			flags |= 0x20
+		case specs.SchedFlagUtilClampMax:
+			flags |= 0x40
+		default:
+			return nil, fmt.Errorf("invalid scheduler flag: %s", flag)
+		}
+	}
+
+	return &unix.SchedAttr{
+		Size:     unix.SizeofSchedAttr,
+		Policy:   policy,
+		Flags:    flags,
+		Nice:     scheduler.Nice,
+		Priority: uint32(scheduler.Priority),
+		Runtime:  scheduler.Runtime,
+		Deadline: scheduler.Deadline,
+		Period:   scheduler.Period,
+	}, nil
+}
+
+type IOPriority = specs.LinuxIOPriority
+
+type CPUAffinity struct {
+	Initial, Final *unix.CPUSet
+}
+
+func toCPUSet(str string) (*unix.CPUSet, error) {
+	if str == "" {
+		return nil, nil
+	}
+	s := new(unix.CPUSet)
+
+	// Since (*CPUset).Set silently ignores too high CPU values,
+	// find out what the maximum is, and return an error.
+	maxCPU := uint64(unsafe.Sizeof(*s) * 8)
+	toInt := func(v string) (int, error) {
+		ret, err := strconv.ParseUint(v, 10, 32)
+		if err != nil {
+			return 0, err
+		}
+		if ret >= maxCPU {
+			return 0, fmt.Errorf("values larger than %d are not supported", maxCPU-1)
+		}
+		return int(ret), nil
+	}
+
+	for _, r := range strings.Split(str, ",") {
+		// Allow extra spaces around.
+		r = strings.TrimSpace(r)
+		// Allow empty elements (extra commas).
+		if r == "" {
+			continue
+		}
+		if r0, r1, found := strings.Cut(r, "-"); found {
+			start, err := toInt(r0)
+			if err != nil {
+				return nil, err
+			}
+			end, err := toInt(r1)
+			if err != nil {
+				return nil, err
+			}
+			if start > end {
+				return nil, errors.New("invalid range: " + r)
+			}
+			for i := start; i <= end; i++ {
+				s.Set(i)
+			}
+		} else {
+			val, err := toInt(r)
+			if err != nil {
+				return nil, err
+			}
+			s.Set(val)
+		}
+	}
+	if s.Count() == 0 {
+		return nil, fmt.Errorf("no CPUs found in %q", str)
+	}
+
+	return s, nil
+}
+
+// ConvertCPUAffinity converts [specs.CPUAffinity] to [CPUAffinity].
+func ConvertCPUAffinity(sa *specs.CPUAffinity) (*CPUAffinity, error) {
+	if sa == nil {
+		return nil, nil
+	}
+	initial, err := toCPUSet(sa.Initial)
+	if err != nil {
+		return nil, fmt.Errorf("bad CPUAffinity.Initial: %w", err)
+	}
+	final, err := toCPUSet(sa.Final)
+	if err != nil {
+		return nil, fmt.Errorf("bad CPUAffinity.Final: %w", err)
+	}
+	if initial == nil && final == nil {
+		return nil, nil
+	}
+
+	return &CPUAffinity{
+		Initial: initial,
+		Final:   final,
+	}, nil
 }
 
 type (
@@ -251,6 +420,19 @@ const (
 	Poststop HookName = "poststop"
 )
 
+// HasHook checks if config has any hooks with any given names configured.
+func (c *Config) HasHook(names ...HookName) bool {
+	if c.Hooks == nil {
+		return false
+	}
+	for _, h := range names {
+		if len(c.Hooks[h]) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // KnownHookNames returns the known hook names.
 // Used by `runc features`.
 func KnownHookNames() []string {
@@ -277,6 +459,7 @@ type Capabilities struct {
 	Ambient []string
 }
 
+// Deprecated: use [Hooks.Run] instead.
 func (hooks HookList) RunHooks(state *specs.State) error {
 	for i, h := range hooks {
 		if err := h.Run(state); err != nil {
@@ -333,6 +516,28 @@ func (hooks *Hooks) MarshalJSON() ([]byte, error) {
 	})
 }
 
+// Run executes all hooks for the given hook name.
+func (hooks Hooks) Run(name HookName, state *specs.State) error {
+	list := hooks[name]
+	for i, h := range list {
+		if err := h.Run(state); err != nil {
+			return fmt.Errorf("error running %s hook #%d: %w", name, i, err)
+		}
+	}
+
+	return nil
+}
+
+// SetDefaultEnv sets the environment for those CommandHook entries
+// that do not have one set.
+func (hooks HookList) SetDefaultEnv(env []string) {
+	for _, h := range hooks {
+		if ch, ok := h.(CommandHook); ok && len(ch.Env) == 0 {
+			ch.Env = env
+		}
+	}
+}
+
 type Hook interface {
 	// Run executes the hook with the provided state.
 	Run(*specs.State) error
@@ -362,17 +567,17 @@ type Command struct {
 }
 
 // NewCommandHook will execute the provided command when the hook is run.
-func NewCommandHook(cmd Command) CommandHook {
+func NewCommandHook(cmd *Command) CommandHook {
 	return CommandHook{
 		Command: cmd,
 	}
 }
 
 type CommandHook struct {
-	Command
+	*Command
 }
 
-func (c Command) Run(s *specs.State) error {
+func (c *Command) Run(s *specs.State) error {
 	b, err := json.Marshal(s)
 	if err != nil {
 		return err
@@ -393,7 +598,7 @@ func (c Command) Run(s *specs.State) error {
 	go func() {
 		err := cmd.Wait()
 		if err != nil {
-			err = fmt.Errorf("error running hook: %w, stdout: %s, stderr: %s", err, stdout.String(), stderr.String())
+			err = fmt.Errorf("%w, stdout: %s, stderr: %s", err, stdout.String(), stderr.String())
 		}
 		errC <- err
 	}()

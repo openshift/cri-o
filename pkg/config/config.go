@@ -14,12 +14,11 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/containers/common/pkg/hooks"
+	"go.podman.io/common/pkg/hooks"
 	conmonconfig "github.com/containers/conmon/runner/config"
-	"github.com/containers/image/v5/pkg/sysregistriesv2"
-	"github.com/containers/image/v5/types"
-	"github.com/containers/podman/v4/pkg/rootless"
-	"github.com/containers/storage"
+	"go.podman.io/image/v5/pkg/sysregistriesv2"
+	"go.podman.io/image/v5/types"
+	"go.podman.io/storage"
 	"github.com/cri-o/cri-o/internal/config/apparmor"
 	"github.com/cri-o/cri-o/internal/config/blockio"
 	"github.com/cri-o/cri-o/internal/config/capabilities"
@@ -823,7 +822,7 @@ func (c *Config) ToBytes() ([]byte, error) {
 
 // DefaultConfig returns the default configuration for crio.
 func DefaultConfig() (*Config, error) {
-	storeOpts, err := storage.DefaultStoreOptions(rootless.IsRootless(), rootless.GetRootlessUID())
+	storeOpts, err := storage.DefaultStoreOptions()
 	if err != nil {
 		return nil, err
 	}
@@ -1143,7 +1142,9 @@ func (c *RuntimeConfig) Validate(systemContext *types.SystemContext, onExecution
 		}
 		c.HooksDir = hooksDirs
 
-		cdi.GetRegistry(cdi.WithSpecDirs(c.CDISpecDirs...))
+		if err := cdi.Configure(cdi.WithSpecDirs(c.CDISpecDirs...)); err != nil {
+			return err
+		}
 
 		// Validate the pinns path
 		if err := c.ValidatePinnsPath("pinns"); err != nil {

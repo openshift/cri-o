@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/containers/storage"
+	"go.podman.io/storage"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/linklogs"
 	"github.com/cri-o/cri-o/internal/log"

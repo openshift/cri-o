@@ -9,11 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/containers/common/pkg/hooks"
-	"github.com/containers/podman/v4/pkg/annotations"
-	cstorage "github.com/containers/storage"
-	"github.com/containers/storage/pkg/ioutils"
-	"github.com/containers/storage/pkg/truncindex"
+	"go.podman.io/common/pkg/hooks"
+	cstorage "go.podman.io/storage"
+	"go.podman.io/storage/pkg/ioutils"
+	"go.podman.io/storage/pkg/truncindex"
 	"github.com/cri-o/cri-o/internal/hostport"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	statsserver "github.com/cri-o/cri-o/internal/lib/stats"
@@ -26,7 +25,7 @@ import (
 	libconfig "github.com/cri-o/cri-o/pkg/config"
 	json "github.com/json-iterator/go"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/opencontainers/selinux/go-selinux/label"
+	selinux "github.com/opencontainers/selinux/go-selinux"
 	"github.com/sirupsen/logrus"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
@@ -177,10 +176,10 @@ func (c *ContainerServer) LoadSandbox(ctx context.Context, id string) (sb *sandb
 		return nil, fmt.Errorf("error unmarshalling sandbox spec: %w", err)
 	}
 	labels := make(map[string]string)
-	if err := json.Unmarshal([]byte(m.Annotations[annotations.Labels]), &labels); err != nil {
-		return nil, fmt.Errorf("error unmarshalling %s annotation: %w", annotations.Labels, err)
+	if err := json.Unmarshal([]byte(m.Annotations[crioann.Labels]), &labels); err != nil {
+		return nil, fmt.Errorf("error unmarshalling %s annotation: %w", crioann.Labels, err)
 	}
-	name := m.Annotations[annotations.Name]
+	name := m.Annotations[crioann.Name]
 	name, err = c.ReservePodName(id, name)
 	if err != nil {
 		return nil, err
@@ -191,33 +190,33 @@ func (c *ContainerServer) LoadSandbox(ctx context.Context, id string) (sb *sandb
 		}
 	}()
 	var metadata types.PodSandboxMetadata
-	if err := json.Unmarshal([]byte(m.Annotations[annotations.Metadata]), &metadata); err != nil {
-		return nil, fmt.Errorf("error unmarshalling %s annotation: %w", annotations.Metadata, err)
+	if err := json.Unmarshal([]byte(m.Annotations[crioann.Metadata]), &metadata); err != nil {
+		return nil, fmt.Errorf("error unmarshalling %s annotation: %w", crioann.Metadata, err)
 	}
 
 	processLabel := m.Process.SelinuxLabel
 	mountLabel := m.Linux.MountLabel
 
-	spp := m.Annotations[annotations.SeccompProfilePath]
+	spp := m.Annotations[crioann.SeccompProfilePath]
 
 	kubeAnnotations := make(map[string]string)
-	if err := json.Unmarshal([]byte(m.Annotations[annotations.Annotations]), &kubeAnnotations); err != nil {
-		return nil, fmt.Errorf("error unmarshalling %s annotation: %w", annotations.Annotations, err)
+	if err := json.Unmarshal([]byte(m.Annotations[crioann.Annotations]), &kubeAnnotations); err != nil {
+		return nil, fmt.Errorf("error unmarshalling %s annotation: %w", crioann.Annotations, err)
 	}
 
 	portMappings := []*hostport.PortMapping{}
-	if err := json.Unmarshal([]byte(m.Annotations[annotations.PortMappings]), &portMappings); err != nil {
-		return nil, fmt.Errorf("error unmarshalling %s annotation: %w", annotations.PortMappings, err)
+	if err := json.Unmarshal([]byte(m.Annotations[crioann.PortMappings]), &portMappings); err != nil {
+		return nil, fmt.Errorf("error unmarshalling %s annotation: %w", crioann.PortMappings, err)
 	}
 
-	privileged := isTrue(m.Annotations[annotations.PrivilegedRuntime])
-	hostNetwork := isTrue(m.Annotations[annotations.HostNetwork])
+	privileged := isTrue(m.Annotations[crioann.PrivilegedRuntime])
+	hostNetwork := isTrue(m.Annotations[crioann.HostNetwork])
 	nsOpts := types.NamespaceOption{}
-	if err := json.Unmarshal([]byte(m.Annotations[annotations.NamespaceOptions]), &nsOpts); err != nil {
-		return nil, fmt.Errorf("error unmarshalling %s annotation: %w", annotations.NamespaceOptions, err)
+	if err := json.Unmarshal([]byte(m.Annotations[crioann.NamespaceOptions]), &nsOpts); err != nil {
+		return nil, fmt.Errorf("error unmarshalling %s annotation: %w", crioann.NamespaceOptions, err)
 	}
 
-	created, err := time.Parse(time.RFC3339Nano, m.Annotations[annotations.Created])
+	created, err := time.Parse(time.RFC3339Nano, m.Annotations[crioann.Created])
 	if err != nil {
 		return nil, fmt.Errorf("parsing created timestamp annotation: %w", err)
 	}
@@ -236,11 +235,11 @@ func (c *ContainerServer) LoadSandbox(ctx context.Context, id string) (sb *sandb
 		}
 	}
 
-	sb, err = sandbox.New(id, m.Annotations[annotations.Namespace], name, m.Annotations[annotations.KubeName], filepath.Dir(m.Annotations[annotations.LogPath]), labels, kubeAnnotations, processLabel, mountLabel, &metadata, m.Annotations[annotations.ShmPath], m.Annotations[annotations.CgroupParent], privileged, m.Annotations[annotations.RuntimeHandler], m.Annotations[annotations.ResolvPath], m.Annotations[annotations.HostName], portMappings, hostNetwork, created, m.Annotations[crioann.UsernsModeAnnotation], &podLinuxOverhead, &podLinuxResources)
+	sb, err = sandbox.New(id, m.Annotations[crioann.Namespace], name, m.Annotations[crioann.KubeName], filepath.Dir(m.Annotations[crioann.LogPath]), labels, kubeAnnotations, processLabel, mountLabel, &metadata, m.Annotations[crioann.ShmPath], m.Annotations[crioann.CgroupParent], privileged, m.Annotations[crioann.RuntimeHandler], m.Annotations[crioann.ResolvPath], m.Annotations[crioann.HostName], portMappings, hostNetwork, created, m.Annotations[crioann.UsernsModeAnnotation], &podLinuxOverhead, &podLinuxResources)
 	if err != nil {
 		return nil, err
 	}
-	sb.AddHostnamePath(m.Annotations[annotations.HostnamePath])
+	sb.AddHostnamePath(m.Annotations[crioann.HostnamePath])
 	sb.SetSeccompProfilePath(spp)
 	sb.SetNamespaceOptions(&nsOpts)
 
@@ -273,9 +272,9 @@ func (c *ContainerServer) LoadSandbox(ctx context.Context, id string) (sb *sandb
 		return sb, err
 	}
 
-	cID := m.Annotations[annotations.ContainerID]
+	cID := m.Annotations[crioann.ContainerID]
 
-	cname, err := c.ReserveContainerName(cID, m.Annotations[annotations.ContainerName])
+	cname, err := c.ReserveContainerName(cID, m.Annotations[crioann.ContainerName])
 	if err != nil {
 		return sb, err
 	}
@@ -295,7 +294,7 @@ func (c *ContainerServer) LoadSandbox(ctx context.Context, id string) (sb *sandb
 	}
 
 	if !wasSpoofed {
-		scontainer, err = oci.NewContainer(m.Annotations[annotations.ContainerID], cname, sandboxPath, m.Annotations[annotations.LogPath], labels, m.Annotations, kubeAnnotations, m.Annotations[annotations.Image], nil, nil, "", nil, id, false, false, false, sb.RuntimeHandler(), sandboxDir, created, m.Annotations["org.opencontainers.image.stopSignal"])
+		scontainer, err = oci.NewContainer(m.Annotations[crioann.ContainerID], cname, sandboxPath, m.Annotations[crioann.LogPath], labels, m.Annotations, kubeAnnotations, m.Annotations[crioann.Image], nil, nil, "", nil, id, false, false, false, sb.RuntimeHandler(), sandboxDir, created, m.Annotations["org.opencontainers.image.stopSignal"])
 		if err != nil {
 			return sb, err
 		}
@@ -303,11 +302,11 @@ func (c *ContainerServer) LoadSandbox(ctx context.Context, id string) (sb *sandb
 		scontainer = oci.NewSpoofedContainer(cID, cname, labels, id, created, sandboxPath)
 	}
 	scontainer.SetSpec(&m)
-	scontainer.SetMountPoint(m.Annotations[annotations.MountPoint])
+	scontainer.SetMountPoint(m.Annotations[crioann.MountPoint])
 
-	if m.Annotations[annotations.Volumes] != "" {
+	if m.Annotations[crioann.Volumes] != "" {
 		containerVolumes := []oci.ContainerVolume{}
-		if err = json.Unmarshal([]byte(m.Annotations[annotations.Volumes]), &containerVolumes); err != nil {
+		if err = json.Unmarshal([]byte(m.Annotations[crioann.Volumes]), &containerVolumes); err != nil {
 			return sb, fmt.Errorf("failed to unmarshal container volumes: %w", err)
 		}
 		for _, cv := range containerVolumes {
@@ -359,9 +358,7 @@ func (c *ContainerServer) LoadSandbox(ctx context.Context, id string) (sb *sandb
 		sb.SetStopped(ctx, true)
 	}
 
-	if err := label.ReserveLabel(processLabel); err != nil {
-		return sb, err
-	}
+	selinux.ReserveLabel(processLabel)
 
 	if err := c.ctrIDIndex.Add(scontainer.ID()); err != nil {
 		return sb, err
@@ -411,15 +408,15 @@ func (c *ContainerServer) LoadContainer(ctx context.Context, id string) (retErr 
 	}
 
 	// Do not interact with containers of others
-	if manager, ok := m.Annotations[annotations.ContainerManager]; ok && manager != ContainerManagerCRIO {
+	if manager, ok := m.Annotations[crioann.ContainerManager]; ok && manager != ContainerManagerCRIO {
 		return ErrIsNonCrioContainer
 	}
 
 	labels := make(map[string]string)
-	if err := json.Unmarshal([]byte(m.Annotations[annotations.Labels]), &labels); err != nil {
+	if err := json.Unmarshal([]byte(m.Annotations[crioann.Labels]), &labels); err != nil {
 		return err
 	}
-	name := m.Annotations[annotations.Name]
+	name := m.Annotations[crioann.Name]
 	name, err = c.ReserveContainerName(id, name)
 	if err != nil {
 		return err
@@ -432,17 +429,17 @@ func (c *ContainerServer) LoadContainer(ctx context.Context, id string) (retErr 
 	}()
 
 	var metadata types.ContainerMetadata
-	if err := json.Unmarshal([]byte(m.Annotations[annotations.Metadata]), &metadata); err != nil {
+	if err := json.Unmarshal([]byte(m.Annotations[crioann.Metadata]), &metadata); err != nil {
 		return err
 	}
-	sb := c.GetSandbox(m.Annotations[annotations.SandboxID])
+	sb := c.GetSandbox(m.Annotations[crioann.SandboxID])
 	if sb == nil {
-		return fmt.Errorf("could not get sandbox with id %s, skipping", m.Annotations[annotations.SandboxID])
+		return fmt.Errorf("could not get sandbox with id %s, skipping", m.Annotations[crioann.SandboxID])
 	}
 
-	tty := isTrue(m.Annotations[annotations.TTY])
-	stdin := isTrue(m.Annotations[annotations.Stdin])
-	stdinOnce := isTrue(m.Annotations[annotations.StdinOnce])
+	tty := isTrue(m.Annotations[crioann.TTY])
+	stdin := isTrue(m.Annotations[crioann.Stdin])
+	stdinOnce := isTrue(m.Annotations[crioann.StdinOnce])
 
 	containerPath, err := c.store.ContainerRunDirectory(id)
 	if err != nil {
@@ -454,25 +451,25 @@ func (c *ContainerServer) LoadContainer(ctx context.Context, id string) (retErr 
 		return err
 	}
 
-	userRequestedImage, ok := m.Annotations[annotations.Image]
+	userRequestedImage, ok := m.Annotations[crioann.Image]
 	if !ok {
 		userRequestedImage = ""
 	}
 
 	var imgName *references.RegistryImageReference
-	if s, ok := m.Annotations[annotations.ImageName]; ok && s != "" {
+	if s, ok := m.Annotations[crioann.ImageName]; ok && s != "" {
 		name, err := references.ParseRegistryImageReferenceFromOutOfProcessData(s)
 		if err != nil {
-			return fmt.Errorf("invalid %s annotation %q: %w", annotations.ImageName, s, err)
+			return fmt.Errorf("invalid %s annotation %q: %w", crioann.ImageName, s, err)
 		}
 		imgName = &name
 	}
 
 	var imageID *storage.StorageImageID
-	if s, ok := m.Annotations[annotations.ImageRef]; ok {
+	if s, ok := m.Annotations[crioann.ImageRef]; ok {
 		id, err := storage.ParseStorageImageIDFromOutOfProcessData(s)
 		if err != nil {
-			return fmt.Errorf("invalid %s annotation %q: %w", annotations.ImageRef, s, err)
+			return fmt.Errorf("invalid %s annotation %q: %w", crioann.ImageRef, s, err)
 		}
 		imageID = &id
 	}
@@ -483,22 +480,22 @@ func (c *ContainerServer) LoadContainer(ctx context.Context, id string) (retErr 
 	}
 
 	kubeAnnotations := make(map[string]string)
-	if err := json.Unmarshal([]byte(m.Annotations[annotations.Annotations]), &kubeAnnotations); err != nil {
+	if err := json.Unmarshal([]byte(m.Annotations[crioann.Annotations]), &kubeAnnotations); err != nil {
 		return err
 	}
 
-	created, err := time.Parse(time.RFC3339Nano, m.Annotations[annotations.Created])
+	created, err := time.Parse(time.RFC3339Nano, m.Annotations[crioann.Created])
 	if err != nil {
 		return err
 	}
 
-	ctr, err := oci.NewContainer(id, name, containerPath, m.Annotations[annotations.LogPath], labels, m.Annotations, kubeAnnotations, userRequestedImage, imgName, imageID, "", &metadata, sb.ID(), tty, stdin, stdinOnce, sb.RuntimeHandler(), containerDir, created, m.Annotations["org.opencontainers.image.stopSignal"])
+	ctr, err := oci.NewContainer(id, name, containerPath, m.Annotations[crioann.LogPath], labels, m.Annotations, kubeAnnotations, userRequestedImage, imgName, imageID, "", &metadata, sb.ID(), tty, stdin, stdinOnce, sb.RuntimeHandler(), containerDir, created, m.Annotations["org.opencontainers.image.stopSignal"])
 	if err != nil {
 		return err
 	}
 	ctr.SetSpec(&m)
-	ctr.SetMountPoint(m.Annotations[annotations.MountPoint])
-	spp := m.Annotations[annotations.SeccompProfilePath]
+	ctr.SetMountPoint(m.Annotations[crioann.MountPoint])
+	spp := m.Annotations[crioann.SeccompProfilePath]
 	ctr.SetSeccompProfilePath(spp)
 
 	if err := ctr.FromDisk(); err != nil {

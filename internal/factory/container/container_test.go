@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/containers/podman/v4/pkg/annotations"
 	"github.com/cri-o/cri-o/internal/config/capabilities"
 	"github.com/cri-o/cri-o/internal/hostport"
 	"github.com/cri-o/cri-o/internal/lib"
@@ -128,27 +127,27 @@ var _ = t.Describe("Container", func() {
 			err = sut.SpecAddAnnotations(context.Background(), sb, volumes, mountPoint, configStopSignal, &imageResult, false, "foo", "")
 			Expect(err).To(BeNil())
 
-			Expect(sut.Spec().Config.Annotations[annotations.Image]).To(Equal(image))
-			Expect(sut.Spec().Config.Annotations[annotations.ImageName]).To(Equal(imageResult.SomeNameOfThisImage.StringForOutOfProcessConsumptionOnly()))
-			Expect(sut.Spec().Config.Annotations[annotations.ImageRef]).To(Equal(imageResult.ID.IDStringForOutOfProcessConsumptionOnly()))
-			Expect(sut.Spec().Config.Annotations[annotations.Name]).To(Equal(sut.Name()))
-			Expect(sut.Spec().Config.Annotations[annotations.ContainerID]).To(Equal(sut.ID()))
-			Expect(sut.Spec().Config.Annotations[annotations.SandboxID]).To(Equal(sb.ID()))
-			Expect(sut.Spec().Config.Annotations[annotations.SandboxName]).To(Equal(sb.Name()))
-			Expect(sut.Spec().Config.Annotations[annotations.ContainerType]).To(Equal(annotations.ContainerTypeContainer))
-			Expect(sut.Spec().Config.Annotations[annotations.LogPath]).To(Equal(logpath))
-			Expect(sut.Spec().Config.Annotations[annotations.TTY]).To(Equal(strconv.FormatBool(sut.Config().Tty)))
-			Expect(sut.Spec().Config.Annotations[annotations.Stdin]).To(Equal(strconv.FormatBool(sut.Config().Stdin)))
-			Expect(sut.Spec().Config.Annotations[annotations.StdinOnce]).To(Equal(strconv.FormatBool(sut.Config().StdinOnce)))
-			Expect(sut.Spec().Config.Annotations[annotations.ResolvPath]).To(Equal(sb.ResolvPath()))
-			Expect(sut.Spec().Config.Annotations[annotations.ContainerManager]).To(Equal(lib.ContainerManagerCRIO))
-			Expect(sut.Spec().Config.Annotations[annotations.MountPoint]).To(Equal(mountPoint))
-			Expect(sut.Spec().Config.Annotations[annotations.SeccompProfilePath]).To(Equal("foo"))
-			Expect(sut.Spec().Config.Annotations[annotations.Created]).ToNot(BeNil())
-			Expect(sut.Spec().Config.Annotations[annotations.Metadata]).To(Equal(string(metadataJSON)))
-			Expect(sut.Spec().Config.Annotations[annotations.Labels]).To(Equal(string(labelsJSON)))
-			Expect(sut.Spec().Config.Annotations[annotations.Volumes]).To(Equal(string(volumesJSON)))
-			Expect(sut.Spec().Config.Annotations[annotations.Annotations]).To(Equal(string(kubeAnnotationsJSON)))
+			Expect(sut.Spec().Config.Annotations[crioann.Image]).To(Equal(image))
+			Expect(sut.Spec().Config.Annotations[crioann.ImageName]).To(Equal(imageResult.SomeNameOfThisImage.StringForOutOfProcessConsumptionOnly()))
+			Expect(sut.Spec().Config.Annotations[crioann.ImageRef]).To(Equal(imageResult.ID.IDStringForOutOfProcessConsumptionOnly()))
+			Expect(sut.Spec().Config.Annotations[crioann.Name]).To(Equal(sut.Name()))
+			Expect(sut.Spec().Config.Annotations[crioann.ContainerID]).To(Equal(sut.ID()))
+			Expect(sut.Spec().Config.Annotations[crioann.SandboxID]).To(Equal(sb.ID()))
+			Expect(sut.Spec().Config.Annotations[crioann.SandboxName]).To(Equal(sb.Name()))
+			Expect(sut.Spec().Config.Annotations[crioann.ContainerType]).To(Equal(crioann.ContainerTypeContainer))
+			Expect(sut.Spec().Config.Annotations[crioann.LogPath]).To(Equal(logpath))
+			Expect(sut.Spec().Config.Annotations[crioann.TTY]).To(Equal(strconv.FormatBool(sut.Config().Tty)))
+			Expect(sut.Spec().Config.Annotations[crioann.Stdin]).To(Equal(strconv.FormatBool(sut.Config().Stdin)))
+			Expect(sut.Spec().Config.Annotations[crioann.StdinOnce]).To(Equal(strconv.FormatBool(sut.Config().StdinOnce)))
+			Expect(sut.Spec().Config.Annotations[crioann.ResolvPath]).To(Equal(sb.ResolvPath()))
+			Expect(sut.Spec().Config.Annotations[crioann.ContainerManager]).To(Equal(lib.ContainerManagerCRIO))
+			Expect(sut.Spec().Config.Annotations[crioann.MountPoint]).To(Equal(mountPoint))
+			Expect(sut.Spec().Config.Annotations[crioann.SeccompProfilePath]).To(Equal("foo"))
+			Expect(sut.Spec().Config.Annotations[crioann.Created]).ToNot(BeNil())
+			Expect(sut.Spec().Config.Annotations[crioann.Metadata]).To(Equal(string(metadataJSON)))
+			Expect(sut.Spec().Config.Annotations[crioann.Labels]).To(Equal(string(labelsJSON)))
+			Expect(sut.Spec().Config.Annotations[crioann.Volumes]).To(Equal(string(volumesJSON)))
+			Expect(sut.Spec().Config.Annotations[crioann.Annotations]).To(Equal(string(kubeAnnotationsJSON)))
 		})
 	})
 	t.Describe("FipsDisable", func() {

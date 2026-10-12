@@ -11,11 +11,10 @@ import (
 
 	cnitypes "github.com/containernetworking/cni/pkg/types"
 	current "github.com/containernetworking/cni/pkg/types/100"
-	"github.com/containers/podman/v4/pkg/annotations"
-	"github.com/containers/podman/v4/pkg/rootless"
-	selinux "github.com/containers/podman/v4/pkg/selinux"
-	"github.com/containers/storage"
-	"github.com/containers/storage/pkg/idtools"
+	selinux "github.com/containers/podman/v5/pkg/selinux"
+	"go.podman.io/storage"
+	"go.podman.io/storage/pkg/idtools"
+	"go.podman.io/storage/pkg/unshare"
 	"github.com/cri-o/cri-o/internal/config/nsmgr"
 	ctrfactory "github.com/cri-o/cri-o/internal/factory/container"
 	sboxfactory "github.com/cri-o/cri-o/internal/factory/sandbox"
@@ -322,18 +321,29 @@ func (s *Server) getSandboxIDMappings(ctx context.Context, sb *libsandbox.Sandbo
 		return nil, fmt.Errorf("infra container not found")
 	}
 
-	uids, err := rootless.ReadMappingsProc(fmt.Sprintf("/proc/%d/uid_map", ic.State().Pid))
-	if err != nil {
-		return nil, err
-	}
-	gids, err := rootless.ReadMappingsProc(fmt.Sprintf("/proc/%d/gid_map", ic.State().Pid))
+	uids, gids, err := unshare.GetHostIDMappings(strconv.Itoa(ic.State().Pid))
 	if err != nil {
 		return nil, err
 	}
 
-	mappings := idtools.NewIDMappingsFromMaps(uids, gids)
+	mappings := convertToStorageIDMappings(uids, gids)
 	ic.SetIDMappings(mappings)
 	return mappings, nil
+}
+
+func convertToStorageIDMappings(uidMappings, gidMappings []spec.LinuxIDMapping) *idtools.IDMappings {
+	uids := make([]idtools.IDMap, len(uidMappings))
+	gids := make([]idtools.IDMap, len(gidMappings))
+
+	for i, v := range uidMappings {
+		uids[i] = idtools.IDMap{ContainerID: int(v.ContainerID), HostID: int(v.HostID), Size: int(v.Size)}
+	}
+
+	for i, v := range gidMappings {
+		gids[i] = idtools.IDMap{ContainerID: int(v.ContainerID), HostID: int(v.HostID), Size: int(v.Size)}
+	}
+
+	return idtools.NewIDMappingsFromMaps(uids, gids)
 }
 
 func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequest) (resp *types.RunPodSandboxResponse, retErr error) {
@@ -629,42 +639,42 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 	}
 	g.SetHostname(hostname)
 
-	g.AddAnnotation(annotations.Metadata, string(metadataJSON))
-	g.AddAnnotation(annotations.Labels, string(labelsJSON))
-	g.AddAnnotation(annotations.Annotations, string(kubeAnnotationsJSON))
-	g.AddAnnotation(annotations.LogPath, logPath)
-	g.AddAnnotation(annotations.Name, sbox.Name())
-	g.AddAnnotation(annotations.SandboxName, sbox.Name())
-	g.AddAnnotation(annotations.Namespace, namespace)
-	g.AddAnnotation(annotations.ContainerType, annotations.ContainerTypeSandbox)
-	g.AddAnnotation(annotations.SandboxID, sbox.ID())
-	g.AddAnnotation(annotations.Image, pauseImage.StringForOutOfProcessConsumptionOnly())
-	g.AddAnnotation(annotations.ImageName, pauseImage.StringForOutOfProcessConsumptionOnly())
-	g.AddAnnotation(annotations.ContainerName, containerName)
-	g.AddAnnotation(annotations.ContainerID, sbox.ID())
-	g.AddAnnotation(annotations.ShmPath, shmPath)
-	g.AddAnnotation(annotations.PrivilegedRuntime, strconv.FormatBool(privileged))
-	g.AddAnnotation(annotations.RuntimeHandler, runtimeHandler)
-	g.AddAnnotation(annotations.ResolvPath, sbox.ResolvPath())
-	g.AddAnnotation(annotations.HostName, hostname)
-	g.AddAnnotation(annotations.NamespaceOptions, string(nsOptsJSON))
-	g.AddAnnotation(annotations.KubeName, kubeName)
-	g.AddAnnotation(annotations.HostNetwork, strconv.FormatBool(hostNetwork))
-	g.AddAnnotation(annotations.ContainerManager, lib.ContainerManagerCRIO)
+	g.AddAnnotation(ann.Metadata, string(metadataJSON))
+	g.AddAnnotation(ann.Labels, string(labelsJSON))
+	g.AddAnnotation(ann.Annotations, string(kubeAnnotationsJSON))
+	g.AddAnnotation(ann.LogPath, logPath)
+	g.AddAnnotation(ann.Name, sbox.Name())
+	g.AddAnnotation(ann.SandboxName, sbox.Name())
+	g.AddAnnotation(ann.Namespace, namespace)
+	g.AddAnnotation(ann.ContainerType, ann.ContainerTypeSandbox)
+	g.AddAnnotation(ann.SandboxID, sbox.ID())
+	g.AddAnnotation(ann.Image, pauseImage.StringForOutOfProcessConsumptionOnly())
+	g.AddAnnotation(ann.ImageName, pauseImage.StringForOutOfProcessConsumptionOnly())
+	g.AddAnnotation(ann.ContainerName, containerName)
+	g.AddAnnotation(ann.ContainerID, sbox.ID())
+	g.AddAnnotation(ann.ShmPath, shmPath)
+	g.AddAnnotation(ann.PrivilegedRuntime, strconv.FormatBool(privileged))
+	g.AddAnnotation(ann.RuntimeHandler, runtimeHandler)
+	g.AddAnnotation(ann.ResolvPath, sbox.ResolvPath())
+	g.AddAnnotation(ann.HostName, hostname)
+	g.AddAnnotation(ann.NamespaceOptions, string(nsOptsJSON))
+	g.AddAnnotation(ann.KubeName, kubeName)
+	g.AddAnnotation(ann.HostNetwork, strconv.FormatBool(hostNetwork))
+	g.AddAnnotation(ann.ContainerManager, lib.ContainerManagerCRIO)
 	if podContainer.Config.Config.StopSignal != "" {
 		// this key is defined in image-spec conversion document at https://github.com/opencontainers/image-spec/pull/492/files#diff-8aafbe2c3690162540381b8cdb157112R57
 		g.AddAnnotation("org.opencontainers.image.stopSignal", podContainer.Config.Config.StopSignal)
 	}
 
 	created := time.Now()
-	g.AddAnnotation(annotations.Created, created.Format(time.RFC3339Nano))
+	g.AddAnnotation(ann.Created, created.Format(time.RFC3339Nano))
 
 	portMappings := convertPortMappings(sbox.Config().PortMappings)
 	portMappingsJSON, err := json.Marshal(portMappings)
 	if err != nil {
 		return nil, err
 	}
-	g.AddAnnotation(annotations.PortMappings, string(portMappingsJSON))
+	g.AddAnnotation(ann.PortMappings, string(portMappingsJSON))
 	containerMinMemory, err := s.Runtime().GetContainerMinMemory(runtimeHandler)
 	if err != nil {
 		return nil, err
@@ -676,7 +686,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 	if cgroupPath != "" {
 		g.SetLinuxCgroupsPath(cgroupPath)
 	}
-	g.AddAnnotation(annotations.CgroupParent, cgroupParent)
+	g.AddAnnotation(ann.CgroupParent, cgroupParent)
 
 	if sandboxIDMappings != nil {
 		if err := g.AddOrReplaceLinuxNamespace(string(spec.UserNamespace), ""); err != nil {
@@ -791,7 +801,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 		if err != nil {
 			return nil, err
 		}
-		g.AddAnnotation(annotations.CNIResult, string(cniResultJSON))
+		g.AddAnnotation(ann.CNIResult, string(cniResultJSON))
 	}
 	s.resourceStore.SetStageForResource(ctx, sbox.Name(), "sandbox storage start")
 
@@ -819,7 +829,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 	}
 
 	saveOptions := generate.ExportOptions{}
-	g.AddAnnotation(annotations.MountPoint, mountPoint)
+	g.AddAnnotation(ann.MountPoint, mountPoint)
 
 	hostnamePath := fmt.Sprintf("%s/hostname", podContainer.RunDir)
 	if err := os.WriteFile(hostnamePath, []byte(hostname+"\n"), 0o644); err != nil {
@@ -836,7 +846,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 	}
 	pathsToChown = append(pathsToChown, hostnamePath, mountPoint)
 	g.AddMount(mnt)
-	g.AddAnnotation(annotations.HostnamePath, hostnamePath)
+	g.AddAnnotation(ann.HostnamePath, hostnamePath)
 	sb.AddHostnamePath(hostnamePath)
 
 	if sandboxIDMappings != nil {
@@ -902,7 +912,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 		seccompRef = ref
 	}
 	sb.SetSeccompProfilePath(seccompRef)
-	g.AddAnnotation(annotations.SeccompProfilePath, seccompRef)
+	g.AddAnnotation(ann.SeccompProfilePath, seccompRef)
 
 	runtimeType, err := s.Runtime().RuntimeType(runtimeHandler)
 	if err != nil {
@@ -1019,7 +1029,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 	}
 
 	for idx, ip := range ips {
-		g.AddAnnotation(fmt.Sprintf("%s.%d", annotations.IP, idx), ip)
+		g.AddAnnotation(fmt.Sprintf("%s.%d", ann.IP, idx), ip)
 	}
 	sb.AddIPs(ips)
 

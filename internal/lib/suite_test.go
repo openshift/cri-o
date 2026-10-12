@@ -19,8 +19,16 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/storage/pkg/reexec"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
+
+func TestMain(m *testing.M) {
+	if reexec.Init() {
+		return
+	}
+	os.Exit(m.Run())
+}
 
 // TestLib runs the created specs
 func TestLib(t *testing.T) {
@@ -162,7 +170,7 @@ func beforeEach() {
 		make(map[string]string), make(map[string]string),
 		make(map[string]string), "", nil, nil, "",
 		&types.ContainerMetadata{}, sandboxID, false,
-		false, false, "", "", time.Now(), "")
+		false, false, "", ".", time.Now(), "")
 	Expect(err).To(BeNil())
 }
 

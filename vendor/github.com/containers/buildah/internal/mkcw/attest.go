@@ -16,6 +16,7 @@ import (
 
 	"github.com/containers/buildah/internal/mkcw/types"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/storage/pkg/fileutils"
 )
 
 type (
@@ -224,7 +225,7 @@ func GenerateMeasurement(workloadConfig WorkloadConfig, firmwareLibrary string) 
 		}
 	}
 	for _, candidate := range pathsToCheck {
-		if _, err := os.Lstat(candidate); err == nil {
+		if err := fileutils.Lexists(candidate); err == nil {
 			var stdout, stderr bytes.Buffer
 			logrus.Debugf("krunfw_measurement -c %s -m %s %s", cpuString, memoryString, candidate)
 			cmd := exec.Command("krunfw_measurement", "-c", cpuString, "-m", memoryString, candidate)
@@ -239,8 +240,8 @@ func GenerateMeasurement(workloadConfig WorkloadConfig, firmwareLibrary string) 
 			scanner := bufio.NewScanner(&stdout)
 			for scanner.Scan() {
 				line := scanner.Text()
-				if strings.HasPrefix(line, prefix+":") {
-					return strings.TrimSpace(strings.TrimPrefix(line, prefix+":")), nil
+				if after, ok := strings.CutPrefix(line, prefix+":"); ok {
+					return strings.TrimSpace(after), nil
 				}
 			}
 			return "", fmt.Errorf("generating measurement: no line starting with %q found in output from krunfw_measurement", prefix+":")

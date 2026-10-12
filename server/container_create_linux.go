@@ -6,18 +6,18 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/containers/common/pkg/subscriptions"
-	"github.com/containers/common/pkg/util"
-	"github.com/containers/podman/v4/pkg/rootless"
-	selinux "github.com/containers/podman/v4/pkg/selinux"
-	cstorage "github.com/containers/storage"
-	"github.com/containers/storage/pkg/idtools"
-	"github.com/containers/storage/pkg/mount"
+	"go.podman.io/common/pkg/subscriptions"
+	"github.com/containers/podman/v5/pkg/rootless"
+	selinux "github.com/containers/podman/v5/pkg/selinux"
+	cstorage "go.podman.io/storage"
+	"go.podman.io/storage/pkg/idtools"
+	"go.podman.io/storage/pkg/mount"
 	"github.com/cri-o/cri-o/internal/config/cgmgr"
 	"github.com/cri-o/cri-o/internal/config/device"
 	"github.com/cri-o/cri-o/internal/config/node"
@@ -96,7 +96,7 @@ func makeAccessible(path string, uid, gid int, doChown bool) error {
 // makeMountsAccessible makes sure all the mounts are accessible from the user namespace
 func makeMountsAccessible(uid, gid int, mounts []rspec.Mount) error {
 	for _, m := range mounts {
-		if m.Type == "bind" || util.StringInSlice("bind", m.Options) {
+		if m.Type == "bind" || slices.Contains(m.Options, "bind") {
 			if err := makeAccessible(m.Source, uid, gid, false); err != nil {
 				return err
 			}
