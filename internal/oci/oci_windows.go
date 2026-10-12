@@ -6,7 +6,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/containers/common/pkg/resize"
+	"go.podman.io/common/pkg/resize"
 	"golang.org/x/sys/windows"
 )
 

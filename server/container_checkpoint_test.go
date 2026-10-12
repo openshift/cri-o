@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/containers/podman/v4/pkg/criu"
+	"github.com/containers/podman/v5/pkg/criu"
 	"github.com/cri-o/cri-o/internal/oci"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -18,7 +18,7 @@ var _ = t.Describe("ContainerCheckpoint", func() {
 		beforeEach()
 		createDummyConfig()
 		mockRuncInLibConfig()
-		if !criu.CheckForCriu(criu.PodCriuVersion) {
+		if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 			Skip("CRIU is missing or too old.")
 		}
 		serverConfig.SetCheckpointRestore(true)

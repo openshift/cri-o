@@ -10,7 +10,8 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/containers/common/pkg/resize"
+	conmonresize "github.com/containers/common/pkg/resize"
+	"go.podman.io/common/pkg/resize"
 	conmonClient "github.com/containers/conmon-rs/pkg/client"
 	conmonconfig "github.com/containers/conmon/runner/config"
 	"github.com/cri-o/cri-o/internal/log"
@@ -245,10 +246,10 @@ func (r *runtimePod) SignalContainer(ctx context.Context, c *Container, sig sysc
 
 func (r *runtimePod) AttachContainer(ctx context.Context, c *Container, inputStream io.Reader, outputStream, errorStream io.WriteCloser, tty bool, resizeChan <-chan resize.TerminalSize) error {
 	attachSocketPath := filepath.Join(r.serverDir, c.ID(), "attach")
-	libpodResize := make(chan resize.TerminalSize, 1)
+	libpodResize := make(chan conmonresize.TerminalSize, 1)
 	go func() {
 		var event resize.TerminalSize
-		var libpodEvent resize.TerminalSize
+		var libpodEvent conmonresize.TerminalSize
 
 		for event = range resizeChan {
 			libpodEvent.Height = event.Height

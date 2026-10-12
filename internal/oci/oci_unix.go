@@ -8,8 +8,8 @@ import (
 	"io"
 	"os/exec"
 
-	"github.com/containers/common/pkg/resize"
-	"github.com/containers/storage/pkg/pools"
+	"go.podman.io/common/pkg/resize"
+	"go.podman.io/storage/pkg/pools"
 	"github.com/creack/pty"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"

@@ -9,7 +9,6 @@ import (
 	schemas "capnproto.org/go/capnp/v3/schemas"
 	server "capnproto.org/go/capnp/v3/server"
 	context "context"
-	fmt "fmt"
 )
 
 type Conmon capnp.Client
@@ -18,11 +17,12 @@ type Conmon capnp.Client
 const Conmon_TypeID = 0xb737e899dd6633f1
 
 func (c Conmon) Version(ctx context.Context, params func(Conmon_version_Params) error) (Conmon_version_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xb737e899dd6633f1,
 			MethodID:      0,
-			InterfaceName: "conmon-rs/common/proto/conmon.capnp:Conmon",
+			InterfaceName: "internal/proto/conmon.capnp:Conmon",
 			MethodName:    "version",
 		},
 	}
@@ -30,15 +30,19 @@ func (c Conmon) Version(ctx context.Context, params func(Conmon_version_Params) 
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Conmon_version_Params(s)) }
 	}
+
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return Conmon_version_Results_Future{Future: ans.Future()}, release
+
 }
+
 func (c Conmon) CreateContainer(ctx context.Context, params func(Conmon_createContainer_Params) error) (Conmon_createContainer_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xb737e899dd6633f1,
 			MethodID:      1,
-			InterfaceName: "conmon-rs/common/proto/conmon.capnp:Conmon",
+			InterfaceName: "internal/proto/conmon.capnp:Conmon",
 			MethodName:    "createContainer",
 		},
 	}
@@ -46,15 +50,19 @@ func (c Conmon) CreateContainer(ctx context.Context, params func(Conmon_createCo
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Conmon_createContainer_Params(s)) }
 	}
+
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return Conmon_createContainer_Results_Future{Future: ans.Future()}, release
+
 }
+
 func (c Conmon) ExecSyncContainer(ctx context.Context, params func(Conmon_execSyncContainer_Params) error) (Conmon_execSyncContainer_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xb737e899dd6633f1,
 			MethodID:      2,
-			InterfaceName: "conmon-rs/common/proto/conmon.capnp:Conmon",
+			InterfaceName: "internal/proto/conmon.capnp:Conmon",
 			MethodName:    "execSyncContainer",
 		},
 	}
@@ -62,15 +70,19 @@ func (c Conmon) ExecSyncContainer(ctx context.Context, params func(Conmon_execSy
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Conmon_execSyncContainer_Params(s)) }
 	}
+
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return Conmon_execSyncContainer_Results_Future{Future: ans.Future()}, release
+
 }
+
 func (c Conmon) AttachContainer(ctx context.Context, params func(Conmon_attachContainer_Params) error) (Conmon_attachContainer_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xb737e899dd6633f1,
 			MethodID:      3,
-			InterfaceName: "conmon-rs/common/proto/conmon.capnp:Conmon",
+			InterfaceName: "internal/proto/conmon.capnp:Conmon",
 			MethodName:    "attachContainer",
 		},
 	}
@@ -78,15 +90,19 @@ func (c Conmon) AttachContainer(ctx context.Context, params func(Conmon_attachCo
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Conmon_attachContainer_Params(s)) }
 	}
+
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return Conmon_attachContainer_Results_Future{Future: ans.Future()}, release
+
 }
+
 func (c Conmon) ReopenLogContainer(ctx context.Context, params func(Conmon_reopenLogContainer_Params) error) (Conmon_reopenLogContainer_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xb737e899dd6633f1,
 			MethodID:      4,
-			InterfaceName: "conmon-rs/common/proto/conmon.capnp:Conmon",
+			InterfaceName: "internal/proto/conmon.capnp:Conmon",
 			MethodName:    "reopenLogContainer",
 		},
 	}
@@ -94,15 +110,19 @@ func (c Conmon) ReopenLogContainer(ctx context.Context, params func(Conmon_reope
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Conmon_reopenLogContainer_Params(s)) }
 	}
+
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return Conmon_reopenLogContainer_Results_Future{Future: ans.Future()}, release
+
 }
+
 func (c Conmon) SetWindowSizeContainer(ctx context.Context, params func(Conmon_setWindowSizeContainer_Params) error) (Conmon_setWindowSizeContainer_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xb737e899dd6633f1,
 			MethodID:      5,
-			InterfaceName: "conmon-rs/common/proto/conmon.capnp:Conmon",
+			InterfaceName: "internal/proto/conmon.capnp:Conmon",
 			MethodName:    "setWindowSizeContainer",
 		},
 	}
@@ -110,15 +130,19 @@ func (c Conmon) SetWindowSizeContainer(ctx context.Context, params func(Conmon_s
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Conmon_setWindowSizeContainer_Params(s)) }
 	}
+
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return Conmon_setWindowSizeContainer_Results_Future{Future: ans.Future()}, release
+
 }
+
 func (c Conmon) CreateNamespaces(ctx context.Context, params func(Conmon_createNamespaces_Params) error) (Conmon_createNamespaces_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xb737e899dd6633f1,
 			MethodID:      6,
-			InterfaceName: "conmon-rs/common/proto/conmon.capnp:Conmon",
+			InterfaceName: "internal/proto/conmon.capnp:Conmon",
 			MethodName:    "createNamespaces",
 		},
 	}
@@ -126,8 +150,34 @@ func (c Conmon) CreateNamespaces(ctx context.Context, params func(Conmon_createN
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Conmon_createNamespaces_Params(s)) }
 	}
+
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return Conmon_createNamespaces_Results_Future{Future: ans.Future()}, release
+
+}
+
+func (c Conmon) StartFdSocket(ctx context.Context, params func(Conmon_startFdSocket_Params) error) (Conmon_startFdSocket_Results_Future, capnp.ReleaseFunc) {
+
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xb737e899dd6633f1,
+			MethodID:      7,
+			InterfaceName: "internal/proto/conmon.capnp:Conmon",
+			MethodName:    "startFdSocket",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Conmon_startFdSocket_Params(s)) }
+	}
+
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return Conmon_startFdSocket_Results_Future{Future: ans.Future()}, release
+
+}
+
+func (c Conmon) WaitStreaming() error {
+	return capnp.Client(c).WaitStreaming()
 }
 
 // String returns a string that identifies this capability for debugging
@@ -135,7 +185,7 @@ func (c Conmon) CreateNamespaces(ctx context.Context, params func(Conmon_createN
 // should not be used to compare clients.  Use IsSame to compare clients
 // for equality.
 func (c Conmon) String() string {
-	return fmt.Sprintf("%T(%v)", c, capnp.Client(c))
+	return "Conmon(" + capnp.Client(c).String() + ")"
 }
 
 // AddRef creates a new Client that refers to the same capability as c.
@@ -195,7 +245,9 @@ func (c Conmon) SetFlowLimiter(lim fc.FlowLimiter) {
 // for this client.
 func (c Conmon) GetFlowLimiter() fc.FlowLimiter {
 	return capnp.Client(c).GetFlowLimiter()
-} // A Conmon_Server is a Conmon with a local implementation.
+}
+
+// A Conmon_Server is a Conmon with a local implementation.
 type Conmon_Server interface {
 	Version(context.Context, Conmon_version) error
 
@@ -210,6 +262,8 @@ type Conmon_Server interface {
 	SetWindowSizeContainer(context.Context, Conmon_setWindowSizeContainer) error
 
 	CreateNamespaces(context.Context, Conmon_createNamespaces) error
+
+	StartFdSocket(context.Context, Conmon_startFdSocket) error
 }
 
 // Conmon_NewServer creates a new Server from an implementation of Conmon_Server.
@@ -228,14 +282,14 @@ func Conmon_ServerToClient(s Conmon_Server) Conmon {
 // This can be used to create a more complicated Server.
 func Conmon_Methods(methods []server.Method, s Conmon_Server) []server.Method {
 	if cap(methods) == 0 {
-		methods = make([]server.Method, 0, 7)
+		methods = make([]server.Method, 0, 8)
 	}
 
 	methods = append(methods, server.Method{
 		Method: capnp.Method{
 			InterfaceID:   0xb737e899dd6633f1,
 			MethodID:      0,
-			InterfaceName: "conmon-rs/common/proto/conmon.capnp:Conmon",
+			InterfaceName: "internal/proto/conmon.capnp:Conmon",
 			MethodName:    "version",
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
@@ -247,7 +301,7 @@ func Conmon_Methods(methods []server.Method, s Conmon_Server) []server.Method {
 		Method: capnp.Method{
 			InterfaceID:   0xb737e899dd6633f1,
 			MethodID:      1,
-			InterfaceName: "conmon-rs/common/proto/conmon.capnp:Conmon",
+			InterfaceName: "internal/proto/conmon.capnp:Conmon",
 			MethodName:    "createContainer",
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
@@ -259,7 +313,7 @@ func Conmon_Methods(methods []server.Method, s Conmon_Server) []server.Method {
 		Method: capnp.Method{
 			InterfaceID:   0xb737e899dd6633f1,
 			MethodID:      2,
-			InterfaceName: "conmon-rs/common/proto/conmon.capnp:Conmon",
+			InterfaceName: "internal/proto/conmon.capnp:Conmon",
 			MethodName:    "execSyncContainer",
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
@@ -271,7 +325,7 @@ func Conmon_Methods(methods []server.Method, s Conmon_Server) []server.Method {
 		Method: capnp.Method{
 			InterfaceID:   0xb737e899dd6633f1,
 			MethodID:      3,
-			InterfaceName: "conmon-rs/common/proto/conmon.capnp:Conmon",
+			InterfaceName: "internal/proto/conmon.capnp:Conmon",
 			MethodName:    "attachContainer",
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
@@ -283,7 +337,7 @@ func Conmon_Methods(methods []server.Method, s Conmon_Server) []server.Method {
 		Method: capnp.Method{
 			InterfaceID:   0xb737e899dd6633f1,
 			MethodID:      4,
-			InterfaceName: "conmon-rs/common/proto/conmon.capnp:Conmon",
+			InterfaceName: "internal/proto/conmon.capnp:Conmon",
 			MethodName:    "reopenLogContainer",
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
@@ -295,7 +349,7 @@ func Conmon_Methods(methods []server.Method, s Conmon_Server) []server.Method {
 		Method: capnp.Method{
 			InterfaceID:   0xb737e899dd6633f1,
 			MethodID:      5,
-			InterfaceName: "conmon-rs/common/proto/conmon.capnp:Conmon",
+			InterfaceName: "internal/proto/conmon.capnp:Conmon",
 			MethodName:    "setWindowSizeContainer",
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
@@ -307,11 +361,23 @@ func Conmon_Methods(methods []server.Method, s Conmon_Server) []server.Method {
 		Method: capnp.Method{
 			InterfaceID:   0xb737e899dd6633f1,
 			MethodID:      6,
-			InterfaceName: "conmon-rs/common/proto/conmon.capnp:Conmon",
+			InterfaceName: "internal/proto/conmon.capnp:Conmon",
 			MethodName:    "createNamespaces",
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
 			return s.CreateNamespaces(ctx, Conmon_createNamespaces{call})
+		},
+	})
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xb737e899dd6633f1,
+			MethodID:      7,
+			InterfaceName: "internal/proto/conmon.capnp:Conmon",
+			MethodName:    "startFdSocket",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.StartFdSocket(ctx, Conmon_startFdSocket{call})
 		},
 	})
 
@@ -437,6 +503,23 @@ func (c Conmon_createNamespaces) AllocResults() (Conmon_createNamespaces_Results
 	return Conmon_createNamespaces_Results(r), err
 }
 
+// Conmon_startFdSocket holds the state for a server call to Conmon.startFdSocket.
+// See server.Call for documentation.
+type Conmon_startFdSocket struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c Conmon_startFdSocket) Args() Conmon_startFdSocket_Params {
+	return Conmon_startFdSocket_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c Conmon_startFdSocket) AllocResults() (Conmon_startFdSocket_Results, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Conmon_startFdSocket_Results(r), err
+}
+
 // Conmon_List is a list of Conmon.
 type Conmon_List = capnp.CapList[Conmon]
 
@@ -452,12 +535,12 @@ type Conmon_VersionRequest capnp.Struct
 const Conmon_VersionRequest_TypeID = 0xad2a33d6b9304413
 
 func NewConmon_VersionRequest(s *capnp.Segment) (Conmon_VersionRequest, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
 	return Conmon_VersionRequest(st), err
 }
 
 func NewRootConmon_VersionRequest(s *capnp.Segment) (Conmon_VersionRequest, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
 	return Conmon_VersionRequest(st), err
 }
 
@@ -501,17 +584,41 @@ func (s Conmon_VersionRequest) SetVerbose(v bool) {
 	capnp.Struct(s).SetBit(0, v)
 }
 
-func (s Conmon_VersionRequest) Metadata() ([]byte, error) {
+func (s Conmon_VersionRequest) MetadataOld() ([]byte, error) {
 	p, err := capnp.Struct(s).Ptr(0)
 	return []byte(p.Data()), err
 }
 
-func (s Conmon_VersionRequest) HasMetadata() bool {
+func (s Conmon_VersionRequest) HasMetadataOld() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s Conmon_VersionRequest) SetMetadata(v []byte) error {
+func (s Conmon_VersionRequest) SetMetadataOld(v []byte) error {
 	return capnp.Struct(s).SetData(0, v)
+}
+
+func (s Conmon_VersionRequest) Metadata() (Conmon_TextTextMapEntry_List, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return Conmon_TextTextMapEntry_List(p.List()), err
+}
+
+func (s Conmon_VersionRequest) HasMetadata() bool {
+	return capnp.Struct(s).HasPtr(1)
+}
+
+func (s Conmon_VersionRequest) SetMetadata(v Conmon_TextTextMapEntry_List) error {
+	return capnp.Struct(s).SetPtr(1, v.ToPtr())
+}
+
+// NewMetadata sets the metadata field to a newly
+// allocated Conmon_TextTextMapEntry_List, preferring placement in s's segment.
+func (s Conmon_VersionRequest) NewMetadata(n int32) (Conmon_TextTextMapEntry_List, error) {
+	l, err := NewConmon_TextTextMapEntry_List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return Conmon_TextTextMapEntry_List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(1, l.ToPtr())
+	return l, err
 }
 
 // Conmon_VersionRequest_List is a list of Conmon_VersionRequest.
@@ -519,7 +626,7 @@ type Conmon_VersionRequest_List = capnp.StructList[Conmon_VersionRequest]
 
 // NewConmon_VersionRequest creates a new list of Conmon_VersionRequest.
 func NewConmon_VersionRequest_List(s *capnp.Segment, sz int32) (Conmon_VersionRequest_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2}, sz)
 	return capnp.StructList[Conmon_VersionRequest](l), err
 }
 
@@ -766,12 +873,12 @@ type Conmon_CreateContainerRequest capnp.Struct
 const Conmon_CreateContainerRequest_TypeID = 0xba77e3fa3aa9b6ca
 
 func NewConmon_CreateContainerRequest(s *capnp.Segment) (Conmon_CreateContainerRequest, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 9})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 13})
 	return Conmon_CreateContainerRequest(st), err
 }
 
 func NewRootConmon_CreateContainerRequest(s *capnp.Segment) (Conmon_CreateContainerRequest, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 9})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 13})
 	return Conmon_CreateContainerRequest(st), err
 }
 
@@ -997,17 +1104,118 @@ func (s Conmon_CreateContainerRequest) NewCommandArgs(n int32) (capnp.TextList, 
 	err = capnp.Struct(s).SetPtr(7, l.ToPtr())
 	return l, err
 }
-func (s Conmon_CreateContainerRequest) Metadata() ([]byte, error) {
+func (s Conmon_CreateContainerRequest) MetadataOld() ([]byte, error) {
 	p, err := capnp.Struct(s).Ptr(8)
 	return []byte(p.Data()), err
 }
 
-func (s Conmon_CreateContainerRequest) HasMetadata() bool {
+func (s Conmon_CreateContainerRequest) HasMetadataOld() bool {
 	return capnp.Struct(s).HasPtr(8)
 }
 
-func (s Conmon_CreateContainerRequest) SetMetadata(v []byte) error {
+func (s Conmon_CreateContainerRequest) SetMetadataOld(v []byte) error {
 	return capnp.Struct(s).SetData(8, v)
+}
+
+func (s Conmon_CreateContainerRequest) Metadata() (Conmon_TextTextMapEntry_List, error) {
+	p, err := capnp.Struct(s).Ptr(9)
+	return Conmon_TextTextMapEntry_List(p.List()), err
+}
+
+func (s Conmon_CreateContainerRequest) HasMetadata() bool {
+	return capnp.Struct(s).HasPtr(9)
+}
+
+func (s Conmon_CreateContainerRequest) SetMetadata(v Conmon_TextTextMapEntry_List) error {
+	return capnp.Struct(s).SetPtr(9, v.ToPtr())
+}
+
+// NewMetadata sets the metadata field to a newly
+// allocated Conmon_TextTextMapEntry_List, preferring placement in s's segment.
+func (s Conmon_CreateContainerRequest) NewMetadata(n int32) (Conmon_TextTextMapEntry_List, error) {
+	l, err := NewConmon_TextTextMapEntry_List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return Conmon_TextTextMapEntry_List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(9, l.ToPtr())
+	return l, err
+}
+func (s Conmon_CreateContainerRequest) EnvVars() (Conmon_TextTextMapEntry_List, error) {
+	p, err := capnp.Struct(s).Ptr(10)
+	return Conmon_TextTextMapEntry_List(p.List()), err
+}
+
+func (s Conmon_CreateContainerRequest) HasEnvVars() bool {
+	return capnp.Struct(s).HasPtr(10)
+}
+
+func (s Conmon_CreateContainerRequest) SetEnvVars(v Conmon_TextTextMapEntry_List) error {
+	return capnp.Struct(s).SetPtr(10, v.ToPtr())
+}
+
+// NewEnvVars sets the envVars field to a newly
+// allocated Conmon_TextTextMapEntry_List, preferring placement in s's segment.
+func (s Conmon_CreateContainerRequest) NewEnvVars(n int32) (Conmon_TextTextMapEntry_List, error) {
+	l, err := NewConmon_TextTextMapEntry_List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return Conmon_TextTextMapEntry_List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(10, l.ToPtr())
+	return l, err
+}
+func (s Conmon_CreateContainerRequest) CgroupManager() Conmon_CgroupManager {
+	return Conmon_CgroupManager(capnp.Struct(s).Uint16(2))
+}
+
+func (s Conmon_CreateContainerRequest) SetCgroupManager(v Conmon_CgroupManager) {
+	capnp.Struct(s).SetUint16(2, uint16(v))
+}
+
+func (s Conmon_CreateContainerRequest) AdditionalFds() (capnp.UInt64List, error) {
+	p, err := capnp.Struct(s).Ptr(11)
+	return capnp.UInt64List(p.List()), err
+}
+
+func (s Conmon_CreateContainerRequest) HasAdditionalFds() bool {
+	return capnp.Struct(s).HasPtr(11)
+}
+
+func (s Conmon_CreateContainerRequest) SetAdditionalFds(v capnp.UInt64List) error {
+	return capnp.Struct(s).SetPtr(11, v.ToPtr())
+}
+
+// NewAdditionalFds sets the additionalFds field to a newly
+// allocated capnp.UInt64List, preferring placement in s's segment.
+func (s Conmon_CreateContainerRequest) NewAdditionalFds(n int32) (capnp.UInt64List, error) {
+	l, err := capnp.NewUInt64List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return capnp.UInt64List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(11, l.ToPtr())
+	return l, err
+}
+func (s Conmon_CreateContainerRequest) LeakFds() (capnp.UInt64List, error) {
+	p, err := capnp.Struct(s).Ptr(12)
+	return capnp.UInt64List(p.List()), err
+}
+
+func (s Conmon_CreateContainerRequest) HasLeakFds() bool {
+	return capnp.Struct(s).HasPtr(12)
+}
+
+func (s Conmon_CreateContainerRequest) SetLeakFds(v capnp.UInt64List) error {
+	return capnp.Struct(s).SetPtr(12, v.ToPtr())
+}
+
+// NewLeakFds sets the leakFds field to a newly
+// allocated capnp.UInt64List, preferring placement in s's segment.
+func (s Conmon_CreateContainerRequest) NewLeakFds(n int32) (capnp.UInt64List, error) {
+	l, err := capnp.NewUInt64List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return capnp.UInt64List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(12, l.ToPtr())
+	return l, err
 }
 
 // Conmon_CreateContainerRequest_List is a list of Conmon_CreateContainerRequest.
@@ -1015,7 +1223,7 @@ type Conmon_CreateContainerRequest_List = capnp.StructList[Conmon_CreateContaine
 
 // NewConmon_CreateContainerRequest creates a new list of Conmon_CreateContainerRequest.
 func NewConmon_CreateContainerRequest_List(s *capnp.Segment, sz int32) (Conmon_CreateContainerRequest_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 9}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 13}, sz)
 	return capnp.StructList[Conmon_CreateContainerRequest](l), err
 }
 
@@ -1164,6 +1372,50 @@ func NewConmon_LogDriver_Type_List(s *capnp.Segment, sz int32) (Conmon_LogDriver
 	return capnp.NewEnumList[Conmon_LogDriver_Type](s, sz)
 }
 
+type Conmon_CgroupManager uint16
+
+// Conmon_CgroupManager_TypeID is the unique identifier for the type Conmon_CgroupManager.
+const Conmon_CgroupManager_TypeID = 0xaa4bbac12765a78a
+
+// Values of Conmon_CgroupManager.
+const (
+	Conmon_CgroupManager_systemd  Conmon_CgroupManager = 0
+	Conmon_CgroupManager_cgroupfs Conmon_CgroupManager = 1
+)
+
+// String returns the enum's constant name.
+func (c Conmon_CgroupManager) String() string {
+	switch c {
+	case Conmon_CgroupManager_systemd:
+		return "systemd"
+	case Conmon_CgroupManager_cgroupfs:
+		return "cgroupfs"
+
+	default:
+		return ""
+	}
+}
+
+// Conmon_CgroupManagerFromString returns the enum value with a name,
+// or the zero value if there's no such value.
+func Conmon_CgroupManagerFromString(c string) Conmon_CgroupManager {
+	switch c {
+	case "systemd":
+		return Conmon_CgroupManager_systemd
+	case "cgroupfs":
+		return Conmon_CgroupManager_cgroupfs
+
+	default:
+		return 0
+	}
+}
+
+type Conmon_CgroupManager_List = capnp.EnumList[Conmon_CgroupManager]
+
+func NewConmon_CgroupManager_List(s *capnp.Segment, sz int32) (Conmon_CgroupManager_List, error) {
+	return capnp.NewEnumList[Conmon_CgroupManager](s, sz)
+}
+
 type Conmon_CreateContainerResponse capnp.Struct
 
 // Conmon_CreateContainerResponse_TypeID is the unique identifier for the type Conmon_CreateContainerResponse.
@@ -1242,12 +1494,12 @@ type Conmon_ExecSyncContainerRequest capnp.Struct
 const Conmon_ExecSyncContainerRequest_TypeID = 0xf41122f890a371a6
 
 func NewConmon_ExecSyncContainerRequest(s *capnp.Segment) (Conmon_ExecSyncContainerRequest, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 3})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 5})
 	return Conmon_ExecSyncContainerRequest(st), err
 }
 
 func NewRootConmon_ExecSyncContainerRequest(s *capnp.Segment) (Conmon_ExecSyncContainerRequest, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 3})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 5})
 	return Conmon_ExecSyncContainerRequest(st), err
 }
 
@@ -1340,17 +1592,71 @@ func (s Conmon_ExecSyncContainerRequest) SetTerminal(v bool) {
 	capnp.Struct(s).SetBit(64, v)
 }
 
-func (s Conmon_ExecSyncContainerRequest) Metadata() ([]byte, error) {
+func (s Conmon_ExecSyncContainerRequest) MetadataOld() ([]byte, error) {
 	p, err := capnp.Struct(s).Ptr(2)
 	return []byte(p.Data()), err
 }
 
-func (s Conmon_ExecSyncContainerRequest) HasMetadata() bool {
+func (s Conmon_ExecSyncContainerRequest) HasMetadataOld() bool {
 	return capnp.Struct(s).HasPtr(2)
 }
 
-func (s Conmon_ExecSyncContainerRequest) SetMetadata(v []byte) error {
+func (s Conmon_ExecSyncContainerRequest) SetMetadataOld(v []byte) error {
 	return capnp.Struct(s).SetData(2, v)
+}
+
+func (s Conmon_ExecSyncContainerRequest) Metadata() (Conmon_TextTextMapEntry_List, error) {
+	p, err := capnp.Struct(s).Ptr(3)
+	return Conmon_TextTextMapEntry_List(p.List()), err
+}
+
+func (s Conmon_ExecSyncContainerRequest) HasMetadata() bool {
+	return capnp.Struct(s).HasPtr(3)
+}
+
+func (s Conmon_ExecSyncContainerRequest) SetMetadata(v Conmon_TextTextMapEntry_List) error {
+	return capnp.Struct(s).SetPtr(3, v.ToPtr())
+}
+
+// NewMetadata sets the metadata field to a newly
+// allocated Conmon_TextTextMapEntry_List, preferring placement in s's segment.
+func (s Conmon_ExecSyncContainerRequest) NewMetadata(n int32) (Conmon_TextTextMapEntry_List, error) {
+	l, err := NewConmon_TextTextMapEntry_List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return Conmon_TextTextMapEntry_List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(3, l.ToPtr())
+	return l, err
+}
+func (s Conmon_ExecSyncContainerRequest) EnvVars() (Conmon_TextTextMapEntry_List, error) {
+	p, err := capnp.Struct(s).Ptr(4)
+	return Conmon_TextTextMapEntry_List(p.List()), err
+}
+
+func (s Conmon_ExecSyncContainerRequest) HasEnvVars() bool {
+	return capnp.Struct(s).HasPtr(4)
+}
+
+func (s Conmon_ExecSyncContainerRequest) SetEnvVars(v Conmon_TextTextMapEntry_List) error {
+	return capnp.Struct(s).SetPtr(4, v.ToPtr())
+}
+
+// NewEnvVars sets the envVars field to a newly
+// allocated Conmon_TextTextMapEntry_List, preferring placement in s's segment.
+func (s Conmon_ExecSyncContainerRequest) NewEnvVars(n int32) (Conmon_TextTextMapEntry_List, error) {
+	l, err := NewConmon_TextTextMapEntry_List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return Conmon_TextTextMapEntry_List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(4, l.ToPtr())
+	return l, err
+}
+func (s Conmon_ExecSyncContainerRequest) CgroupManager() Conmon_CgroupManager {
+	return Conmon_CgroupManager(capnp.Struct(s).Uint16(10))
+}
+
+func (s Conmon_ExecSyncContainerRequest) SetCgroupManager(v Conmon_CgroupManager) {
+	capnp.Struct(s).SetUint16(10, uint16(v))
 }
 
 // Conmon_ExecSyncContainerRequest_List is a list of Conmon_ExecSyncContainerRequest.
@@ -1358,7 +1664,7 @@ type Conmon_ExecSyncContainerRequest_List = capnp.StructList[Conmon_ExecSyncCont
 
 // NewConmon_ExecSyncContainerRequest creates a new list of Conmon_ExecSyncContainerRequest.
 func NewConmon_ExecSyncContainerRequest_List(s *capnp.Segment, sz int32) (Conmon_ExecSyncContainerRequest_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 16, PointerCount: 3}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 16, PointerCount: 5}, sz)
 	return capnp.StructList[Conmon_ExecSyncContainerRequest](l), err
 }
 
@@ -1482,12 +1788,12 @@ type Conmon_AttachRequest capnp.Struct
 const Conmon_AttachRequest_TypeID = 0xdf703ca0befc3afc
 
 func NewConmon_AttachRequest(s *capnp.Segment) (Conmon_AttachRequest, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 4})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 5})
 	return Conmon_AttachRequest(st), err
 }
 
 func NewRootConmon_AttachRequest(s *capnp.Segment) (Conmon_AttachRequest, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 4})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 5})
 	return Conmon_AttachRequest(st), err
 }
 
@@ -1585,17 +1891,41 @@ func (s Conmon_AttachRequest) SetStopAfterStdinEof(v bool) {
 	capnp.Struct(s).SetBit(0, v)
 }
 
-func (s Conmon_AttachRequest) Metadata() ([]byte, error) {
+func (s Conmon_AttachRequest) MetadataOld() ([]byte, error) {
 	p, err := capnp.Struct(s).Ptr(3)
 	return []byte(p.Data()), err
 }
 
-func (s Conmon_AttachRequest) HasMetadata() bool {
+func (s Conmon_AttachRequest) HasMetadataOld() bool {
 	return capnp.Struct(s).HasPtr(3)
 }
 
-func (s Conmon_AttachRequest) SetMetadata(v []byte) error {
+func (s Conmon_AttachRequest) SetMetadataOld(v []byte) error {
 	return capnp.Struct(s).SetData(3, v)
+}
+
+func (s Conmon_AttachRequest) Metadata() (Conmon_TextTextMapEntry_List, error) {
+	p, err := capnp.Struct(s).Ptr(4)
+	return Conmon_TextTextMapEntry_List(p.List()), err
+}
+
+func (s Conmon_AttachRequest) HasMetadata() bool {
+	return capnp.Struct(s).HasPtr(4)
+}
+
+func (s Conmon_AttachRequest) SetMetadata(v Conmon_TextTextMapEntry_List) error {
+	return capnp.Struct(s).SetPtr(4, v.ToPtr())
+}
+
+// NewMetadata sets the metadata field to a newly
+// allocated Conmon_TextTextMapEntry_List, preferring placement in s's segment.
+func (s Conmon_AttachRequest) NewMetadata(n int32) (Conmon_TextTextMapEntry_List, error) {
+	l, err := NewConmon_TextTextMapEntry_List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return Conmon_TextTextMapEntry_List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(4, l.ToPtr())
+	return l, err
 }
 
 // Conmon_AttachRequest_List is a list of Conmon_AttachRequest.
@@ -1603,7 +1933,7 @@ type Conmon_AttachRequest_List = capnp.StructList[Conmon_AttachRequest]
 
 // NewConmon_AttachRequest creates a new list of Conmon_AttachRequest.
 func NewConmon_AttachRequest_List(s *capnp.Segment, sz int32) (Conmon_AttachRequest_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 4}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 5}, sz)
 	return capnp.StructList[Conmon_AttachRequest](l), err
 }
 
@@ -1686,12 +2016,12 @@ type Conmon_ReopenLogRequest capnp.Struct
 const Conmon_ReopenLogRequest_TypeID = 0xd0476e0f34d1411a
 
 func NewConmon_ReopenLogRequest(s *capnp.Segment) (Conmon_ReopenLogRequest, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 3})
 	return Conmon_ReopenLogRequest(st), err
 }
 
 func NewRootConmon_ReopenLogRequest(s *capnp.Segment) (Conmon_ReopenLogRequest, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 3})
 	return Conmon_ReopenLogRequest(st), err
 }
 
@@ -1745,17 +2075,41 @@ func (s Conmon_ReopenLogRequest) SetId(v string) error {
 	return capnp.Struct(s).SetText(0, v)
 }
 
-func (s Conmon_ReopenLogRequest) Metadata() ([]byte, error) {
+func (s Conmon_ReopenLogRequest) MetadataOld() ([]byte, error) {
 	p, err := capnp.Struct(s).Ptr(1)
 	return []byte(p.Data()), err
 }
 
-func (s Conmon_ReopenLogRequest) HasMetadata() bool {
+func (s Conmon_ReopenLogRequest) HasMetadataOld() bool {
 	return capnp.Struct(s).HasPtr(1)
 }
 
-func (s Conmon_ReopenLogRequest) SetMetadata(v []byte) error {
+func (s Conmon_ReopenLogRequest) SetMetadataOld(v []byte) error {
 	return capnp.Struct(s).SetData(1, v)
+}
+
+func (s Conmon_ReopenLogRequest) Metadata() (Conmon_TextTextMapEntry_List, error) {
+	p, err := capnp.Struct(s).Ptr(2)
+	return Conmon_TextTextMapEntry_List(p.List()), err
+}
+
+func (s Conmon_ReopenLogRequest) HasMetadata() bool {
+	return capnp.Struct(s).HasPtr(2)
+}
+
+func (s Conmon_ReopenLogRequest) SetMetadata(v Conmon_TextTextMapEntry_List) error {
+	return capnp.Struct(s).SetPtr(2, v.ToPtr())
+}
+
+// NewMetadata sets the metadata field to a newly
+// allocated Conmon_TextTextMapEntry_List, preferring placement in s's segment.
+func (s Conmon_ReopenLogRequest) NewMetadata(n int32) (Conmon_TextTextMapEntry_List, error) {
+	l, err := NewConmon_TextTextMapEntry_List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return Conmon_TextTextMapEntry_List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(2, l.ToPtr())
+	return l, err
 }
 
 // Conmon_ReopenLogRequest_List is a list of Conmon_ReopenLogRequest.
@@ -1763,7 +2117,7 @@ type Conmon_ReopenLogRequest_List = capnp.StructList[Conmon_ReopenLogRequest]
 
 // NewConmon_ReopenLogRequest creates a new list of Conmon_ReopenLogRequest.
 func NewConmon_ReopenLogRequest_List(s *capnp.Segment, sz int32) (Conmon_ReopenLogRequest_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 3}, sz)
 	return capnp.StructList[Conmon_ReopenLogRequest](l), err
 }
 
@@ -1846,12 +2200,12 @@ type Conmon_SetWindowSizeRequest capnp.Struct
 const Conmon_SetWindowSizeRequest_TypeID = 0xb5418b8ea8ead17b
 
 func NewConmon_SetWindowSizeRequest(s *capnp.Segment) (Conmon_SetWindowSizeRequest, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 3})
 	return Conmon_SetWindowSizeRequest(st), err
 }
 
 func NewRootConmon_SetWindowSizeRequest(s *capnp.Segment) (Conmon_SetWindowSizeRequest, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 3})
 	return Conmon_SetWindowSizeRequest(st), err
 }
 
@@ -1921,17 +2275,41 @@ func (s Conmon_SetWindowSizeRequest) SetHeight(v uint16) {
 	capnp.Struct(s).SetUint16(2, v)
 }
 
-func (s Conmon_SetWindowSizeRequest) Metadata() ([]byte, error) {
+func (s Conmon_SetWindowSizeRequest) MetadataOld() ([]byte, error) {
 	p, err := capnp.Struct(s).Ptr(1)
 	return []byte(p.Data()), err
 }
 
-func (s Conmon_SetWindowSizeRequest) HasMetadata() bool {
+func (s Conmon_SetWindowSizeRequest) HasMetadataOld() bool {
 	return capnp.Struct(s).HasPtr(1)
 }
 
-func (s Conmon_SetWindowSizeRequest) SetMetadata(v []byte) error {
+func (s Conmon_SetWindowSizeRequest) SetMetadataOld(v []byte) error {
 	return capnp.Struct(s).SetData(1, v)
+}
+
+func (s Conmon_SetWindowSizeRequest) Metadata() (Conmon_TextTextMapEntry_List, error) {
+	p, err := capnp.Struct(s).Ptr(2)
+	return Conmon_TextTextMapEntry_List(p.List()), err
+}
+
+func (s Conmon_SetWindowSizeRequest) HasMetadata() bool {
+	return capnp.Struct(s).HasPtr(2)
+}
+
+func (s Conmon_SetWindowSizeRequest) SetMetadata(v Conmon_TextTextMapEntry_List) error {
+	return capnp.Struct(s).SetPtr(2, v.ToPtr())
+}
+
+// NewMetadata sets the metadata field to a newly
+// allocated Conmon_TextTextMapEntry_List, preferring placement in s's segment.
+func (s Conmon_SetWindowSizeRequest) NewMetadata(n int32) (Conmon_TextTextMapEntry_List, error) {
+	l, err := NewConmon_TextTextMapEntry_List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return Conmon_TextTextMapEntry_List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(2, l.ToPtr())
+	return l, err
 }
 
 // Conmon_SetWindowSizeRequest_List is a list of Conmon_SetWindowSizeRequest.
@@ -1939,7 +2317,7 @@ type Conmon_SetWindowSizeRequest_List = capnp.StructList[Conmon_SetWindowSizeReq
 
 // NewConmon_SetWindowSizeRequest creates a new list of Conmon_SetWindowSizeRequest.
 func NewConmon_SetWindowSizeRequest_List(s *capnp.Segment, sz int32) (Conmon_SetWindowSizeRequest_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 3}, sz)
 	return capnp.StructList[Conmon_SetWindowSizeRequest](l), err
 }
 
@@ -2022,12 +2400,12 @@ type Conmon_CreateNamespacesRequest capnp.Struct
 const Conmon_CreateNamespacesRequest_TypeID = 0x8b5b1693940f607e
 
 func NewConmon_CreateNamespacesRequest(s *capnp.Segment) (Conmon_CreateNamespacesRequest, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 4})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 7})
 	return Conmon_CreateNamespacesRequest(st), err
 }
 
 func NewRootConmon_CreateNamespacesRequest(s *capnp.Segment) (Conmon_CreateNamespacesRequest, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 4})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 7})
 	return Conmon_CreateNamespacesRequest(st), err
 }
 
@@ -2063,16 +2441,16 @@ func (s Conmon_CreateNamespacesRequest) Message() *capnp.Message {
 func (s Conmon_CreateNamespacesRequest) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s Conmon_CreateNamespacesRequest) Metadata() ([]byte, error) {
+func (s Conmon_CreateNamespacesRequest) MetadataOld() ([]byte, error) {
 	p, err := capnp.Struct(s).Ptr(0)
 	return []byte(p.Data()), err
 }
 
-func (s Conmon_CreateNamespacesRequest) HasMetadata() bool {
+func (s Conmon_CreateNamespacesRequest) HasMetadataOld() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s Conmon_CreateNamespacesRequest) SetMetadata(v []byte) error {
+func (s Conmon_CreateNamespacesRequest) SetMetadataOld(v []byte) error {
 	return capnp.Struct(s).SetData(0, v)
 }
 
@@ -2145,13 +2523,72 @@ func (s Conmon_CreateNamespacesRequest) NewGidMappings(n int32) (capnp.TextList,
 	err = capnp.Struct(s).SetPtr(3, l.ToPtr())
 	return l, err
 }
+func (s Conmon_CreateNamespacesRequest) BasePath() (string, error) {
+	p, err := capnp.Struct(s).Ptr(4)
+	return p.Text(), err
+}
+
+func (s Conmon_CreateNamespacesRequest) HasBasePath() bool {
+	return capnp.Struct(s).HasPtr(4)
+}
+
+func (s Conmon_CreateNamespacesRequest) BasePathBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(4)
+	return p.TextBytes(), err
+}
+
+func (s Conmon_CreateNamespacesRequest) SetBasePath(v string) error {
+	return capnp.Struct(s).SetText(4, v)
+}
+
+func (s Conmon_CreateNamespacesRequest) PodId() (string, error) {
+	p, err := capnp.Struct(s).Ptr(5)
+	return p.Text(), err
+}
+
+func (s Conmon_CreateNamespacesRequest) HasPodId() bool {
+	return capnp.Struct(s).HasPtr(5)
+}
+
+func (s Conmon_CreateNamespacesRequest) PodIdBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(5)
+	return p.TextBytes(), err
+}
+
+func (s Conmon_CreateNamespacesRequest) SetPodId(v string) error {
+	return capnp.Struct(s).SetText(5, v)
+}
+
+func (s Conmon_CreateNamespacesRequest) Metadata() (Conmon_TextTextMapEntry_List, error) {
+	p, err := capnp.Struct(s).Ptr(6)
+	return Conmon_TextTextMapEntry_List(p.List()), err
+}
+
+func (s Conmon_CreateNamespacesRequest) HasMetadata() bool {
+	return capnp.Struct(s).HasPtr(6)
+}
+
+func (s Conmon_CreateNamespacesRequest) SetMetadata(v Conmon_TextTextMapEntry_List) error {
+	return capnp.Struct(s).SetPtr(6, v.ToPtr())
+}
+
+// NewMetadata sets the metadata field to a newly
+// allocated Conmon_TextTextMapEntry_List, preferring placement in s's segment.
+func (s Conmon_CreateNamespacesRequest) NewMetadata(n int32) (Conmon_TextTextMapEntry_List, error) {
+	l, err := NewConmon_TextTextMapEntry_List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return Conmon_TextTextMapEntry_List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(6, l.ToPtr())
+	return l, err
+}
 
 // Conmon_CreateNamespacesRequest_List is a list of Conmon_CreateNamespacesRequest.
 type Conmon_CreateNamespacesRequest_List = capnp.StructList[Conmon_CreateNamespacesRequest]
 
 // NewConmon_CreateNamespacesRequest creates a new list of Conmon_CreateNamespacesRequest.
 func NewConmon_CreateNamespacesRequest_List(s *capnp.Segment, sz int32) (Conmon_CreateNamespacesRequest_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 4}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 7}, sz)
 	return capnp.StructList[Conmon_CreateNamespacesRequest](l), err
 }
 
@@ -2398,6 +2835,276 @@ type Conmon_NamespaceResponse_Future struct{ *capnp.Future }
 func (f Conmon_NamespaceResponse_Future) Struct() (Conmon_NamespaceResponse, error) {
 	p, err := f.Future.Ptr()
 	return Conmon_NamespaceResponse(p.Struct()), err
+}
+
+type Conmon_StartFdSocketRequest capnp.Struct
+
+// Conmon_StartFdSocketRequest_TypeID is the unique identifier for the type Conmon_StartFdSocketRequest.
+const Conmon_StartFdSocketRequest_TypeID = 0xba53ab87a688ec29
+
+func NewConmon_StartFdSocketRequest(s *capnp.Segment) (Conmon_StartFdSocketRequest, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Conmon_StartFdSocketRequest(st), err
+}
+
+func NewRootConmon_StartFdSocketRequest(s *capnp.Segment) (Conmon_StartFdSocketRequest, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Conmon_StartFdSocketRequest(st), err
+}
+
+func ReadRootConmon_StartFdSocketRequest(msg *capnp.Message) (Conmon_StartFdSocketRequest, error) {
+	root, err := msg.Root()
+	return Conmon_StartFdSocketRequest(root.Struct()), err
+}
+
+func (s Conmon_StartFdSocketRequest) String() string {
+	str, _ := text.Marshal(0xba53ab87a688ec29, capnp.Struct(s))
+	return str
+}
+
+func (s Conmon_StartFdSocketRequest) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Conmon_StartFdSocketRequest) DecodeFromPtr(p capnp.Ptr) Conmon_StartFdSocketRequest {
+	return Conmon_StartFdSocketRequest(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Conmon_StartFdSocketRequest) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Conmon_StartFdSocketRequest) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Conmon_StartFdSocketRequest) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Conmon_StartFdSocketRequest) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Conmon_StartFdSocketRequest) Metadata() (Conmon_TextTextMapEntry_List, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return Conmon_TextTextMapEntry_List(p.List()), err
+}
+
+func (s Conmon_StartFdSocketRequest) HasMetadata() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Conmon_StartFdSocketRequest) SetMetadata(v Conmon_TextTextMapEntry_List) error {
+	return capnp.Struct(s).SetPtr(0, v.ToPtr())
+}
+
+// NewMetadata sets the metadata field to a newly
+// allocated Conmon_TextTextMapEntry_List, preferring placement in s's segment.
+func (s Conmon_StartFdSocketRequest) NewMetadata(n int32) (Conmon_TextTextMapEntry_List, error) {
+	l, err := NewConmon_TextTextMapEntry_List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return Conmon_TextTextMapEntry_List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
+	return l, err
+}
+
+// Conmon_StartFdSocketRequest_List is a list of Conmon_StartFdSocketRequest.
+type Conmon_StartFdSocketRequest_List = capnp.StructList[Conmon_StartFdSocketRequest]
+
+// NewConmon_StartFdSocketRequest creates a new list of Conmon_StartFdSocketRequest.
+func NewConmon_StartFdSocketRequest_List(s *capnp.Segment, sz int32) (Conmon_StartFdSocketRequest_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return capnp.StructList[Conmon_StartFdSocketRequest](l), err
+}
+
+// Conmon_StartFdSocketRequest_Future is a wrapper for a Conmon_StartFdSocketRequest promised by a client call.
+type Conmon_StartFdSocketRequest_Future struct{ *capnp.Future }
+
+func (f Conmon_StartFdSocketRequest_Future) Struct() (Conmon_StartFdSocketRequest, error) {
+	p, err := f.Future.Ptr()
+	return Conmon_StartFdSocketRequest(p.Struct()), err
+}
+
+type Conmon_StartFdSocketResponse capnp.Struct
+
+// Conmon_StartFdSocketResponse_TypeID is the unique identifier for the type Conmon_StartFdSocketResponse.
+const Conmon_StartFdSocketResponse_TypeID = 0xb62f418e0ae4e003
+
+func NewConmon_StartFdSocketResponse(s *capnp.Segment) (Conmon_StartFdSocketResponse, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Conmon_StartFdSocketResponse(st), err
+}
+
+func NewRootConmon_StartFdSocketResponse(s *capnp.Segment) (Conmon_StartFdSocketResponse, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Conmon_StartFdSocketResponse(st), err
+}
+
+func ReadRootConmon_StartFdSocketResponse(msg *capnp.Message) (Conmon_StartFdSocketResponse, error) {
+	root, err := msg.Root()
+	return Conmon_StartFdSocketResponse(root.Struct()), err
+}
+
+func (s Conmon_StartFdSocketResponse) String() string {
+	str, _ := text.Marshal(0xb62f418e0ae4e003, capnp.Struct(s))
+	return str
+}
+
+func (s Conmon_StartFdSocketResponse) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Conmon_StartFdSocketResponse) DecodeFromPtr(p capnp.Ptr) Conmon_StartFdSocketResponse {
+	return Conmon_StartFdSocketResponse(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Conmon_StartFdSocketResponse) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Conmon_StartFdSocketResponse) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Conmon_StartFdSocketResponse) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Conmon_StartFdSocketResponse) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Conmon_StartFdSocketResponse) Path() (string, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.Text(), err
+}
+
+func (s Conmon_StartFdSocketResponse) HasPath() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Conmon_StartFdSocketResponse) PathBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s Conmon_StartFdSocketResponse) SetPath(v string) error {
+	return capnp.Struct(s).SetText(0, v)
+}
+
+// Conmon_StartFdSocketResponse_List is a list of Conmon_StartFdSocketResponse.
+type Conmon_StartFdSocketResponse_List = capnp.StructList[Conmon_StartFdSocketResponse]
+
+// NewConmon_StartFdSocketResponse creates a new list of Conmon_StartFdSocketResponse.
+func NewConmon_StartFdSocketResponse_List(s *capnp.Segment, sz int32) (Conmon_StartFdSocketResponse_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return capnp.StructList[Conmon_StartFdSocketResponse](l), err
+}
+
+// Conmon_StartFdSocketResponse_Future is a wrapper for a Conmon_StartFdSocketResponse promised by a client call.
+type Conmon_StartFdSocketResponse_Future struct{ *capnp.Future }
+
+func (f Conmon_StartFdSocketResponse_Future) Struct() (Conmon_StartFdSocketResponse, error) {
+	p, err := f.Future.Ptr()
+	return Conmon_StartFdSocketResponse(p.Struct()), err
+}
+
+type Conmon_TextTextMapEntry capnp.Struct
+
+// Conmon_TextTextMapEntry_TypeID is the unique identifier for the type Conmon_TextTextMapEntry.
+const Conmon_TextTextMapEntry_TypeID = 0xfabbfdde6d4ad392
+
+func NewConmon_TextTextMapEntry(s *capnp.Segment) (Conmon_TextTextMapEntry, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	return Conmon_TextTextMapEntry(st), err
+}
+
+func NewRootConmon_TextTextMapEntry(s *capnp.Segment) (Conmon_TextTextMapEntry, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	return Conmon_TextTextMapEntry(st), err
+}
+
+func ReadRootConmon_TextTextMapEntry(msg *capnp.Message) (Conmon_TextTextMapEntry, error) {
+	root, err := msg.Root()
+	return Conmon_TextTextMapEntry(root.Struct()), err
+}
+
+func (s Conmon_TextTextMapEntry) String() string {
+	str, _ := text.Marshal(0xfabbfdde6d4ad392, capnp.Struct(s))
+	return str
+}
+
+func (s Conmon_TextTextMapEntry) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Conmon_TextTextMapEntry) DecodeFromPtr(p capnp.Ptr) Conmon_TextTextMapEntry {
+	return Conmon_TextTextMapEntry(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Conmon_TextTextMapEntry) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Conmon_TextTextMapEntry) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Conmon_TextTextMapEntry) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Conmon_TextTextMapEntry) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Conmon_TextTextMapEntry) Key() (string, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.Text(), err
+}
+
+func (s Conmon_TextTextMapEntry) HasKey() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Conmon_TextTextMapEntry) KeyBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s Conmon_TextTextMapEntry) SetKey(v string) error {
+	return capnp.Struct(s).SetText(0, v)
+}
+
+func (s Conmon_TextTextMapEntry) Value() (string, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return p.Text(), err
+}
+
+func (s Conmon_TextTextMapEntry) HasValue() bool {
+	return capnp.Struct(s).HasPtr(1)
+}
+
+func (s Conmon_TextTextMapEntry) ValueBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return p.TextBytes(), err
+}
+
+func (s Conmon_TextTextMapEntry) SetValue(v string) error {
+	return capnp.Struct(s).SetText(1, v)
+}
+
+// Conmon_TextTextMapEntry_List is a list of Conmon_TextTextMapEntry.
+type Conmon_TextTextMapEntry_List = capnp.StructList[Conmon_TextTextMapEntry]
+
+// NewConmon_TextTextMapEntry creates a new list of Conmon_TextTextMapEntry.
+func NewConmon_TextTextMapEntry_List(s *capnp.Segment, sz int32) (Conmon_TextTextMapEntry_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2}, sz)
+	return capnp.StructList[Conmon_TextTextMapEntry](l), err
+}
+
+// Conmon_TextTextMapEntry_Future is a wrapper for a Conmon_TextTextMapEntry promised by a client call.
+type Conmon_TextTextMapEntry_Future struct{ *capnp.Future }
+
+func (f Conmon_TextTextMapEntry_Future) Struct() (Conmon_TextTextMapEntry, error) {
+	p, err := f.Future.Ptr()
+	return Conmon_TextTextMapEntry(p.Struct()), err
 }
 
 type Conmon_version_Params capnp.Struct
@@ -3674,214 +4381,449 @@ func (p Conmon_createNamespaces_Results_Future) Response() Conmon_CreateNamespac
 	return Conmon_CreateNamespacesResponse_Future{Future: p.Future.Field(0, nil)}
 }
 
-const schema_ffaaf7385bc4adad = "x\xda\xacX\x7fp\x14\xe5\xf9\x7f\x9ew\xef\xb2w\x98" +
-	"p\xd9\xecE!#\xdf\xf8\xcd\xa0\x83A\xe4G\xb0b" +
-	"\x06&\x09\x90\xa1X\xb4\xd9\x1cj\x0b\xea\xb0\xdc-\xc9" +
-	"an\xf7\xb2\xbb'\x04K\x11\x95\xa9`\xb5\x85\xc2h" +
-	"\x1c\x99\x81*\x8ePS\xb5\x8aU\xda\xdaAeT\x94" +
-	"\xd6\xf0\x07\xadN\x7fYJ\x15\xa7\xa3u\xb4St\xb4" +
-	"\xdby\xde\xbd\xfd\x91\xcb\x8d^\x92\xfeuw\xcf~\xee" +
-	"y\xde}\xde\xe7\xfd<\x9f\xe7\x9d\xf3\xa9\xd8\x1e\x99[" +
-	"\xf3\xebj`\xca\xeeh\x95c\xbd3`>\xbaw\xd9" +
-	"\x9d \xcdD\x80(\x8a\x00-\x9dUM\x0cP\xbe\xa9" +
-	"\xaa\x0d\xd0\xf9\xd7#\xaf.\xba\x7f\xe7\x87;\xc2\x80\xcd" +
-	".`\x0f\x07\xfcaA\xf3\xba}\xc2\x8a{\xc2\x80\xe7" +
-	"\xab\x1a\x080\xcc\x01\xdf]\x93\xd8\xfd\xa3\xf3Ws\x80" +
-	"\xf3Q\xcb\xba?\x0e\xbew\xe5\xcf!\x1a!\xe0GU" +
-	"\x0dL\x96D\x11@\xae\x11\xdf\x05t^\xff\xbfM7" +
-	"$\x1e\xfd\xde\x03%`\xee\xf5\xffcML\xee\x88\x11" +
-	"xQ\x8c<o;{\xed\xb3\xd7\xdd\xf9\xe1\xbep\xe8" +
-	"\xfe\xd8<\x0a\xbd\x9d\x03\x06W\xbfwK\xe7\xf2\xc4\x8f" +
-	"Gz\xe3\x91\x87b\xef\xa3\xfcZL\x04\xc19\xff\xb3" +
-	"\xd3\x8f\x9cJ-8\x08\xcaL\x1c\x15\xf4\x00\xe1\x8e\xf2" +
-	"\xa0\xbf\x8am\x00t\xa6?\xf1\xd2\xf0\x8e\x85\xb3\x0f\x85" +
-	"\x83N\x8d\xd7Q\xd0\xb9q\x0a\xbaa\xcd\xabOlR" +
-	"\xce<^&\xa8\x12?\x89r.NA\xe5\xa5s\x9e" +
-	"?\xd5\xd2<T6\xe8r\xc2iq\x0a\xaa\xc6)\xe8" +
-	"\xfc\xfdO?{\xdf\x07\x1b\x7fJhV\x8a>\x1a?" +
-	"\x84\xf2[\xf1\x0b\x00\xe4w\xe2O\x00:\xb7\x0d\xbf\xff" +
-	"\xd8}\xf7t\x1c.\xf5\xcd\x08=0\x891y\xcf$" +
-	"\xf2\xbds\x12\xa5\xdc\x7f.M\x17\x9c\xa1\xa1\x97W/" +
-	"\xf8\xf7!\x07\x00[\xb2\xe7\xad\xc2\x96\xcd\xe7]\x80\x14" +
-	"\xa3\xfa\x15\x94q\xb2\x08\xe0\x1c\x7f\xf6`\xebg\xa77" +
-	"\x1c)\xf5N\xcbm9[S\xc7\xe48\xe1Z\xa2\x93" +
-	"\x0d\x06\xe8\xd4\xae\xfe\xed\xa2\x7f\xdc\xfc\xf7c\xe1|\xa1" +
-	"\xc4\xebc\xaaD\xf9zW\xfd\x05\xeb<\xd1\xf7J\x18" +
-	"\xb0H\xba\x9a\x00\xdfv\x01\x7f\xfb\xcf\xfa\x9e\xfc\xec7" +
-	"\xc2\x80\x01\xe9$\x02\xca\xf7r\xc0\xb9\xfa\x17\xeeoX" +
-	"x\xe47a\xc0\x90\x1b\xe2\x18\x074t\x0c\xcfO\xe8" +
-	"\xcb\xde,\xa9*\x9e\x8f\xb3\xd2_Q\x8e\xd6Q>\xb0" +
-	"\x8er\xfd\xf0\xc7\x8f\xad9\xbc3y\x0a\xa4\x99\xa1T" +
-	"\x03\xb6\xa8u\x87P\x1e\xe0\xc8B\xdd\x16@\xe7\xf3m" +
-	"\x0bo\x9f6\xed\xd4[e\xf3|\xb0\xae\x99\xc9\xafq" +
-	"\xf4\xb1:\xca\xf3\x8337\xe4o^\xdb\xfa\xa7\x124" +
-	"/\x8c\xfdr\x03\x93\x8f\xca\xbc\xcadZ\xf1\xe7\xad\x9f" +
-	"\xbf\xb0oa\xfe\xcf\xa5\xae9\xfa\x1d\xf98\xca_\x10" +
-	"\xba\xe5S\xb9\x11\x01\x9d\xeb\xf2\xcb\xa4K\xba'\xff%" +
-	"\x9c\x81i\xf5\xdd\x94\x81\xab\xea\xc9\xdf\x9c\xdb\x96\x1d\xbc" +
-	"9+\x9f\x0e\x03n\xaa\x7f\x9br\xd8\xcf\x01_\x93_" +
-	"zR\xdf\xf9\xfe\x990`O}3y\x18\xe2\x80\xa3" +
-	"\xab[\xba~w\xfa\x92\x7f\x82t\x05\x0b\xea\x11\xb0\xe5" +
-	"D\xfdI\x94\xcf\xd6\xd3\xda\xcf\xd47\x02:\xc3\x1f4" +
-	">\xfe\xfa\x99o|\\\xb6@\xce\xd4\xbf\x8d2\x9eO" +
-	"_\xbf\xa8\xbf\x92\x0a\xe4\xd1\xfe\x87\x7fx\xaeI\xfa\xa4" +
-	"\xb4\xb6\x05~b\xa641\xb9\x7f\x0a}\xcdM\xe1\xaf" +
-	"\xfa\xdc\x83\xbb\x7f\xf0\xf2\xbce\x9f\x84\x17:8\x95\x9f" +
-	"\xbf\xa7\xa6\xd2B\x7f\x89\x87\xce\xbbq\xfd{\xe7\xc2\x80" +
-	"\xe1\xa9\xfcM\xcer\xc0\xb9\xfd?i\xb9\xfd\xc4\xd3\x9f" +
-	"\x969\xa05\x0d\x93\x98<\xabA\x84\xd9N\xda\xd0s" +
-	"\x86>\xcb\x14\xad\xd9i#\x973\xf4\xd9y\xd3\xb0\x8d" +
-	"\xd9\xae\xfd\xf2\xb4\x9a\xd7\xf3\xadK\xdc\x1f\xdaF-\x9d" +
-	"\x1a\xd0\xd3K\x0c\xddV\xb3\xbafN\xefRMQ\xcd" +
-	"YJD\x88\x00D\x10@\xaaY\x0c\xa0\xc4\x04T\x92" +
-	"\x0c\xb7\x98Z\x7fA\xb3l\xac\x0d\xde\x1e\x10k\x01\xc7" +
-	"\x146mj\xaa\xad]\xab\xe64+\xaf\xa65kz" +
-	"\xb7f\x15\xc4>{D\xd8\xab\x01\x94j\x01\x95)\x0c" +
-	"\x1dS\xb3\xf2\x86ni\x00\x80\xb5\x01\xd7\xfe/Bw" +
-	"\xa9\xa6*T\xf2\xc2~;\x18G\xd4%%Q\xbb\xc9" +
-	"\xab`\xd9]\x88J\xad\x1fX\xa5W^#\xa0\xd2\xc7" +
-	"PBL\"\x19\xb3\xab\x00\x94^\x01\x95\xbb\x18J\x8c" +
-	"%\x91\x01H[\xd7\x02(\xb7\x0b\xa8<\xc4P\x12\x84" +
-	"$\x0a\x00\xd2 \x19\x1f\x10Py\x86\xa1\x93\xd3l5" +
-	"\xa3\xda*e\xac\x06\x18\xd6\x00:z1>\x08\x9a\x85" +
-	"\x93\x01\xbb\x04\xc4D@\x1b\x80dt\x0a\xd9\xcc5j" +
-	">\x9f\x05Q\xef\xf1a\xd5\xc0\xf8\xc3\x9e/{8\xb1" +
-	"\x8cXyC\xd4-\x8dR\x12\xda\x8bU\xc5*\x98\xc1" +
-	"\xca\xaf\xbf6\xe8\x82\xc5\xf5\x8fe\x15\xa6f\xe45}" +
-	"\x85\xd1\x13\x1c\x80n\xad\xd1*T\\\x8a~\xa3.)" +
-	"\x8a\xaa\x0a\x82w{\xc1\xe9\xdd\x13\x86\xfb\xeec\xf2\xe0" +
-	"\xa7/\xecA\x89\xf9\x0b\xbf\xb4\x19@\x99.\xa02\x87" +
-	"\xa1WO\xb3\xc86C@e>\xc3\x84=\x90\xd7J" +
-	"J \x01\x98\xc8\xabv/\xdf\xd5\xea1\xe6S\xb5m" +
-	"5\xdd;\x82M\xd4\x1cVp\xb8\xfc\xb61\x8e<v" +
-	"\xf0\xa0\xdd\xee\xbe\xe0\x98\x93x\xbdfZYC\xe7G" +
-	"\xd2B\xbb$\x83\x8b\xcbd\x90\xca\xe12\x01\x95\x05\x0c" +
-	"\xb7\xdc\xaa\x99k\x0dKC\x04\x86\xc4\xf2\xe5\xce\x9d\xb7" +
-	"\x9ah\x05\xabYa\xf4,5\x13\xd9[5S\x89`" +
-	"\xb8yasb\xe5@^S\xaa\xfd\xb5u\xd2N\xb6" +
-	"\x0b\xa8\xac\x08\xd6\xb6\x9clK\x05T\xba\x88-\xd0e" +
-	"\x8bk\xe8%\xbe.\xa0\xb22\xd8r\xdfq\x99-\xdf" +
-	"\x92S7\xa6\xb2\x9b4\x8c\x03\xc3\xf8\x18K \xa5\xd9" +
-	"7d\xf5\x8c\xb1\x81<\xb8I\xb5\xa1\x84\xe7\x1a\x00\x94" +
-	"\x1b\x05Tz\x83\x85k\xf3B\xdc\xe7-<\xdb\x0a\xa0" +
-	"d\x04T\xf2Ds\xe8\xd2\\\x8e\xd2\xdf'\xa0\xb2\x91" +
-	"\xa1\x90\xcdx\x8bn\xdc\x90\xcd\xd8\xbd(\x02C\x11\xb0" +
-	"\xadW\xcb\xf6\xf4\xda\xde\xcf/\xdd\x96\xc8W\xbd\x95`" +
-	"\xe8\xcaR\xc4@\xfaJ[7\x05bA\xdazG " +
-	"-\xa5\xadG\x02\x8d!m\xeb\x0e\xc4\x93\xb4\xed\xc5\xa0" +
-	"gJ\xdb\x8f\x07\"L\xday2\xa8\x7fi\xd0\x0c\x09" +
-	"\xf1\xc1M!\x098\xb8#4\x17\xec\xdd\x15\xa8ei" +
-	"\xff\xa1\x9068\xf0\xb3\xd0\xe4r\xf0\xc5\x90,\x1c\xea" +
-	"\x0e\x8d)C\xc7\x03\xe6\x94\x0e\xefr\xbcc\x00m\xee" +
-	"\x9e\xf9\x06\xc1#<\x97\xb2\xfd\xc3\xdd\xed\x01y\xc9f" +
-	"o\xd5\x00M\xc7\xc3D=\x90\xf7\xe7\xceR\xa5\xe1\x95" +
-	"\x068\xde#\x16zV<\xcb\x8ew\xb6\xa1\xd1\x8d\xe5" +
-	"\xffns\xfd:\x1e\x89bO\xe00l\xf3\x1cye" +
-	"\x89^]&\xb8\xbfR\xb3\xd5\xe8\xba\xf5\xda\x930\xa2" +
-	"c[6x\x94\x8b\x01\x86\x8d\xe8a\xbc58\x01\xcc" +
-	"_\x82r\xa1\x10\x05\xf0\x87\x02\xf4\x94\xad4\xbc\x18\x98" +
-	"tL\xc4@\"\xa27\x18H\xcf\xdf\x01LzJD" +
-	"\xe6\x0f\xbc\xe8\xc9D\xe9\xc0.`\xd2~\x11\x05\x7f\xb4" +
-	"Cof\x91\xf6\xd0\xff\xee\x151\xe2\xebc\xf4\x86N" +
-	"i\xeb\x83\xc0\xa4\xcd\"F\xfd\x09\x06=\x19.\xf5\x1f" +
-	"\x01&\xe5D\xac\xf2\xc7c\xf4\x06iI\xdd\x01L\xba" +
-	"I$\xca\xa3\xc2hG']\xdcm,\xee\x1b\xb4\xa3" +
-	"\xe3IJ\xf4v\x13\xcdvt\xbc\xc6\x10F\x9a\xfe6" +
-	"\x15\xa1\x82FPk\xc4\x96,1\xf46\xf7/~\xbc" +
-	"kU\xf42\x0e\xd0\x8ea\xbe\xaf\\y\x94\xd4\xa1\xcb" +
-	"\xfb\x97y\x14%_\x8c\x0d\x00\xa9\x8bP\xc0\xd4e\x18" +
-	"\xa81\xf9R\\\x05\x90\x9aA\xf6\xf9\xc8\x10]=&" +
-	"\xcf\xc5\xab\x01Rs\xc8\xbc\x10\x03\xae\x92\xaf\xc2y\x00" +
-	"\xa9\xf9do'{\x84%1\x02 /\xc2n\x80\xd4" +
-	"B\xb2\x7f\x8b\xecQ!\x89Q\x00\xf9:\\\x0f\x90Z" +
-	"I\xf6<\xd9\xab\"I\xac\x02\x90s<l\x1f\xd9\xef" +
-	"&\xbb\x18M\xd2x o\xe3\xf6\xbb\xc8\xbe\x8f\xec\xb1" +
-	"\xaa$\xc6\x00\xe4\xbd\xdc\xfe\x10\xd9\x9f#{\\Lb" +
-	"\x1c@>\x8ck\x01R\xcf\x90\xfdM\xb2O\x8a%q" +
-	"\x12\x80|\x82\xaf\xff\x0d\xb2\xff\x1eG\xd0\xaa\xb3\xb6\xa0" +
-	"g\xfa\xb4.\x15\x84\x90&\xb053\x97\xd5\xd5>\xa2" +
-	"\xd3b\xe7k\xb4\xecLV\xf7\xfb\xa0\xb61kw\xa9" +
-	"v/\xe0(\x99h\x18\xb9Nz\x0a\x09\xd5\xee\x1d\xf5" +
-	"\xb4\xcfc\x13\xc1\x0c\x89\xbc\xd0\xdc\xe6\x8a\xbc>M\xd5" +
-	"\x0b\xf9% \xe42\xa34j\x9f\xb1V\xed\xeb0A" +
-	"('Qs9U\xcft\x80h\x8e~\xf8eMb" +
-	"<\xea\x87\xa6\x9a>\xa1R)\xe9\xb3~\x89\x04\x8aU" +
-	"\x10\xd9\x0a7\xdd\x12\xf9e\x01|\xb5\xfe\xf2{\xc98" +
-	"\xf4W\x91\x0f*\x17{~\x1f\x1d\xf7\xfc6\xde\x1c\xfb" +
-	"\xddxbr\xbd\xbf jV\xa9Rl\x08\x94\xa2T" +
-	"N*\x86\x0f\xd5DU\"o/\x09\xa2@Z\x84+" +
-	"\x96\xaeh\xa2\xb7\x92f\xd1\x07\x93.\xa6\x0fA\x9a\xd6" +
-	"\x0c\x80\x11\xa9\xbe\x09@\xcc\xe6\xd3\xa2\xae\xd9b>\x9b" +
-	"I\x14,\xcd\x14\x0b\xb65\xa6\xdc\x97\xe9\xe1\xa1\xb1\xa3" +
-	"\xfc\x1c\xeb\x8f\xb1a)\xe7\xe9\xbb\\kq\xb6\xb5\x89" +
-	"3/r\xf5]?\xfd;/\xa0\xf2\x1d\xe6\xd2\xc8\x12" +
-	"#\xc3\xb7/\x02\x0c#\x80m\x96\x9d1\x0a\xb6\x977" +
-	"\xfa\xa9\x99\xa6\x9fF;\x9b\xd32\xdf,\xd8!j\x9a" +
-	"X{\xa0\xfa\x11F\xcd\xa5\xebC5\x96.\x82!a" +
-	"ve3\x18\x03\x86\xb1q\xce0E\x09\xc3w\xd5\x0f" +
-	"\xb6\x99Jkc\xf1\x0a\xc0K\xe8\xd6U\xc5+\x80\xef" +
-	"\x87\xee\x05\xb6\x9b\x00\xca\xdd\x02*\xbb\x19b\xf1Z`" +
-	"\xe7.\x00e\xb7\x80\xca>j@\x02o@\xd2^J" +
-	"\xf2C\x02*\x8f\x8d,L\xcbH\xdf\xa2\xd9%l\xcf" +
-	"[\xbafY\xd0\x985\xf4\xe5!\xb0m\xe4;\xd6\xd9" +
-	"\x1a\x9a)\xe2\xfeN\x03\xd7U4\x07M\x80\xd1\xf8q" +
-	"\xb7\xb1\xc2\xe3\xee\x8b\xe2\x09\xb0\xda\xd8\x08\xc6\x9f\x0a\xc6" +
-	"Ame.#\xba\xd4\x84Y\xd1m\x9c?%\x8c\xe3" +
-	"M=\xfdn^\xber \x8fn\xa1\xf3j\x8a\x9e\x04" +
-	"\xf0\x8b\x9b\x99\xdd\x05\x9d\x0e\xd7r\xdd\xd6\xccu\\\x01" +
-	"\x8fk\xcc\x0e\x9d\xa7\x19\xbe\xde\x8asA\x14#\x01\x92" +
-	"D\x9f5d\x09\x17\x03\xa4\xaa\xc9<\x05\x03\xe2\x90\xeb" +
-	"\xb1\x09 UK\xf6\x0b\xb9\xdeb\xae\xde\x9a\x8a\xad\x00" +
-	"\xa9$\xd9/\xc2\xa0\xdc\xe5i\xdc\xfd\x85d\x9f\xc1\xf5" +
-	"V\xc4\xd5[\x17s| \xf3\xaa\xa2\xae\xde\xba\x94\xeb" +
-	"$_\xe6Ib\x95\xab\xb7\xe6r}\x16\xe8\xbc\x98\xe8" +
-	"\xea\xad\xab\xb8\xff\x05d_\xca\xf5V\xcc\xd5[\x1d\\" +
-	"W\xb5\x93}\x052t\xf2\xa6\x91\xd6,k9\xa0O" +
-	"\x13\x9e\x9c\xf6N\x95h\xab=\xde\xf76\xcaj\xd6\x0e" +
-	"i\xb1l_f\xa9j\x03j>\xc4V\xcd\x1e-\x80" +
-	"\x98\x05\xcb\xa6T\x83\x18\xf2\xe9\xa4U\xb3\xc7\xb8^3" +
-	"!a\x8d2\xaf4\xb5\x90\xbf\x09\x8b\xa0\xb2\x83\x9e\xd7" +
-	".\xcbsZyJ+\xf6\x88\xedT\xf0w\x15\xe9K" +
-	"hw9-L_\x9e\xa8\x96\x0e\x90\xf1\x11\x01\x95'" +
-	"Gr\x1a\x15\xadQ\xb0S hi\xefJcKQ" +
-	"\x08\x96J\xc02\xc2v\xc2\x19)\x95,\x15\xeb$\xff" +
-	"Va\x1cd2\xfaf\xbf[\xb3\x12\x95_l\xfa\xb7" +
-	"\x13\xe3\x88]r\x05\xe4\xb9\xedB\xfco\x00\x00\x00\xff" +
-	"\xff\x0d\x13v\xb5"
+type Conmon_startFdSocket_Params capnp.Struct
 
-func init() {
-	schemas.Register(schema_ffaaf7385bc4adad,
-		0x83479da67279e173,
-		0x8aef91973dc8a4f5,
-		0x8b4c03a0662a38dc,
-		0x8b5b1693940f607e,
-		0x9887a60f577a1ecb,
-		0xa0ef8355b64ee985,
-		0xa20f49456be85b99,
-		0xa93853d6a4e3fa16,
-		0xaa2f3c8ad1c3af24,
-		0xace5517aafc86077,
-		0xad2a33d6b9304413,
-		0xae78ee8eb6b3a134,
-		0xb5418b8ea8ead17b,
-		0xb737e899dd6633f1,
-		0xba77e3fa3aa9b6ca,
-		0xc5e65eec3dcf5b10,
-		0xc76ccd4502bb61e7,
-		0xcc2f70676afee4e7,
-		0xceba3c1a97be15f8,
-		0xd0476e0f34d1411a,
-		0xd61491b560a8f3a3,
-		0xd9d61d1d803c85fc,
-		0xde3a625e70772b9a,
-		0xdf703ca0befc3afc,
-		0xe00e522611477055,
-		0xe313695ea9477b30,
-		0xe5ea916eb0c31336,
-		0xf026e3d750335bc1,
-		0xf34be5cbac1feed1,
-		0xf41122f890a371a6,
-		0xf44732c48f949ab8,
-		0xf8e86a5c0baa01bc,
-		0xf9b3cd8033aba1f8)
+// Conmon_startFdSocket_Params_TypeID is the unique identifier for the type Conmon_startFdSocket_Params.
+const Conmon_startFdSocket_Params_TypeID = 0xce733f0914c80b6b
+
+func NewConmon_startFdSocket_Params(s *capnp.Segment) (Conmon_startFdSocket_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Conmon_startFdSocket_Params(st), err
+}
+
+func NewRootConmon_startFdSocket_Params(s *capnp.Segment) (Conmon_startFdSocket_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Conmon_startFdSocket_Params(st), err
+}
+
+func ReadRootConmon_startFdSocket_Params(msg *capnp.Message) (Conmon_startFdSocket_Params, error) {
+	root, err := msg.Root()
+	return Conmon_startFdSocket_Params(root.Struct()), err
+}
+
+func (s Conmon_startFdSocket_Params) String() string {
+	str, _ := text.Marshal(0xce733f0914c80b6b, capnp.Struct(s))
+	return str
+}
+
+func (s Conmon_startFdSocket_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Conmon_startFdSocket_Params) DecodeFromPtr(p capnp.Ptr) Conmon_startFdSocket_Params {
+	return Conmon_startFdSocket_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Conmon_startFdSocket_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Conmon_startFdSocket_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Conmon_startFdSocket_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Conmon_startFdSocket_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Conmon_startFdSocket_Params) Request() (Conmon_StartFdSocketRequest, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return Conmon_StartFdSocketRequest(p.Struct()), err
+}
+
+func (s Conmon_startFdSocket_Params) HasRequest() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Conmon_startFdSocket_Params) SetRequest(v Conmon_StartFdSocketRequest) error {
+	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
+}
+
+// NewRequest sets the request field to a newly
+// allocated Conmon_StartFdSocketRequest struct, preferring placement in s's segment.
+func (s Conmon_startFdSocket_Params) NewRequest() (Conmon_StartFdSocketRequest, error) {
+	ss, err := NewConmon_StartFdSocketRequest(capnp.Struct(s).Segment())
+	if err != nil {
+		return Conmon_StartFdSocketRequest{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
+	return ss, err
+}
+
+// Conmon_startFdSocket_Params_List is a list of Conmon_startFdSocket_Params.
+type Conmon_startFdSocket_Params_List = capnp.StructList[Conmon_startFdSocket_Params]
+
+// NewConmon_startFdSocket_Params creates a new list of Conmon_startFdSocket_Params.
+func NewConmon_startFdSocket_Params_List(s *capnp.Segment, sz int32) (Conmon_startFdSocket_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return capnp.StructList[Conmon_startFdSocket_Params](l), err
+}
+
+// Conmon_startFdSocket_Params_Future is a wrapper for a Conmon_startFdSocket_Params promised by a client call.
+type Conmon_startFdSocket_Params_Future struct{ *capnp.Future }
+
+func (f Conmon_startFdSocket_Params_Future) Struct() (Conmon_startFdSocket_Params, error) {
+	p, err := f.Future.Ptr()
+	return Conmon_startFdSocket_Params(p.Struct()), err
+}
+func (p Conmon_startFdSocket_Params_Future) Request() Conmon_StartFdSocketRequest_Future {
+	return Conmon_StartFdSocketRequest_Future{Future: p.Future.Field(0, nil)}
+}
+
+type Conmon_startFdSocket_Results capnp.Struct
+
+// Conmon_startFdSocket_Results_TypeID is the unique identifier for the type Conmon_startFdSocket_Results.
+const Conmon_startFdSocket_Results_TypeID = 0xf4e3e92ae0815f15
+
+func NewConmon_startFdSocket_Results(s *capnp.Segment) (Conmon_startFdSocket_Results, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Conmon_startFdSocket_Results(st), err
+}
+
+func NewRootConmon_startFdSocket_Results(s *capnp.Segment) (Conmon_startFdSocket_Results, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Conmon_startFdSocket_Results(st), err
+}
+
+func ReadRootConmon_startFdSocket_Results(msg *capnp.Message) (Conmon_startFdSocket_Results, error) {
+	root, err := msg.Root()
+	return Conmon_startFdSocket_Results(root.Struct()), err
+}
+
+func (s Conmon_startFdSocket_Results) String() string {
+	str, _ := text.Marshal(0xf4e3e92ae0815f15, capnp.Struct(s))
+	return str
+}
+
+func (s Conmon_startFdSocket_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Conmon_startFdSocket_Results) DecodeFromPtr(p capnp.Ptr) Conmon_startFdSocket_Results {
+	return Conmon_startFdSocket_Results(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Conmon_startFdSocket_Results) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Conmon_startFdSocket_Results) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Conmon_startFdSocket_Results) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Conmon_startFdSocket_Results) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Conmon_startFdSocket_Results) Response() (Conmon_StartFdSocketResponse, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return Conmon_StartFdSocketResponse(p.Struct()), err
+}
+
+func (s Conmon_startFdSocket_Results) HasResponse() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Conmon_startFdSocket_Results) SetResponse(v Conmon_StartFdSocketResponse) error {
+	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
+}
+
+// NewResponse sets the response field to a newly
+// allocated Conmon_StartFdSocketResponse struct, preferring placement in s's segment.
+func (s Conmon_startFdSocket_Results) NewResponse() (Conmon_StartFdSocketResponse, error) {
+	ss, err := NewConmon_StartFdSocketResponse(capnp.Struct(s).Segment())
+	if err != nil {
+		return Conmon_StartFdSocketResponse{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
+	return ss, err
+}
+
+// Conmon_startFdSocket_Results_List is a list of Conmon_startFdSocket_Results.
+type Conmon_startFdSocket_Results_List = capnp.StructList[Conmon_startFdSocket_Results]
+
+// NewConmon_startFdSocket_Results creates a new list of Conmon_startFdSocket_Results.
+func NewConmon_startFdSocket_Results_List(s *capnp.Segment, sz int32) (Conmon_startFdSocket_Results_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return capnp.StructList[Conmon_startFdSocket_Results](l), err
+}
+
+// Conmon_startFdSocket_Results_Future is a wrapper for a Conmon_startFdSocket_Results promised by a client call.
+type Conmon_startFdSocket_Results_Future struct{ *capnp.Future }
+
+func (f Conmon_startFdSocket_Results_Future) Struct() (Conmon_startFdSocket_Results, error) {
+	p, err := f.Future.Ptr()
+	return Conmon_startFdSocket_Results(p.Struct()), err
+}
+func (p Conmon_startFdSocket_Results_Future) Response() Conmon_StartFdSocketResponse_Future {
+	return Conmon_StartFdSocketResponse_Future{Future: p.Future.Field(0, nil)}
+}
+
+const schema_ffaaf7385bc4adad = "x\xda\xc4Y{p\x14gr\xef\x9e\xd9\xd5h\xf5`" +
+	"5\x99\x95\x00\x81\"\x15\x87/\xa0\x1c\xc7C8\xc6\x14" +
+	"W\x92\x00\x1d\x81\x03\x9fF\x8bM\x0e\xee\x1c\x86\xddA" +
+	"ZX\xed,3\xb3\x808;2wq\xd9\xa7;l" +
+	"\xa3\xe0\xb2M\x85*d\x1b\x02\x18b\xfc\x80\x18\x8c]" +
+	"\x80\xa1\x0c\xd8\xc4\x81\x04b\\\xc6\x01cb\x9b\xf2\x8b" +
+	"\xd8\xa9`\x17dR\xfd\xcd\xceC+\x19\xaf\x14\xa7\xf2" +
+	"\x07\x85\xb6\xe77\xdd\xdf\xf7u\x7f\xdd\xfd\xeb\x99\xf0y" +
+	"\xa8!0\xb1\xf4\xad!\xc0\xc9;\x83\x05\x96q\xb1C" +
+	"\xdf\xbai\xd6oA\xfc\x01\x02\x04Q\x00\xa8\x9b'\xbc" +
+	"\x8f\x80\x92\"\xd4\x03Z\xff\xf9\xf4\xb1\x9f<\xb6\xfe\xf3" +
+	".?`\xad\x0dx\x94\x01\xde\x9dR\xbbt3?\xf7" +
+	"\xf7~\xc0>\xe1\x1d\x02\x9cd\x80\xbfZ\x1c\xde\xf07" +
+	"\x15\x8b\x18\xc0\xbaZ\xb7\xf4\xfc\x13\x1f\xdd\xf6\x0f\x10\x14" +
+	"\x08\xf8\xa9\xf0\x0eJ\xa1B\xfa3X\xf80\x02Zo" +
+	"\xfc\xf1\x9a\x05\xe1\xad\x0f<\x9e\x83fj/\x87\xdeG" +
+	"\x09\x8b\x04\x00\xe9F\x88T\xdf\xff\xf1\x1d{\xef\xfc\xed" +
+	"\xe7\x9b\xfd\xb6'\x16\xfd\x07\xd9n*\"\xc0\x13\x8b>" +
+	"Z\xde4;\xfcdom\x01\xc2%\x8av\xa0\xb4\xb6" +
+	"H\x00\xde\xaa\xf8\xe6\xd2\xd3g\xa3S\xb6\x83\xfc\x03\xec" +
+	"c\xf4W\x84\xcb0\xa3+\x8aV\x01Z\xa3\x9f}\xed" +
+	"T\xd7\xb4\xf1;\xfcFO\x16\x9d&\xa3\x17\x99\xd1\xae" +
+	"\xbfS\xff\xe4\xd0\xfe\x9f\x11\x80\xf3\xb4\x01\xd6aq\x17" +
+	"J\xc3\x8bIUy\xf1m\x80\xd6\xaa\xc5\xc7\x9e]#" +
+	"_\xde\xd9\xcf\xf2\xaa\x8a\xbbQ\xba\xb5\x98\x96'\xcd\x9c" +
+	"\xb0\xefl]\xed\xae\xdc\xe5q\x84\x13\x097\x96\xe9\xbc" +
+	"\xa5\xf8Y@kr\xcf\x0b{\x1f\xfal\xf5\xdf\x13\x9a" +
+	"\xcb\xdd\xcc\x99\xe2e(}\\<\x14@\xba\xca\xd0\xbf" +
+	">ue\xdbC\xbfo\xdc\x93\xab\x9b'\xf4\xefJ\x0e" +
+	"\xa3\xd4SB\x7fn*\xa9&\xef\xf0\x17>(z\xa8" +
+	"q\xfc\xde\xfe\xbcs\xb4\xf4\x04J\x17Ki%\xe7K" +
+	"\xe9\x1c\xdc\xe7\xe2H\xde\xda\xb5\xeb\xc8\xa2)\xff\xb5\xc3" +
+	"\xa2s\xb8QZ\x89u\xa5C\x16 )\x0e\x0b\x9c\x14" +
+	"\x12\x05\x00k\xec'\x0fn}\xe0\x99\xe8\xfe\xfe\x94_" +
+	"-;\x8c6L\x0a\x8a\xa4\xfc\xc4\xde\xedS\xbf\xb9\xb4" +
+	"j\x7f\xee\xc2\xc9~\xdd\xed\xe2i\x94\xee$t\x9d," +
+	">\xc0\x03Ze\x8b\xde\xfa\xc9'w\xff\xfbQ\xbf\xd3" +
+	"\x8e\x96\xb3(=WN\xfa>T^\xe6\x9aN&_" +
+	"\xf7\x03n\x94\x17q\x80Ry\x05\x03|\xf0\xdf\xcbZ" +
+	"\xd3\xe3\xdf\xf4\x03n\xad\xe8f\xb1\xc6\x00\xcb\x8b\x8fE" +
+	"B\xf5\xc6?\xfa\x01j\xc5a\x02d\x18\xe0Z\xf9\xab" +
+	"\x8fUN\xdb\xdf\x0b\xf0h\x05[\xc3v\x06\xa8l<" +
+	"59\x9c\x9a\xf5O9\x07\xc0|q\xb2\xe2I\x94." +
+	"W\xd0\x01\\\xac \xcf=\xf5\xe5\xb6\xc5{\xd6G\xce" +
+	"\xf6\x89\xb2\xf5C\x97\xa1\xb4e(!{\x86v\x02Z" +
+	"\xd7\xef\x9fv_U\xd5\xd9s\xfd\xc6\xcf\x99\xa1WP" +
+	"\xba\xca\xd0\x9f\x0e\xfd\x10\xd0\xda\xf8\xa7\xab\xd2w/\x99" +
+	"\xfa^\x0e\x9a\x05\xe5\xf1a\xef\xa0ty\x18[\xc40" +
+	"Z\xf1\xf5\xa9\xd7_\xdd<-\xfdo\xb9\xaa\x83\xecF" +
+	"\x0f\xefB\xa9j8\xfd9|\xf8\x02\x0a\x9f;\xd3\xb3" +
+	"\xc4\x1f\xb6\x0c\xb9\xe0?\x81u\x95\x7fD\x87\xbc\xa5\x92" +
+	"\xf4M\xf8\xf5\xac\xedw'\xa4K~\xc0\xf1\xca\x8d\xcc" +
+	"M\x0c\xf0g\xd2k\xbbS\xeb\xaf\\\xee\xe5\xa6\xca+" +
+	"\x04\x10G\x10\xe0\xd0\xa2\xba\xe6\x7f\xbd\xf4\xc3/@\x1c" +
+	"\xc7yw\x01\xb0n\xe2\x88n\x94f\x8f\xa0\xb57\x8d" +
+	"\xa8\x06\xb4N}V\xbd\xf3\x8d\xcb?\xfb2w\xed!" +
+	"\xd2\xd94b#J\xbf\"t\xdd/F\xdc\xc6\x01Z" +
+	"[W<\xf5\xc8\xb5Q\xe2W\xb9\xf7\x8amuW\xd5" +
+	"\xfb(\x1d\xafbQU\xf5:m\xf5\xa5\x8d\x1b\x1e>" +
+	"2i\xd6W\xbd\xb2D\xb5\x9d%\xaai\xa1\xe5\x7f\xb9" +
+	"\xf6B\xed\xc7\x97z\x01\xb0\xe6\x04\x01\xcak\x08p\x00" +
+	"w\x14\xffr\xd9G\xd7\xfc\x80\xdbk\xd8V\xe71\xc0" +
+	"\xb5\x9eg\xea\xee;\xf9\xc2\xd7\xfdd\x8f\x155'P" +
+	"ZWC\xd9\xa3\xfb\x9f\xe7\xb4\xbfw\xe3\xe5or\x82" +
+	"\x8a9?Q\xf3$Jkk\xe8L\xee\xadY\x05\xe3" +
+	"\xacD\xcaT\xf5\x94\x92,\x18\x9f\xd65S\x1b\x1f\xd3" +
+	"R\xedZ\xea\xc71%\x9dJO\x9da\xffPW\xab" +
+	"\xb1hG*6CK\x99J\"\xa5\xea\xa3\x9b\x15]" +
+	"P\xda\x0d9\xc0\x07\x00\x02\x08 \x96N\x07\x90\x0by" +
+	"\x94#\x1cv\xea\xea\x8a\x8cj\x98X\xe6\x9d! \x96" +
+	"\x01\xe6e.\xa6\xab\x8a\xa9\xde\xa1\xb4\xabFZ\x89\xa9" +
+	"\xc6\xe8\x16\xd5\xc8\x08I\xb3\x97\xb99\x00r\x09\x8f\xf2" +
+	"0\x0e-]5\xd2Z\xcaP\x01\x00\xcb\xbcz\xf2\xbf" +
+	"1\xd9\xac\xe8\x0a\x9f\xcf\x06\xddZ7\x00k3r\xac" +
+	"\xb5\x906\xde0\x9b\x11\xe5\x91\xae\xc1=K\x00\xe4\x17" +
+	"y\x94\x0fr(\"F\x90\x84\xaf,\x04\x90\x0f\xf0(" +
+	"\xbf\xcd\xa1\xc8q\x11\xe4\x00\xc43\x84\xfc\x17\x1e\xe5/" +
+	"8\x14y>\x82<\x80\xf8)\x09?\xe11Z\x88\x1c" +
+	"\x8a\x81@\x04\x03\x94Jq\x0e@4\x80<F\xcbH" +
+	"\x1e\x0cF0\x08 \x95\xe2$\x80h!\xc9#$/" +
+	"(\x88`\x01\x80$2|\x19\xc9\x7f\x84\x1cZ\xed\xaa" +
+	"\xa9\xc4\x15S\x01\xe1\xe7\xc98\x96\x02\x87\xa5\x80V*" +
+	"\xbb\x15\xe0U\x03\x87\x006\xf3\x88a/_\x01\x92\xd0" +
+	"\xca$\xe2\xf3\x94t:\x01B\xaa\xd5\x85\x95\x00\xc7\x1e" +
+	"\xb6\xde\xec\xe1\x12\xc5P\x9b\x15\xb3\x8d\x1cL\xb2\x12\xc0" +
+	"\xea\xb4\x16\x9f\x1dw~y\xeb\x02p^.\xf3.B" +
+	"v\x01\x83\xf3\x8d\x91\xd6\x84\x94\xa1\x92s|\xd1\xb00" +
+	"\x1b\x7fc\xb8\xfe\xb7_\xe6\xf5\x18\x03\xb0\xae\xabZZ" +
+	"M\xcd\xd5Z\xbd\xab\xd6\xa2V\x1b\x99\xbc\x83\xdfm\x7f" +
+	"r\xc21x\x13\xa3-\x8eQ\xdakX\xb3\xf7\x9a\xd7" +
+	"\x9b\xee1\xf9\xdf\x94\x0b\xdd\x85\x8e\xad\x05\x90G\xf3(" +
+	"O\xe0\xd0\x89\xe0q$\x1b\xc3\xa3<\x99\xc3\xb0\xd9\x91" +
+	"Vs\"%\x0c\x18N+f\x9b\xeb\xda|\xceM1" +
+	"M%\xd6\xd6+?)\xed\x98\xc7\xf5u\xcb\xd9\x00\xce" +
+	"kF\xab\xaee\xd2\xf3\x94\x94\xd2\xaa\xea\x00l\xcb\xec" +
+	"\x1e\x8a\xd3I\x8d\x18\x9a\x03\xd0it\x18\xa6\xda\x1e\xb7" +
+	"b\x0c\xbc\xd4\x00\x80\xbc\x947\xb2\x9d\xb4\xd8N\xc5\xbc" +
+	"=q\x97\xaa\x1b\x09-\xc52\x89\x81,\x93\x94\xb8{" +
+	"o\xa2\xbd7\xf0(\xcf\xf5\xdc0\x9b\xd2\xc3\x9f\xf3(" +
+	"\xcf\xa7D\x82v\"\x91)\xb0\x9ay\x94\x93\x1cv\xae" +
+	"T\xf5%\x9a\xa1\"\x02\x87\x08\xdfv\xf5\x07t\xf1\x02" +
+	"7\xd9\xc1\\\xadu\xa6\x1eN\xacTu9\x80\xfe\xaa" +
+	"\x8e\xb5\xe1\xf9\x1di\xd5\xbf\x9f\xda~\xf6C\xb2\x99<" +
+	"\xca\xcd\xbe\xfd\xcc\x9b\xeem\xd2\x895Wq?\xb1\xd6" +
+	"\xd9\xae\xac\x8e&\xd6\xa8\x18\x02\x0eCy\xc6^T5" +
+	"\x17$Rqm\x15\xbdi;\xc0dA\x11q\x17|" +
+	"o%\x80\xbc\x9aG\xf9\xaf\xbd\x05\xaf\x9d\x04 \xdf\xc3" +
+	"\xa3\xfc\xa0o\xc1\xf7O\x05\x90\xef\xe3Q\xfe\x03er" +
+	"\xb43\xf9\xef\xc8U\x0f\xf2(o\xa0D\xce\xb1D." +
+	"\xae'W=\xc2\xa3\xbc\x93C>\xe1&\xc2\xeaU\x89" +
+	"\xb8\xd9\x86\x02p(\x00\xd6\xb7\xa9\x89\xd66\xd3\xf9\xf9" +
+	"}\xb8\xf0\xa6'a*\xba\xf9\xd3xT\x8b-W\xcd" +
+	"\x167/\xe5d\xceZ\xef\"\xf6\x7f\xd1\xf9o3\xc1" +
+	"k)y>\xa2G\x8f\xc4\x9e5^S'\xf6\xfc\xc6" +
+	"\xe3\x08b\xcf~\xaf\x17\x14\xb7\xb4\xf8(\xda\x16\xdd\xeb" +
+	"x\xc5-\x87\xbd\x16E\xdc~\xc2\xeb\x9c\xc5\xe7N{" +
+	"\xc9A\xdc\xa7\xfb\x98\xdb\xbe5\xbe\xbe}_\x97\x8fr" +
+	"\xbe\xd2\xed\xd1+\xf1\xd0\x0e_\xbfv\xf4y\x1f+>" +
+	"~\xd8\xd7\xcb\x9fl\xf11\xe0\x93'\xbc\xb2!\x9e\xe9" +
+	"\xf6\x11\xa4s;|T\xec\xfc\xf3\xbe&\xefb\x97\xe5" +
+	"\xdc~\xa8\xb7\xc3\xcf\x15\xf0\x8e\x13\xec\xb2\xe6&\xc8\x16" +
+	"\x07\xc8n]b\xa5\x0a\xa8[N^\x83j\x96\xd9," +
+	"\xe7\x9d\xa0\xf3\x92\xa3\xac)\xb7\x1ft\xa2\x1e,\xe7\x11" +
+	"\xe7{\x96Me\x96\x93\xda\xa0\xda\xb6\xed\xfe\xae\xb7\xf5" +
+	"ZN!\xc2VO\xa1_\xe6(rn\x1c:W." +
+	"\xcc\xf4\xe5\x8a\x8dj[\xadS\xd2\xf9^\xfd\x96a\x82" +
+	"S\xbe\xd0\xc3p\xbd\xea>\x0b_\xcb\x83\xf9\x96\x90\x0d" +
+	"u\xcc\xc6\xba\xb3\x84\x1c\xb1\xb3\x84\xf9\xeaj\x93\xfe\xe1" +
+	"<%\xdd\x942\xf5\x0e\x00\xb9\x86\x0f\x02\xb8$\x13\x1d" +
+	"\"$^\x9d\x0e\x9cxY@\x8fQ\xa0\xc3#\xc5s" +
+	"\xbf\x01N<% \xe7\x8eq\xd0!\x0d\xe2\xd1n\xe0" +
+	"\xc4C\x02\xf2\xee\xbc\x02\x1d\x0e,\xee\xa1\xf7v\x09\x18" +
+	"p\xe9\x14:\x93\x14\xb1g#p\xe2&\x01\x83.#" +
+	"F\x87\xb5\x89\xeb\xf7\x03'\xae\x13\xb0\xc0\x1d\xfa\xa03" +
+	"\x1e\x12\xd7v\x01'\xde+\xa0\xe0\xf2`t\x18\x8e\xb8" +
+	"B\x07NL\x08TC(\x0e\x1b\xd0\x8ae\x83\x09\xb3" +
+	"a\x01\x0dh9\xbc\x02\x9d`A\xbd\x01-\xa7\x96\xfb" +
+	"\x91\xba\x1b\x05Y(\xaf\x12\xd4\xe8\xe5\xf1\x19Z\xaa\xde" +
+	"~\xc5\xb5w\x87\x82\x8eC\x81\xf4\x18Y\xff@5s" +
+	"P\x03\xfa\xeb\xeb\x00R\x9b\x97\xe4\xfb\xe9\xca\xc6p\xdf" +
+	"{?\x9as\xd3\xec\x02\xdf\xe0\x98\x96\x9e\xc3J\x80\xe8" +
+	"N\xea\xd2_B\x8f-H{p!@\xf4E\x92\x1f" +
+	"D\x0e\xd1\xe6\x0b\xd2+\xac\xa9?@\xe2c\xe8\x15\x1a" +
+	"\xe9(#\x01\x07I\xfe&z\xb5F:\x8e-\x00\xd1" +
+	"c$\xff\x80\x91\x06\xde&\x0d\x17q\x19@\xf4\x02\xc9" +
+	"\xaf3\xd2\x10\xb0I\xc3\xd7\xcc\xec5F&8\x0eE" +
+	"!\x18!.+\x89\x1c\xc9\xcb8\"\x13$/,\x88" +
+	"`!\x804\x96\xc9\xc7\x90|&\xc9CB\x04C\x00" +
+	"R#\xb7\x04 \xda@\xf2_\x92\xbc\xa80\x82E\x00" +
+	"\xd2/\x98\xfc/H\x1e'yq(\x82\xc5\x00\x92\xc2" +
+	"\xd1\xbe\x16\x93\xfc\x1e\x92\x97\x14E\xb0\x04@\xea\xe0\xa6" +
+	"\x03DM\x92?B\xf2R\x8c`)\x80\xb4\x8e\xd3\x01" +
+	"\xa2\x7f \xf9\xe3$\x1fR\x1c\xc1!\x00\xd2\xa3L\xbe" +
+	"\x81\xe4\xbbI\x1e.\x89`\x18@\xda\xc5\xf4l#\xf9" +
+	"\x11\xaeW\xd9\xb5\x96dR\xf1\xa4\xda\xac\x00\xef+h" +
+	"\xa6\xaa\xb7'RJ\x92\x82 \xdbEU\x1bf<\x91" +
+	"r{*uu\xc2d\xc4\x06\xfbp\x1eMko\xa2" +
+	"\xa7\x10V\xcc\xb6>O\x93N\xde\xe6u\x1f\xe5\xf0M" +
+	"?\x18*\x96T\x95T&=\x03\xf8\xf6x\x1f\xc2\x95" +
+	"\xd4\x96(\xc9F\x1d\xf8\xbe|+\xa6\xb5\xb7+\xa9x" +
+	"#\x08z\xdf\x87\x83o\":\xd5\xd4\xca\xbb\x14\xff\x82" +
+	"soD\xacw\x09\xc2\xb0W\xb7\xedv\xcdR\xe2\xf1" +
+	"\x84\x99\xd0RP\xad$\x7f\x1awU\x85\xec\xc5u&" +
+	"Uey_\xf1\xa08D\x8bjd\x92|\xbe\xc4\xcb" +
+	"m\x0fr\x88\x84p\x13\x8b\x86\xbfs\xcc!/\x06\xc0" +
+	"w\xb3\x17\xb7\xd9\x18\x00{\xc9\xa6\xe4\xfc)\x92\xdbm" +
+	"\x0d`\xc2a\xf8\xd3\xa5\xb3\xa1\xef6\xe5\xb6;\x03\x1e" +
+	"\xdd\x0c\xd6mn'88\xbe\xbc\"#\xa8F.\xdb" +
+	"\xaa\xf4\xd8\x89\xd8?\xdd\xe2\xfa\xd2-\x7f2\xf9?f" +
+	"Z\xac\x9f\x09SQd,\x85-\xe5\xd6Q\x8c\xba\x8e" +
+	"\xa3\xff8\xf1\x16\xfa\x8f\x17\xabj\x010 \x96\x8f\x02" +
+	"\x10\x12\xe9\x98\x90RM!\x9d\x88\x873\x86\xaa\x0b\x19" +
+	"\xd3\xc8\xcb?\xfd4\x8b\xbeYA\x99{l\x0a\x1d\xc6" +
+	"b\xfb0\x9cSK\x10\x1d\x8a\xf3(\xa7}\x1c\xa9\x9d" +
+	"\x84m<\xca&\x95\xae\x1a\x9b#\xad\xa0\xb7\xd3<\xca" +
+	"\xf7pvV\x9d\xa1\xc5\x99\x8b\x03\xc0a\x00\xb0\xde0" +
+	"\xe3Z\xc6t\x0e\x93~\xaa\xba\xee\x9e\xad\x99hW\xe3" +
+	"?\xcf\x98\xbeL=\xb8\xeaL\xb1\xc5\xf7\x19\x16-\xf3" +
+	"\xc5_,\x0b\x86\xb0\xde\x9c\x88c!pX\x98g\xe0" +
+	"9\x0ds\xb67&#\xc3\\#OP\xd8m\xe0Q" +
+	"\xde\xec\x0b\xbbM\x0b\x01\xe4\xbf\xe5Q\xde\xe6\x0b\xbb-" +
+	":\x80\xfc4\x8f\xf2n\x0e1;-\xdc\xd5\x0d \xef" +
+	"\xe6Q>@u\x9f\xb79\xe6>\x0a\xda\x97x\x94\x8f" +
+	"P\xd1\x0f\xb0\xa2/\x1e\xa2\x93>\xc8\xa3\xfcn\xef\xa0" +
+	"5\xd8]\xcf\xa9\x80\xac\xc3S\x0d\x03\xaa\x13Z\xca7" +
+	"\xae3L-\xdd\xb8\xd4TQ\x8fR=l\xd2p\xe9" +
+	"\xf79g\x18D\xd2ei\xc3\xc4<\xd3\x86K\xec\x06" +
+	"\x91x\x07\x96\xa0\\z;\x80\x94\xd8\xcf\x14\xb1Y\x09" +
+	"\xeby\x0d\xec]f;\x80\x9d9$R\xff\xf1\xfc\x8e" +
+	"4\xda\xc1\xcf\"-x\x1a\xc0\x0dxNo\xc9\xa4\xe8" +
+	"\xa2\xcd&\x95K\x19\xed\x1a\xd0h\xcbw\xb7\xc6\xb8\xad" +
+	"o\x88\xf5\xa6\xee\xe0\xda\xe9|E\xa4V\xad\x84\xc4\xc3" +
+	"\xd0K\x1eR9\x8er\xe6\xd9#Y\xeb\xcb\xd9\xad\xef" +
+	"p\x9c\x0a\x10\x8d\x90\xbc\x06\xbd+ U1\xf5#I" +
+	">\x06\xbd[ \xdd\xc2\xf05\xce\\\\,\x08\xda\xad" +
+	"\xefX\xa4\xd6t\x0c\xc9'\x93\\(\xb0[\xdf\x89\xac" +
+	"U\x9e@\xf2i$/\x14\xec\xd6\xf7v\xa6\x7f\x0a\xc9" +
+	"g\x92<T\x98m}Y\x8b\xde@\xf2\xb9\xc8\xa1\x95" +
+	"\xd6\xb5\x98j\x18\xb3\x01\xdd\x94\xe1\x90+\xe7R\x09\xa6" +
+	"\xd2\xea\xfc]O\x1d\\\xc2\xf4\xb5\xa7\x89d|\xa6b" +
+	"\x02\xaa.\xc4T\xf4V\xd5\x83\xe8\x19\xc3\xa4\xa3\x06\xc1" +
+	"\xa7\xd3\x8a)z\xabv\x97\xaaC\xd8\xe8#\x9e\xaf\xab" +
+	">}\xbdn\xa8sk\x07Y \xbc\xb2Z\xe3\xc6\xeb" +
+	")\xcaoo\xda_>\x9c\xf4vfa\xf6\xc3\xc7\x05" +
+	"_}8O\x81\xfd6\x8f\xf2W\xe4\xdf\x06;\xbf]" +
+	"\xa5\x1b\xf6\x05\x8f\xf2u\xdf\x0c\xedk\xcao\xd7x\x8c" +
+	"\x06\xfc\xac\x06\xe9\xe8[\xdc\x08qH\xcdp\x16Q," +
+	"B&\xa0\x8f\xd4\x8cC\"\x0b?\"\xf9\x14\xec\x9d\x12" +
+	")\xd8\xb5\x8c\x19\x05^\x8d9#\xc5\xcelo\x9d\xdb" +
+	"U\xf7\xc3\x15\xfe\x9f;\xed\xc14_y7\x95\xee\xa0" +
+	"n\xd0M\xa5\x9d\xb0s\xda\xe4o\xcf\xa3\xee\xf0l\x00" +
+	"\x06\xfb~\xf7lQ\x8dp\xfe\x1fc\xdca\xe2\x00l" +
+	"\xe6L\x93}3\xd4\xbc\x92\xa53hbs&\xc1\xd4" +
+	";r>\xc8\x8c\xf2>\xc8\xb8M\xc2\xb8I\xde\x17\x19" +
+	"a\xb9\xda\xe1\xce\x92W*\xc9\x8c{\xbf\xff'\x00\x00" +
+	"\xff\xff\xb7$=\xfd"
+
+func RegisterSchema(reg *schemas.Registry) {
+	reg.Register(&schemas.Schema{
+		String: schema_ffaaf7385bc4adad,
+		Nodes: []uint64{
+			0x83479da67279e173,
+			0x8aef91973dc8a4f5,
+			0x8b4c03a0662a38dc,
+			0x8b5b1693940f607e,
+			0x9887a60f577a1ecb,
+			0xa0ef8355b64ee985,
+			0xa20f49456be85b99,
+			0xa93853d6a4e3fa16,
+			0xaa2f3c8ad1c3af24,
+			0xaa4bbac12765a78a,
+			0xace5517aafc86077,
+			0xad2a33d6b9304413,
+			0xae78ee8eb6b3a134,
+			0xb5418b8ea8ead17b,
+			0xb62f418e0ae4e003,
+			0xb737e899dd6633f1,
+			0xba53ab87a688ec29,
+			0xba77e3fa3aa9b6ca,
+			0xc5e65eec3dcf5b10,
+			0xc76ccd4502bb61e7,
+			0xcc2f70676afee4e7,
+			0xce733f0914c80b6b,
+			0xceba3c1a97be15f8,
+			0xd0476e0f34d1411a,
+			0xd61491b560a8f3a3,
+			0xd9d61d1d803c85fc,
+			0xde3a625e70772b9a,
+			0xdf703ca0befc3afc,
+			0xe00e522611477055,
+			0xe313695ea9477b30,
+			0xe5ea916eb0c31336,
+			0xf026e3d750335bc1,
+			0xf34be5cbac1feed1,
+			0xf41122f890a371a6,
+			0xf44732c48f949ab8,
+			0xf4e3e92ae0815f15,
+			0xf8e86a5c0baa01bc,
+			0xf9b3cd8033aba1f8,
+			0xfabbfdde6d4ad392,
+		},
+		Compressed: true,
+	})
 }

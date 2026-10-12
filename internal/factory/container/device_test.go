@@ -10,7 +10,7 @@ import (
 
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 
-	"github.com/container-orchestrated-devices/container-device-interface/pkg/cdi"
+	"tags.cncf.io/container-device-interface/pkg/cdi"
 	"github.com/opencontainers/runc/libcontainer/devices"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
@@ -204,7 +204,11 @@ var _ = t.Describe("Container", func() {
 				}
 			}
 
-			return cdi.GetRegistry(cdi.WithSpecDirs(dir)).Refresh()
+			if err := cdi.Configure(cdi.WithSpecDirs(dir)); err != nil {
+				return err
+			}
+
+			return cdi.Refresh()
 		}
 
 		type testdata struct {

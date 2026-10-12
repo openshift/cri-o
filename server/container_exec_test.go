@@ -3,7 +3,7 @@ package server_test
 import (
 	"context"
 
-	"github.com/containers/common/pkg/resize"
+	"go.podman.io/common/pkg/resize"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"

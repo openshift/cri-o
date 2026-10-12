@@ -1,3 +1,6 @@
+//go:generate go tool stringer -type=SizeB1024 -trimprefix=_i
+//go:generate go tool stringer -type=SizeB1000 -trimprefix=_
+
 package decor
 
 import (
@@ -5,8 +8,12 @@ import (
 	"strconv"
 )
 
-//go:generate stringer -type=SizeB1024 -trimprefix=_i
-//go:generate stringer -type=SizeB1000 -trimprefix=_
+var (
+	_ fmt.Formatter = SizeB1024(0)
+	_ fmt.Stringer  = SizeB1024(0)
+	_ fmt.Formatter = SizeB1000(0)
+	_ fmt.Stringer  = SizeB1000(0)
+)
 
 const (
 	_ib   SizeB1024 = iota + 1
@@ -21,45 +28,43 @@ const (
 // appropriate size marker (KiB, MiB, GiB, TiB).
 type SizeB1024 int64
 
-func (self SizeB1024) Format(st fmt.State, verb rune) {
-	var prec int
+func (s SizeB1024) Format(f fmt.State, verb rune) {
+	prec := -1
 	switch verb {
-	case 'd':
-	case 's':
-		prec = -1
-	default:
-		if p, ok := st.Precision(); ok {
+	case 'f', 'e', 'E':
+		prec = 6 // default prec of fmt.Printf("%f|%e|%E")
+		fallthrough
+	case 'b', 'g', 'G', 'x', 'X':
+		if p, ok := f.Precision(); ok {
 			prec = p
-		} else {
-			prec = 6
 		}
+	default:
+		verb, prec = 'f', 0
 	}
 
 	var unit SizeB1024
 	switch {
-	case self < _iKiB:
+	case s < _iKiB:
 		unit = _ib
-	case self < _iMiB:
+	case s < _iMiB:
 		unit = _iKiB
-	case self < _iGiB:
+	case s < _iGiB:
 		unit = _iMiB
-	case self < _iTiB:
+	case s < _iTiB:
 		unit = _iGiB
 	default:
 		unit = _iTiB
 	}
 
-	p := bytesPool.Get().(*[]byte)
-	b := strconv.AppendFloat(*p, float64(self)/float64(unit), 'f', prec, 64)
-	if st.Flag(' ') {
+	b := strconv.AppendFloat(make([]byte, 0, 24), float64(s)/float64(unit), byte(verb), prec, 64)
+	if f.Flag(' ') {
 		b = append(b, ' ')
 	}
 	b = append(b, []byte(unit.String())...)
-	_, err := st.Write(b)
+	_, err := f.Write(b)
 	if err != nil {
 		panic(err)
 	}
-	bytesPool.Put(p)
 }
 
 const (
@@ -75,43 +80,41 @@ const (
 // appropriate size marker (KB, MB, GB, TB).
 type SizeB1000 int64
 
-func (self SizeB1000) Format(st fmt.State, verb rune) {
-	var prec int
+func (s SizeB1000) Format(f fmt.State, verb rune) {
+	prec := -1
 	switch verb {
-	case 'd':
-	case 's':
-		prec = -1
-	default:
-		if p, ok := st.Precision(); ok {
+	case 'f', 'e', 'E':
+		prec = 6 // default prec of fmt.Printf("%f|%e|%E")
+		fallthrough
+	case 'b', 'g', 'G', 'x', 'X':
+		if p, ok := f.Precision(); ok {
 			prec = p
-		} else {
-			prec = 6
 		}
+	default:
+		verb, prec = 'f', 0
 	}
 
 	var unit SizeB1000
 	switch {
-	case self < _KB:
+	case s < _KB:
 		unit = _b
-	case self < _MB:
+	case s < _MB:
 		unit = _KB
-	case self < _GB:
+	case s < _GB:
 		unit = _MB
-	case self < _TB:
+	case s < _TB:
 		unit = _GB
 	default:
 		unit = _TB
 	}
 
-	p := bytesPool.Get().(*[]byte)
-	b := strconv.AppendFloat(*p, float64(self)/float64(unit), 'f', prec, 64)
-	if st.Flag(' ') {
+	b := strconv.AppendFloat(make([]byte, 0, 24), float64(s)/float64(unit), byte(verb), prec, 64)
+	if f.Flag(' ') {
 		b = append(b, ' ')
 	}
 	b = append(b, []byte(unit.String())...)
-	_, err := st.Write(b)
+	_, err := f.Write(b)
 	if err != nil {
 		panic(err)
 	}
-	bytesPool.Put(p)
 }

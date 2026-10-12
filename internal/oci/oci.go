@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/containers/common/pkg/resize"
+	"go.podman.io/common/pkg/resize"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/pkg/config"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"

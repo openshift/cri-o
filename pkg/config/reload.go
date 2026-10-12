@@ -6,8 +6,8 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/container-orchestrated-devices/container-device-interface/pkg/cdi"
-	"github.com/containers/image/v5/pkg/sysregistriesv2"
+	"tags.cncf.io/container-device-interface/pkg/cdi"
+	"go.podman.io/image/v5/pkg/sysregistriesv2"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/signals"
 	"github.com/sirupsen/logrus"
@@ -91,7 +91,9 @@ func (c *Config) Reload() error {
 	if err := c.ReloadRuntimes(newConfig); err != nil {
 		return err
 	}
-	cdi.GetRegistry(cdi.WithSpecDirs(newConfig.CDISpecDirs...))
+	if err := cdi.Configure(cdi.WithSpecDirs(newConfig.CDISpecDirs...)); err != nil {
+		return err
+	}
 
 	return nil
 }

@@ -10,7 +10,7 @@ import (
 	reflect "reflect"
 	syscall "syscall"
 
-	resize "github.com/containers/common/pkg/resize"
+	resize "go.podman.io/common/pkg/resize"
 	oci "github.com/cri-o/cri-o/internal/oci"
 	gomock "github.com/golang/mock/gomock"
 	specs "github.com/opencontainers/runtime-spec/specs-go"

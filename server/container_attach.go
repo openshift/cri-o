@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/containers/common/pkg/resize"
+	"go.podman.io/common/pkg/resize"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/oci"
 	"golang.org/x/net/context"

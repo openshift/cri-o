@@ -39,19 +39,20 @@ var (
 	OIDIssuerV2  = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 8}
 
 	// CI extensions
-	OIDBuildSignerURI                  = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 9}
-	OIDBuildSignerDigest               = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 10}
-	OIDRunnerEnvironment               = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 11}
-	OIDSourceRepositoryURI             = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 12}
-	OIDSourceRepositoryDigest          = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 13}
-	OIDSourceRepositoryRef             = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 14}
-	OIDSourceRepositoryIdentifier      = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 15}
-	OIDSourceRepositoryOwnerURI        = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 16}
-	OIDSourceRepositoryOwnerIdentifier = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 17}
-	OIDBuildConfigURI                  = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 18}
-	OIDBuildConfigDigest               = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 19}
-	OIDBuildTrigger                    = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 20}
-	OIDRunInvocationURI                = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 21}
+	OIDBuildSignerURI                      = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 9}
+	OIDBuildSignerDigest                   = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 10}
+	OIDRunnerEnvironment                   = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 11}
+	OIDSourceRepositoryURI                 = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 12}
+	OIDSourceRepositoryDigest              = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 13}
+	OIDSourceRepositoryRef                 = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 14}
+	OIDSourceRepositoryIdentifier          = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 15}
+	OIDSourceRepositoryOwnerURI            = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 16}
+	OIDSourceRepositoryOwnerIdentifier     = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 17}
+	OIDBuildConfigURI                      = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 18}
+	OIDBuildConfigDigest                   = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 19}
+	OIDBuildTrigger                        = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 20}
+	OIDRunInvocationURI                    = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 21}
+	OIDSourceRepositoryVisibilityAtSigning = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 22}
 )
 
 // Extensions contains all custom x509 extensions defined by Fulcio
@@ -68,66 +69,69 @@ type Extensions struct {
 	// Deprecated
 	// Triggering event of the Github Workflow. Matches the `event_name` claim of ID
 	// tokens from Github Actions
-	GithubWorkflowTrigger string // OID 1.3.6.1.4.1.57264.1.2
+	GithubWorkflowTrigger string `json:"GithubWorkflowTrigger,omitempty" yaml:"github-workflow-trigger,omitempty"` // OID 1.3.6.1.4.1.57264.1.2
 
 	// Deprecated
 	// SHA of git commit being built in Github Actions. Matches the `sha` claim of ID
 	// tokens from Github Actions
-	GithubWorkflowSHA string // OID 1.3.6.1.4.1.57264.1.3
+	GithubWorkflowSHA string `json:"GithubWorkflowSHA,omitempty" yaml:"github-workflow-sha,omitempty"` // OID 1.3.6.1.4.1.57264.1.3
 
 	// Deprecated
 	// Name of Github Actions Workflow. Matches the `workflow` claim of the ID
 	// tokens from Github Actions
-	GithubWorkflowName string // OID 1.3.6.1.4.1.57264.1.4
+	GithubWorkflowName string `json:"GithubWorkflowName,omitempty" yaml:"github-workflow-name,omitempty"` // OID 1.3.6.1.4.1.57264.1.4
 
 	// Deprecated
 	// Repository of the Github Actions Workflow. Matches the `repository` claim of the ID
 	// tokens from Github Actions
-	GithubWorkflowRepository string // OID 1.3.6.1.4.1.57264.1.5
+	GithubWorkflowRepository string `json:"GithubWorkflowRepository,omitempty" yaml:"github-workflow-repository,omitempty"` // OID 1.3.6.1.4.1.57264.1.5
 
 	// Deprecated
 	// Git Ref of the Github Actions Workflow. Matches the `ref` claim of the ID tokens
 	// from Github Actions
-	GithubWorkflowRef string // 1.3.6.1.4.1.57264.1.6
+	GithubWorkflowRef string `json:"GithubWorkflowRef,omitempty" yaml:"github-workflow-ref,omitempty"` // 1.3.6.1.4.1.57264.1.6
 
 	// Reference to specific build instructions that are responsible for signing.
-	BuildSignerURI string // 1.3.6.1.4.1.57264.1.9
+	BuildSignerURI string `json:"BuildSignerURI,omitempty" yaml:"build-signer-uri,omitempty"` // 1.3.6.1.4.1.57264.1.9
 
 	// Immutable reference to the specific version of the build instructions that is responsible for signing.
-	BuildSignerDigest string // 1.3.6.1.4.1.57264.1.10
+	BuildSignerDigest string `json:"BuildSignerDigest,omitempty" yaml:"build-signer-digest,omitempty"` // 1.3.6.1.4.1.57264.1.10
 
 	// Specifies whether the build took place in platform-hosted cloud infrastructure or customer/self-hosted infrastructure.
-	RunnerEnvironment string // 1.3.6.1.4.1.57264.1.11
+	RunnerEnvironment string `json:"RunnerEnvironment,omitempty" yaml:"runner-environment,omitempty"` // 1.3.6.1.4.1.57264.1.11
 
 	// Source repository URL that the build was based on.
-	SourceRepositoryURI string // 1.3.6.1.4.1.57264.1.12
+	SourceRepositoryURI string `json:"SourceRepositoryURI,omitempty" yaml:"source-repository-uri,omitempty"` // 1.3.6.1.4.1.57264.1.12
 
 	// Immutable reference to a specific version of the source code that the build was based upon.
-	SourceRepositoryDigest string // 1.3.6.1.4.1.57264.1.13
+	SourceRepositoryDigest string `json:"SourceRepositoryDigest,omitempty" yaml:"source-repository-digest,omitempty"` // 1.3.6.1.4.1.57264.1.13
 
 	// Source Repository Ref that the build run was based upon.
-	SourceRepositoryRef string // 1.3.6.1.4.1.57264.1.14
+	SourceRepositoryRef string `json:"SourceRepositoryRef,omitempty" yaml:"source-repository-ref,omitempty"` // 1.3.6.1.4.1.57264.1.14
 
 	// Immutable identifier for the source repository the workflow was based upon.
-	SourceRepositoryIdentifier string // 1.3.6.1.4.1.57264.1.15
+	SourceRepositoryIdentifier string `json:"SourceRepositoryIdentifier,omitempty" yaml:"source-repository-identifier,omitempty"` // 1.3.6.1.4.1.57264.1.15
 
 	// Source repository owner URL of the owner of the source repository that the build was based on.
-	SourceRepositoryOwnerURI string // 1.3.6.1.4.1.57264.1.16
+	SourceRepositoryOwnerURI string `json:"SourceRepositoryOwnerURI,omitempty" yaml:"source-repository-owner-uri,omitempty"` // 1.3.6.1.4.1.57264.1.16
 
 	// Immutable identifier for the owner of the source repository that the workflow was based upon.
-	SourceRepositoryOwnerIdentifier string // 1.3.6.1.4.1.57264.1.17
+	SourceRepositoryOwnerIdentifier string `json:"SourceRepositoryOwnerIdentifier,omitempty" yaml:"source-repository-owner-identifier,omitempty"` // 1.3.6.1.4.1.57264.1.17
 
 	// Build Config URL to the top-level/initiating build instructions.
-	BuildConfigURI string // 1.3.6.1.4.1.57264.1.18
+	BuildConfigURI string `json:"BuildConfigURI,omitempty" yaml:"build-config-uri,omitempty"` // 1.3.6.1.4.1.57264.1.18
 
 	// Immutable reference to the specific version of the top-level/initiating build instructions.
-	BuildConfigDigest string // 1.3.6.1.4.1.57264.1.19
+	BuildConfigDigest string `json:"BuildConfigDigest,omitempty" yaml:"build-config-digest,omitempty"` // 1.3.6.1.4.1.57264.1.19
 
 	// Event or action that initiated the build.
-	BuildTrigger string // 1.3.6.1.4.1.57264.1.20
+	BuildTrigger string `json:"BuildTrigger,omitempty" yaml:"build-trigger,omitempty"` // 1.3.6.1.4.1.57264.1.20
 
 	// Run Invocation URL to uniquely identify the build execution.
-	RunInvocationURI string // 1.3.6.1.4.1.57264.1.21
+	RunInvocationURI string `json:"RunInvocationURI,omitempty" yaml:"run-invocation-uri,omitempty"` // 1.3.6.1.4.1.57264.1.21
+
+	// Source repository visibility at the time of signing the certificate.
+	SourceRepositoryVisibilityAtSigning string `json:"SourceRepositoryVisibilityAtSigning,omitempty" yaml:"source-repository-visibility-at-signing,omitempty"` // 1.3.6.1.4.1.57264.1.22
 }
 
 func (e Extensions) Render() ([]pkix.Extension, error) {
@@ -320,11 +324,21 @@ func (e Extensions) Render() ([]pkix.Extension, error) {
 			Value: val,
 		})
 	}
+	if e.SourceRepositoryVisibilityAtSigning != "" {
+		val, err := asn1.MarshalWithParams(e.SourceRepositoryVisibilityAtSigning, "utf8")
+		if err != nil {
+			return nil, err
+		}
+		exts = append(exts, pkix.Extension{
+			Id:    OIDSourceRepositoryVisibilityAtSigning,
+			Value: val,
+		})
+	}
 
 	return exts, nil
 }
 
-func parseExtensions(ext []pkix.Extension) (Extensions, error) {
+func ParseExtensions(ext []pkix.Extension) (Extensions, error) {
 	out := Extensions{}
 
 	for _, e := range ext {
@@ -344,59 +358,63 @@ func parseExtensions(ext []pkix.Extension) (Extensions, error) {
 			out.GithubWorkflowRef = string(e.Value)
 		// END: Deprecated
 		case e.Id.Equal(OIDIssuerV2):
-			if err := parseDERString(e.Value, &out.Issuer); err != nil {
+			if err := ParseDERString(e.Value, &out.Issuer); err != nil {
 				return Extensions{}, err
 			}
 		case e.Id.Equal(OIDBuildSignerURI):
-			if err := parseDERString(e.Value, &out.BuildSignerURI); err != nil {
+			if err := ParseDERString(e.Value, &out.BuildSignerURI); err != nil {
 				return Extensions{}, err
 			}
 		case e.Id.Equal(OIDBuildSignerDigest):
-			if err := parseDERString(e.Value, &out.BuildSignerDigest); err != nil {
+			if err := ParseDERString(e.Value, &out.BuildSignerDigest); err != nil {
 				return Extensions{}, err
 			}
 		case e.Id.Equal(OIDRunnerEnvironment):
-			if err := parseDERString(e.Value, &out.RunnerEnvironment); err != nil {
+			if err := ParseDERString(e.Value, &out.RunnerEnvironment); err != nil {
 				return Extensions{}, err
 			}
 		case e.Id.Equal(OIDSourceRepositoryURI):
-			if err := parseDERString(e.Value, &out.SourceRepositoryURI); err != nil {
+			if err := ParseDERString(e.Value, &out.SourceRepositoryURI); err != nil {
 				return Extensions{}, err
 			}
 		case e.Id.Equal(OIDSourceRepositoryDigest):
-			if err := parseDERString(e.Value, &out.SourceRepositoryDigest); err != nil {
+			if err := ParseDERString(e.Value, &out.SourceRepositoryDigest); err != nil {
 				return Extensions{}, err
 			}
 		case e.Id.Equal(OIDSourceRepositoryRef):
-			if err := parseDERString(e.Value, &out.SourceRepositoryRef); err != nil {
+			if err := ParseDERString(e.Value, &out.SourceRepositoryRef); err != nil {
 				return Extensions{}, err
 			}
 		case e.Id.Equal(OIDSourceRepositoryIdentifier):
-			if err := parseDERString(e.Value, &out.SourceRepositoryIdentifier); err != nil {
+			if err := ParseDERString(e.Value, &out.SourceRepositoryIdentifier); err != nil {
 				return Extensions{}, err
 			}
 		case e.Id.Equal(OIDSourceRepositoryOwnerURI):
-			if err := parseDERString(e.Value, &out.SourceRepositoryOwnerURI); err != nil {
+			if err := ParseDERString(e.Value, &out.SourceRepositoryOwnerURI); err != nil {
 				return Extensions{}, err
 			}
 		case e.Id.Equal(OIDSourceRepositoryOwnerIdentifier):
-			if err := parseDERString(e.Value, &out.SourceRepositoryOwnerIdentifier); err != nil {
+			if err := ParseDERString(e.Value, &out.SourceRepositoryOwnerIdentifier); err != nil {
 				return Extensions{}, err
 			}
 		case e.Id.Equal(OIDBuildConfigURI):
-			if err := parseDERString(e.Value, &out.BuildConfigURI); err != nil {
+			if err := ParseDERString(e.Value, &out.BuildConfigURI); err != nil {
 				return Extensions{}, err
 			}
 		case e.Id.Equal(OIDBuildConfigDigest):
-			if err := parseDERString(e.Value, &out.BuildConfigDigest); err != nil {
+			if err := ParseDERString(e.Value, &out.BuildConfigDigest); err != nil {
 				return Extensions{}, err
 			}
 		case e.Id.Equal(OIDBuildTrigger):
-			if err := parseDERString(e.Value, &out.BuildTrigger); err != nil {
+			if err := ParseDERString(e.Value, &out.BuildTrigger); err != nil {
 				return Extensions{}, err
 			}
 		case e.Id.Equal(OIDRunInvocationURI):
-			if err := parseDERString(e.Value, &out.RunInvocationURI); err != nil {
+			if err := ParseDERString(e.Value, &out.RunInvocationURI); err != nil {
+				return Extensions{}, err
+			}
+		case e.Id.Equal(OIDSourceRepositoryVisibilityAtSigning):
+			if err := ParseDERString(e.Value, &out.SourceRepositoryVisibilityAtSigning); err != nil {
 				return Extensions{}, err
 			}
 		}
@@ -407,9 +425,9 @@ func parseExtensions(ext []pkix.Extension) (Extensions, error) {
 	return out, nil
 }
 
-// parseDERString decodes a DER-encoded string and puts the value in parsedVal.
-// Rerturns an error if the unmarshalling fails or if there are trailing bytes in the encoding.
-func parseDERString(val []byte, parsedVal *string) error {
+// ParseDERString decodes a DER-encoded string and puts the value in parsedVal.
+// Returns an error if the unmarshalling fails or if there are trailing bytes in the encoding.
+func ParseDERString(val []byte, parsedVal *string) error {
 	rest, err := asn1.Unmarshal(val, parsedVal)
 	if err != nil {
 		return fmt.Errorf("unexpected error unmarshalling DER-encoded string: %v", err)

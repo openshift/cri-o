@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/containers/image/v5/types"
-	cs "github.com/containers/storage"
+	"go.podman.io/image/v5/types"
+	cs "go.podman.io/storage"
 	"github.com/cri-o/cri-o/internal/storage"
 	containerstoragemock "github.com/cri-o/cri-o/test/mocks/containerstorage"
 	"github.com/golang/mock/gomock"

@@ -17,11 +17,11 @@ import (
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
 	"github.com/containernetworking/plugins/pkg/ns"
-	"github.com/containers/common/pkg/resize"
+	"go.podman.io/common/pkg/resize"
 	conmonconfig "github.com/containers/conmon/runner/config"
-	"github.com/containers/podman/v4/pkg/checkpoint/crutils"
-	"github.com/containers/podman/v4/pkg/criu"
-	"github.com/containers/storage/pkg/pools"
+	"github.com/containers/podman/v5/pkg/checkpoint/crutils"
+	"github.com/containers/podman/v5/pkg/criu"
+	"go.podman.io/storage/pkg/pools"
 	"github.com/cri-o/cri-o/internal/config/cgmgr"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/pkg/config"
@@ -1655,8 +1655,8 @@ func (r *runtimeOCI) RestoreContainer(ctx context.Context, c *Container, cgroupP
 }
 
 func (r *runtimeOCI) checkpointRestoreSupported(runtimePath string) error {
-	if !criu.CheckForCriu(criu.PodCriuVersion) {
-		return fmt.Errorf("checkpoint/restore requires at least CRIU %d", criu.PodCriuVersion)
+	if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
+		return fmt.Errorf("check for CRIU %w", err)
 	}
 	if !crutils.CRRuntimeSupportsCheckpointRestore(runtimePath) {
 		return fmt.Errorf("configured runtime does not support checkpoint/restore")

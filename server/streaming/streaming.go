@@ -30,7 +30,7 @@ import (
 	"path"
 	"time"
 
-	"github.com/containers/common/pkg/resize"
+	"go.podman.io/common/pkg/resize"
 	remotecommandserver "github.com/cri-o/cri-o/server/streaming/remotecommand"
 	restful "github.com/emicklei/go-restful"
 	"google.golang.org/grpc/codes"
