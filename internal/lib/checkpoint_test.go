@@ -22,7 +22,7 @@ var _ = t.Describe("ContainerCheckpoint", func() {
 		beforeEach()
 		createDummyConfig()
 		mockRuncInLibConfig()
-		if !criu.CheckForCriu(criu.PodCriuVersion) {
+		if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 			Skip("CRIU is missing or too old.")
 		}
 	})

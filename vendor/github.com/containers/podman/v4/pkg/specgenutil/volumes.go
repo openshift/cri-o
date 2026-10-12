@@ -1,23 +1,25 @@
 package specgenutil
 
 import (
-	"encoding/csv"
 	"errors"
 	"fmt"
 	"path"
+	"path/filepath"
 	"strings"
 
+	"github.com/containers/common/pkg/config"
 	"github.com/containers/common/pkg/parse"
 	"github.com/containers/podman/v4/libpod/define"
+	"github.com/containers/podman/v4/pkg/rootless"
 	"github.com/containers/podman/v4/pkg/specgen"
+	"github.com/containers/podman/v4/pkg/specgenutilexternal"
 	"github.com/containers/podman/v4/pkg/util"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 )
 
 var (
-	errOptionArg     = errors.New("must provide an argument for option")
-	errNoDest        = errors.New("must set volume destination")
-	errInvalidSyntax = errors.New("incorrect mount format: should be --mount type=<bind|tmpfs|volume>,[src=<host-dir|volume-name>,]target=<ctr-dir>[,options]")
+	errOptionArg = errors.New("must provide an argument for option")
+	errNoDest    = errors.New("must set volume destination")
 )
 
 // Parse all volume-related options in the create config into a set of mounts
@@ -26,9 +28,9 @@ var (
 // Does not handle image volumes, init, and --volumes-from flags.
 // Can also add tmpfs mounts from read-only tmpfs.
 // TODO: handle options parsing/processing via containers/storage/pkg/mount
-func parseVolumes(volumeFlag, mountFlag, tmpfsFlag []string) ([]spec.Mount, []*specgen.NamedVolume, []*specgen.OverlayVolume, []*specgen.ImageVolume, error) {
+func parseVolumes(rtc *config.Config, volumeFlag, mountFlag, tmpfsFlag []string) ([]spec.Mount, []*specgen.NamedVolume, []*specgen.OverlayVolume, []*specgen.ImageVolume, error) {
 	// Get mounts from the --mounts flag.
-	unifiedMounts, unifiedVolumes, unifiedImageVolumes, err := Mounts(mountFlag)
+	unifiedMounts, unifiedVolumes, unifiedImageVolumes, err := Mounts(mountFlag, rtc.Mounts())
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -137,121 +139,152 @@ func parseVolumes(volumeFlag, mountFlag, tmpfsFlag []string) ([]spec.Mount, []*s
 	return finalMounts, finalVolumes, finalOverlayVolume, finalImageVolumes, nil
 }
 
-// findMountType parses the input and extracts the type of the mount type and
-// the remaining non-type tokens.
-func findMountType(input string) (mountType string, tokens []string, err error) {
-	// Split by comma, iterate over the slice and look for
-	// "type=$mountType". Everything else is appended to tokens.
-	found := false
-	csvReader := csv.NewReader(strings.NewReader(input))
-	records, err := csvReader.ReadAll()
-	if err != nil {
-		return "", nil, err
-	}
-	if len(records) != 1 {
-		return "", nil, errInvalidSyntax
-	}
-	for _, s := range records[0] {
-		kv := strings.Split(s, "=")
-		if found || !(len(kv) == 2 && kv[0] == "type") {
-			tokens = append(tokens, s)
-			continue
-		}
-		mountType = kv[1]
-		found = true
-	}
-	if !found {
-		err = errInvalidSyntax
-	}
-	return
-}
-
-// Mounts takes user-provided input from the --mount flag and creates OCI
-// spec mounts and Libpod named volumes.
+// Mounts takes user-provided input from the --mount flag as well as Mounts
+// specified in containers.conf and creates OCI spec mounts and Libpod named volumes.
 // podman run --mount type=bind,src=/etc/resolv.conf,target=/etc/resolv.conf ...
 // podman run --mount type=tmpfs,target=/dev/shm ...
 // podman run --mount type=volume,source=test-volume, ...
-func Mounts(mountFlag []string) (map[string]spec.Mount, map[string]*specgen.NamedVolume, map[string]*specgen.ImageVolume, error) {
+func Mounts(mountFlag []string, configMounts []string) (map[string]spec.Mount, map[string]*specgen.NamedVolume, map[string]*specgen.ImageVolume, error) {
 	finalMounts := make(map[string]spec.Mount)
 	finalNamedVolumes := make(map[string]*specgen.NamedVolume)
 	finalImageVolumes := make(map[string]*specgen.ImageVolume)
+	parseMounts := func(mounts []string, ignoreDup bool) error {
+		for _, mount := range mounts {
+			// TODO: Docker defaults to "volume" if no mount type is specified.
+			mountType, tokens, err := specgenutilexternal.FindMountType(mount)
+			if err != nil {
+				return err
+			}
+			switch mountType {
+			case define.TypeBind:
+				mount, err := getBindMount(tokens)
+				if err != nil {
+					return err
+				}
+				if _, ok := finalMounts[mount.Destination]; ok {
+					if ignoreDup {
+						continue
+					}
+					return fmt.Errorf("%v: %w", mount.Destination, specgen.ErrDuplicateDest)
+				}
+				finalMounts[mount.Destination] = mount
+			case "glob":
+				mounts, err := getGlobMounts(tokens)
+				if err != nil {
+					return err
+				}
+				for _, mount := range mounts {
+					if _, ok := finalMounts[mount.Destination]; ok {
+						if ignoreDup {
+							continue
+						}
+						return fmt.Errorf("%v: %w", mount.Destination, specgen.ErrDuplicateDest)
+					}
+					finalMounts[mount.Destination] = mount
+				}
+			case define.TypeTmpfs, define.TypeRamfs:
+				mount, err := parseMemoryMount(tokens, mountType)
+				if err != nil {
+					return err
+				}
+				if _, ok := finalMounts[mount.Destination]; ok {
+					if ignoreDup {
+						continue
+					}
+					return fmt.Errorf("%v: %w", mount.Destination, specgen.ErrDuplicateDest)
+				}
+				finalMounts[mount.Destination] = mount
+			case define.TypeDevpts:
+				mount, err := getDevptsMount(tokens)
+				if err != nil {
+					return err
+				}
+				if _, ok := finalMounts[mount.Destination]; ok {
+					if ignoreDup {
+						continue
+					}
+					return fmt.Errorf("%v: %w", mount.Destination, specgen.ErrDuplicateDest)
+				}
+				finalMounts[mount.Destination] = mount
+			case "image":
+				volume, err := getImageVolume(tokens)
+				if err != nil {
+					return err
+				}
+				if _, ok := finalImageVolumes[volume.Destination]; ok {
+					if ignoreDup {
+						continue
+					}
+					return fmt.Errorf("%v: %w", volume.Destination, specgen.ErrDuplicateDest)
+				}
+				finalImageVolumes[volume.Destination] = volume
+			case "volume":
+				volume, err := getNamedVolume(tokens)
+				if err != nil {
+					return err
+				}
+				if _, ok := finalNamedVolumes[volume.Dest]; ok {
+					if ignoreDup {
+						continue
+					}
+					return fmt.Errorf("%v: %w", volume.Dest, specgen.ErrDuplicateDest)
+				}
+				finalNamedVolumes[volume.Dest] = volume
+			default:
+				return fmt.Errorf("invalid filesystem type %q", mountType)
+			}
+		}
+		return nil
+	}
 
-	for _, mount := range mountFlag {
-		// TODO: Docker defaults to "volume" if no mount type is specified.
-		mountType, tokens, err := findMountType(mount)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		switch mountType {
-		case define.TypeBind:
-			mount, err := getBindMount(tokens)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			if _, ok := finalMounts[mount.Destination]; ok {
-				return nil, nil, nil, fmt.Errorf("%v: %w", mount.Destination, specgen.ErrDuplicateDest)
-			}
-			finalMounts[mount.Destination] = mount
-		case define.TypeTmpfs:
-			mount, err := getTmpfsMount(tokens)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			if _, ok := finalMounts[mount.Destination]; ok {
-				return nil, nil, nil, fmt.Errorf("%v: %w", mount.Destination, specgen.ErrDuplicateDest)
-			}
-			finalMounts[mount.Destination] = mount
-		case define.TypeDevpts:
-			mount, err := getDevptsMount(tokens)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			if _, ok := finalMounts[mount.Destination]; ok {
-				return nil, nil, nil, fmt.Errorf("%v: %w", mount.Destination, specgen.ErrDuplicateDest)
-			}
-			finalMounts[mount.Destination] = mount
-		case "image":
-			volume, err := getImageVolume(tokens)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			if _, ok := finalImageVolumes[volume.Destination]; ok {
-				return nil, nil, nil, fmt.Errorf("%v: %w", volume.Destination, specgen.ErrDuplicateDest)
-			}
-			finalImageVolumes[volume.Destination] = volume
-		case "volume":
-			volume, err := getNamedVolume(tokens)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			if _, ok := finalNamedVolumes[volume.Dest]; ok {
-				return nil, nil, nil, fmt.Errorf("%v: %w", volume.Dest, specgen.ErrDuplicateDest)
-			}
-			finalNamedVolumes[volume.Dest] = volume
-		default:
-			return nil, nil, nil, fmt.Errorf("invalid filesystem type %q", mountType)
-		}
+	// Parse mounts passed in from the user
+	if err := parseMounts(mountFlag, false); err != nil {
+		return nil, nil, nil, err
+	}
+
+	// If user specified a mount flag that conflicts with a containers.conf flag, then ignore
+	// the duplicate. This means that the parsing of the containers.conf configMounts should always
+	// happen second.
+	if err := parseMounts(configMounts, true); err != nil {
+		return nil, nil, nil, fmt.Errorf("parsing containers.conf mounts: %w", err)
 	}
 
 	return finalMounts, finalNamedVolumes, finalImageVolumes, nil
 }
 
-// Parse a single bind mount entry from the --mount flag.
-func getBindMount(args []string) (spec.Mount, error) {
-	newMount := spec.Mount{
-		Type: define.TypeBind,
-	}
+func parseMountOptions(mountType string, args []string) (*spec.Mount, error) {
+	var setTmpcopyup, setRORW, setSuid, setDev, setExec, setRelabel, setOwnership, setSwap bool
 
-	var setSource, setDest, setRORW, setSuid, setDev, setExec, setRelabel, setOwnership bool
-
+	mnt := spec.Mount{}
 	for _, val := range args {
 		kv := strings.SplitN(val, "=", 2)
 		switch kv[0] {
 		case "bind-nonrecursive":
-			newMount.Options = append(newMount.Options, "bind")
+			if mountType != define.TypeBind {
+				return nil, fmt.Errorf("%q option not supported for %q mount types", kv[0], mountType)
+			}
+			mnt.Options = append(mnt.Options, define.TypeBind)
+		case "bind-propagation":
+			if mountType != define.TypeBind {
+				return nil, fmt.Errorf("%q option not supported for %q mount types", kv[0], mountType)
+			}
+			if len(kv) == 1 {
+				return nil, fmt.Errorf("%v: %w", kv[0], errOptionArg)
+			}
+			mnt.Options = append(mnt.Options, kv[1])
+		case "consistency":
+			// Often used on MACs and mistakenly on Linux platforms.
+			// Since Docker ignores this option so shall we.
+			continue
+		case "idmap":
+			if len(kv) > 1 {
+				mnt.Options = append(mnt.Options, fmt.Sprintf("idmap=%s", kv[1]))
+			} else {
+				mnt.Options = append(mnt.Options, "idmap")
+			}
 		case "readonly", "ro", "rw":
 			if setRORW {
-				return newMount, fmt.Errorf("cannot pass 'readonly', 'ro', or 'rw' options more than once: %w", errOptionArg)
+				return nil, fmt.Errorf("cannot pass 'readonly', 'ro', or 'rw' mnt.Options more than once: %w", errOptionArg)
 			}
 			setRORW = true
 			// Can be formatted as one of:
@@ -266,213 +299,229 @@ func getBindMount(args []string) (spec.Mount, error) {
 			}
 			switch len(kv) {
 			case 1:
-				newMount.Options = append(newMount.Options, kv[0])
+				mnt.Options = append(mnt.Options, kv[0])
 			case 2:
 				switch strings.ToLower(kv[1]) {
 				case "true":
-					newMount.Options = append(newMount.Options, kv[0])
+					mnt.Options = append(mnt.Options, kv[0])
 				case "false":
 					// Set the opposite only for rw
 					// ro's opposite is the default
 					if kv[0] == "rw" {
-						newMount.Options = append(newMount.Options, "ro")
+						mnt.Options = append(mnt.Options, "ro")
 					}
-				default:
-					return newMount, fmt.Errorf("'readonly', 'ro', or 'rw' must be set to true or false, instead received %q: %w", kv[1], errOptionArg)
 				}
-			default:
-				return newMount, fmt.Errorf("badly formatted option %q: %w", val, errOptionArg)
 			}
-		case "nosuid", "suid":
-			if setSuid {
-				return newMount, fmt.Errorf("cannot pass 'nosuid' and 'suid' options more than once: %w", errOptionArg)
-			}
-			setSuid = true
-			newMount.Options = append(newMount.Options, kv[0])
 		case "nodev", "dev":
 			if setDev {
-				return newMount, fmt.Errorf("cannot pass 'nodev' and 'dev' options more than once: %w", errOptionArg)
+				return nil, fmt.Errorf("cannot pass 'nodev' and 'dev' mnt.Options more than once: %w", errOptionArg)
 			}
 			setDev = true
-			newMount.Options = append(newMount.Options, kv[0])
+			mnt.Options = append(mnt.Options, kv[0])
 		case "noexec", "exec":
 			if setExec {
-				return newMount, fmt.Errorf("cannot pass 'noexec' and 'exec' options more than once: %w", errOptionArg)
+				return nil, fmt.Errorf("cannot pass 'noexec' and 'exec' mnt.Options more than once: %w", errOptionArg)
 			}
 			setExec = true
-			newMount.Options = append(newMount.Options, kv[0])
-		case "shared", "rshared", "private", "rprivate", "slave", "rslave", "unbindable", "runbindable", "Z", "z":
-			newMount.Options = append(newMount.Options, kv[0])
-		case "bind-propagation":
-			if len(kv) == 1 {
-				return newMount, fmt.Errorf("%v: %w", kv[0], errOptionArg)
+			mnt.Options = append(mnt.Options, kv[0])
+		case "nosuid", "suid":
+			if setSuid {
+				return nil, fmt.Errorf("cannot pass 'nosuid' and 'suid' mnt.Options more than once: %w", errOptionArg)
 			}
-			newMount.Options = append(newMount.Options, kv[1])
-		case "src", "source":
-			if len(kv) == 1 {
-				return newMount, fmt.Errorf("%v: %w", kv[0], errOptionArg)
+			setSuid = true
+			mnt.Options = append(mnt.Options, kv[0])
+		case "noswap":
+			if setSwap {
+				return nil, fmt.Errorf("cannot pass 'noswap' mnt.Options more than once: %w", errOptionArg)
 			}
-			if len(kv[1]) == 0 {
-				return newMount, fmt.Errorf("host directory cannot be empty: %w", errOptionArg)
+			if rootless.IsRootless() {
+				return nil, fmt.Errorf("the 'noswap' option is only allowed with rootful tmpfs mounts: %w", errOptionArg)
 			}
-			newMount.Source = kv[1]
-			setSource = true
-		case "target", "dst", "destination":
-			if len(kv) == 1 {
-				return newMount, fmt.Errorf("%v: %w", kv[0], errOptionArg)
-			}
-			if err := parse.ValidateVolumeCtrDir(kv[1]); err != nil {
-				return newMount, err
-			}
-			newMount.Destination = unixPathClean(kv[1])
-			setDest = true
+			setSwap = true
+			mnt.Options = append(mnt.Options, kv[0])
 		case "relabel":
 			if setRelabel {
-				return newMount, fmt.Errorf("cannot pass 'relabel' option more than once: %w", errOptionArg)
+				return nil, fmt.Errorf("cannot pass 'relabel' option more than once: %w", errOptionArg)
 			}
 			setRelabel = true
 			if len(kv) != 2 {
-				return newMount, fmt.Errorf("%s mount option must be 'private' or 'shared': %w", kv[0], util.ErrBadMntOption)
+				return nil, fmt.Errorf("%s mount option must be 'private' or 'shared': %w", kv[0], util.ErrBadMntOption)
 			}
 			switch kv[1] {
 			case "private":
-				newMount.Options = append(newMount.Options, "Z")
+				mnt.Options = append(mnt.Options, "Z")
 			case "shared":
-				newMount.Options = append(newMount.Options, "z")
+				mnt.Options = append(mnt.Options, "z")
 			default:
-				return newMount, fmt.Errorf("%s mount option must be 'private' or 'shared': %w", kv[0], util.ErrBadMntOption)
+				return nil, fmt.Errorf("%s mount option must be 'private' or 'shared': %w", kv[0], util.ErrBadMntOption)
 			}
+		case "shared", "rshared", "private", "rprivate", "slave", "rslave", "unbindable", "runbindable", "Z", "z":
+			mnt.Options = append(mnt.Options, kv[0])
+		case "src", "source":
+			if mountType == define.TypeTmpfs {
+				return nil, fmt.Errorf("%q option not supported for %q mount types", kv[0], mountType)
+			}
+			if mnt.Source != "" {
+				return nil, fmt.Errorf("cannot pass %q option more than once: %w", kv[0], errOptionArg)
+			}
+			if len(kv) == 1 {
+				return nil, fmt.Errorf("%v: %w", kv[0], errOptionArg)
+			}
+			if len(kv[1]) == 0 {
+				return nil, fmt.Errorf("host directory cannot be empty: %w", errOptionArg)
+			}
+			mnt.Source = kv[1]
+		case "target", "dst", "destination":
+			if mnt.Destination != "" {
+				return nil, fmt.Errorf("cannot pass %q option more than once: %w", kv[0], errOptionArg)
+			}
+			if len(kv) == 1 {
+				return nil, fmt.Errorf("%v: %w", kv[0], errOptionArg)
+			}
+			if err := parse.ValidateVolumeCtrDir(kv[1]); err != nil {
+				return nil, err
+			}
+			mnt.Destination = unixPathClean(kv[1])
+		case "tmpcopyup", "notmpcopyup":
+			if mountType != define.TypeTmpfs {
+				return nil, fmt.Errorf("%q option not supported for %q mount types", kv[0], mountType)
+			}
+			if setTmpcopyup {
+				return nil, fmt.Errorf("cannot pass 'tmpcopyup' and 'notmpcopyup' mnt.Options more than once: %w", errOptionArg)
+			}
+			setTmpcopyup = true
+			mnt.Options = append(mnt.Options, kv[0])
+		case "tmpfs-mode":
+			if mountType != define.TypeTmpfs {
+				return nil, fmt.Errorf("%q option not supported for %q mount types", kv[0], mountType)
+			}
+			if len(kv) == 1 {
+				return nil, fmt.Errorf("%v: %w", kv[0], errOptionArg)
+			}
+			mnt.Options = append(mnt.Options, fmt.Sprintf("mode=%s", kv[1]))
+		case "tmpfs-size":
+			if mountType != define.TypeTmpfs {
+				return nil, fmt.Errorf("%q option not supported for %q mount types", kv[0], mountType)
+			}
+			if len(kv) == 1 {
+				return nil, fmt.Errorf("%v: %w", kv[0], errOptionArg)
+			}
+			mnt.Options = append(mnt.Options, fmt.Sprintf("size=%s", kv[1]))
 		case "U", "chown":
 			if setOwnership {
-				return newMount, fmt.Errorf("cannot pass 'U' or 'chown' option more than once: %w", errOptionArg)
+				return nil, fmt.Errorf("cannot pass 'U' or 'chown' option more than once: %w", errOptionArg)
 			}
 			ok, err := validChownFlag(val)
 			if err != nil {
-				return newMount, err
+				return nil, err
 			}
 			if ok {
-				newMount.Options = append(newMount.Options, "U")
+				mnt.Options = append(mnt.Options, "U")
 			}
 			setOwnership = true
-		case "idmap":
-			if len(kv) > 1 {
-				newMount.Options = append(newMount.Options, fmt.Sprintf("idmap=%s", kv[1]))
-			} else {
-				newMount.Options = append(newMount.Options, "idmap")
+		case "volume-label":
+			if mountType != define.TypeVolume {
+				return nil, fmt.Errorf("%q option not supported for %q mount types", kv[0], mountType)
 			}
-		case "consistency":
-			// Often used on MACs and mistakenly on Linux platforms.
-			// Since Docker ignores this option so shall we.
-			continue
+			return nil, fmt.Errorf("the --volume-label option is not presently implemented")
+		case "volume-opt":
+			if mountType != define.TypeVolume {
+				return nil, fmt.Errorf("%q option not supported for %q mount types", kv[0], mountType)
+			}
+			mnt.Options = append(mnt.Options, val)
 		default:
-			return newMount, fmt.Errorf("%s: %w", kv[0], util.ErrBadMntOption)
+			return nil, fmt.Errorf("%s: %w", kv[0], util.ErrBadMntOption)
 		}
 	}
+	if mountType != "glob" && len(mnt.Destination) == 0 {
+		return nil, errNoDest
+	}
+	return &mnt, nil
+}
 
-	if !setDest {
-		return newMount, errNoDest
+// Parse glob mounts entry from the --mount flag.
+func getGlobMounts(args []string) ([]spec.Mount, error) {
+	mounts := []spec.Mount{}
+
+	mnt, err := parseMountOptions("glob", args)
+	if err != nil {
+		return nil, err
 	}
 
-	if !setSource {
-		newMount.Source = newMount.Destination
+	globs, err := filepath.Glob(mnt.Source)
+	if err != nil {
+		return nil, err
+	}
+	if len(globs) == 0 {
+		return nil, fmt.Errorf("no file paths matching glob %q", mnt.Source)
 	}
 
-	options, err := parse.ValidateVolumeOpts(newMount.Options)
+	options, err := parse.ValidateVolumeOpts(mnt.Options)
+	if err != nil {
+		return nil, err
+	}
+	for _, src := range globs {
+		var newMount spec.Mount
+		newMount.Type = define.TypeBind
+		newMount.Options = options
+		newMount.Source = src
+		if len(mnt.Destination) == 0 {
+			newMount.Destination = src
+		} else {
+			newMount.Destination = filepath.Join(mnt.Destination, filepath.Base(src))
+		}
+		mounts = append(mounts, newMount)
+	}
+
+	return mounts, nil
+}
+
+// Parse a single bind mount entry from the --mount flag.
+func getBindMount(args []string) (spec.Mount, error) {
+	newMount := spec.Mount{
+		Type: define.TypeBind,
+	}
+	var err error
+	mnt, err := parseMountOptions(newMount.Type, args)
 	if err != nil {
 		return newMount, err
 	}
+
+	if len(mnt.Destination) == 0 {
+		return newMount, errNoDest
+	}
+
+	if len(mnt.Source) == 0 {
+		mnt.Source = mnt.Destination
+	}
+
+	options, err := parse.ValidateVolumeOpts(mnt.Options)
+	if err != nil {
+		return newMount, err
+	}
+	newMount.Source = mnt.Source
+	newMount.Destination = mnt.Destination
 	newMount.Options = options
 	return newMount, nil
 }
 
-// Parse a single tmpfs mount entry from the --mount flag
-func getTmpfsMount(args []string) (spec.Mount, error) {
+// Parse a single tmpfs/ramfs mount entry from the --mount flag
+func parseMemoryMount(args []string, mountType string) (spec.Mount, error) {
 	newMount := spec.Mount{
-		Type:   define.TypeTmpfs,
-		Source: define.TypeTmpfs,
+		Type:   mountType,
+		Source: mountType,
 	}
 
-	var setDest, setRORW, setSuid, setDev, setExec, setTmpcopyup, setOwnership bool
-
-	for _, val := range args {
-		kv := strings.SplitN(val, "=", 2)
-		switch kv[0] {
-		case "tmpcopyup", "notmpcopyup":
-			if setTmpcopyup {
-				return newMount, fmt.Errorf("cannot pass 'tmpcopyup' and 'notmpcopyup' options more than once: %w", errOptionArg)
-			}
-			setTmpcopyup = true
-			newMount.Options = append(newMount.Options, kv[0])
-		case "ro", "rw":
-			if setRORW {
-				return newMount, fmt.Errorf("cannot pass 'ro' and 'rw' options more than once: %w", errOptionArg)
-			}
-			setRORW = true
-			newMount.Options = append(newMount.Options, kv[0])
-		case "nosuid", "suid":
-			if setSuid {
-				return newMount, fmt.Errorf("cannot pass 'nosuid' and 'suid' options more than once: %w", errOptionArg)
-			}
-			setSuid = true
-			newMount.Options = append(newMount.Options, kv[0])
-		case "nodev", "dev":
-			if setDev {
-				return newMount, fmt.Errorf("cannot pass 'nodev' and 'dev' options more than once: %w", errOptionArg)
-			}
-			setDev = true
-			newMount.Options = append(newMount.Options, kv[0])
-		case "noexec", "exec":
-			if setExec {
-				return newMount, fmt.Errorf("cannot pass 'noexec' and 'exec' options more than once: %w", errOptionArg)
-			}
-			setExec = true
-			newMount.Options = append(newMount.Options, kv[0])
-		case "tmpfs-mode":
-			if len(kv) == 1 {
-				return newMount, fmt.Errorf("%v: %w", kv[0], errOptionArg)
-			}
-			newMount.Options = append(newMount.Options, fmt.Sprintf("mode=%s", kv[1]))
-		case "tmpfs-size":
-			if len(kv) == 1 {
-				return newMount, fmt.Errorf("%v: %w", kv[0], errOptionArg)
-			}
-			newMount.Options = append(newMount.Options, fmt.Sprintf("size=%s", kv[1]))
-		case "src", "source":
-			return newMount, fmt.Errorf("source is not supported with tmpfs mounts")
-		case "target", "dst", "destination":
-			if len(kv) == 1 {
-				return newMount, fmt.Errorf("%v: %w", kv[0], errOptionArg)
-			}
-			if err := parse.ValidateVolumeCtrDir(kv[1]); err != nil {
-				return newMount, err
-			}
-			newMount.Destination = unixPathClean(kv[1])
-			setDest = true
-		case "U", "chown":
-			if setOwnership {
-				return newMount, fmt.Errorf("cannot pass 'U' or 'chown' option more than once: %w", errOptionArg)
-			}
-			ok, err := validChownFlag(val)
-			if err != nil {
-				return newMount, err
-			}
-			if ok {
-				newMount.Options = append(newMount.Options, "U")
-			}
-			setOwnership = true
-		case "consistency":
-			// Often used on MACs and mistakenly on Linux platforms.
-			// Since Docker ignores this option so shall we.
-			continue
-		default:
-			return newMount, fmt.Errorf("%s: %w", kv[0], util.ErrBadMntOption)
-		}
+	var err error
+	mnt, err := parseMountOptions(newMount.Type, args)
+	if err != nil {
+		return newMount, err
 	}
-
-	if !setDest {
+	if len(mnt.Destination) == 0 {
 		return newMount, errNoDest
 	}
-
+	newMount.Destination = mnt.Destination
+	newMount.Options = mnt.Options
 	return newMount, nil
 }
 
@@ -517,84 +566,16 @@ func getDevptsMount(args []string) (spec.Mount, error) {
 func getNamedVolume(args []string) (*specgen.NamedVolume, error) {
 	newVolume := new(specgen.NamedVolume)
 
-	var setDest, setRORW, setSuid, setDev, setExec, setOwnership bool
-
-	for _, val := range args {
-		kv := strings.SplitN(val, "=", 2)
-		switch kv[0] {
-		case "volume-opt":
-			newVolume.Options = append(newVolume.Options, val)
-		case "ro", "rw":
-			if setRORW {
-				return nil, fmt.Errorf("cannot pass 'ro' and 'rw' options more than once: %w", errOptionArg)
-			}
-			setRORW = true
-			newVolume.Options = append(newVolume.Options, kv[0])
-		case "nosuid", "suid":
-			if setSuid {
-				return nil, fmt.Errorf("cannot pass 'nosuid' and 'suid' options more than once: %w", errOptionArg)
-			}
-			setSuid = true
-			newVolume.Options = append(newVolume.Options, kv[0])
-		case "nodev", "dev":
-			if setDev {
-				return nil, fmt.Errorf("cannot pass 'nodev' and 'dev' options more than once: %w", errOptionArg)
-			}
-			setDev = true
-			newVolume.Options = append(newVolume.Options, kv[0])
-		case "noexec", "exec":
-			if setExec {
-				return nil, fmt.Errorf("cannot pass 'noexec' and 'exec' options more than once: %w", errOptionArg)
-			}
-			setExec = true
-			newVolume.Options = append(newVolume.Options, kv[0])
-		case "volume-label":
-			return nil, fmt.Errorf("the --volume-label option is not presently implemented")
-		case "src", "source":
-			if len(kv) == 1 {
-				return nil, fmt.Errorf("%v: %w", kv[0], errOptionArg)
-			}
-			newVolume.Name = kv[1]
-		case "target", "dst", "destination":
-			if len(kv) == 1 {
-				return nil, fmt.Errorf("%v: %w", kv[0], errOptionArg)
-			}
-			if err := parse.ValidateVolumeCtrDir(kv[1]); err != nil {
-				return nil, err
-			}
-			newVolume.Dest = unixPathClean(kv[1])
-			setDest = true
-		case "idmap":
-			if len(kv) > 1 {
-				newVolume.Options = append(newVolume.Options, fmt.Sprintf("idmap=%s", kv[1]))
-			} else {
-				newVolume.Options = append(newVolume.Options, "idmap")
-			}
-		case "U", "chown":
-			if setOwnership {
-				return newVolume, fmt.Errorf("cannot pass 'U' or 'chown' option more than once: %w", errOptionArg)
-			}
-			ok, err := validChownFlag(val)
-			if err != nil {
-				return newVolume, err
-			}
-			if ok {
-				newVolume.Options = append(newVolume.Options, "U")
-			}
-			setOwnership = true
-		case "consistency":
-			// Often used on MACs and mistakenly on Linux platforms.
-			// Since Docker ignores this option so shall we.
-			continue
-		default:
-			return nil, fmt.Errorf("%s: %w", kv[0], util.ErrBadMntOption)
-		}
+	mnt, err := parseMountOptions(define.TypeVolume, args)
+	if err != nil {
+		return nil, err
 	}
-
-	if !setDest {
+	if len(mnt.Destination) == 0 {
 		return nil, errNoDest
 	}
-
+	newVolume.Options = mnt.Options
+	newVolume.Name = mnt.Source
+	newVolume.Dest = mnt.Destination
 	return newVolume, nil
 }
 

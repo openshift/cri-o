@@ -178,7 +178,7 @@ var _ = t.Describe("Oci", func() {
 			Expect(privileged).To(Equal(false))
 		})
 		It("CheckpointContainer should succeed", func() {
-			if !criu.CheckForCriu(criu.PodCriuVersion) {
+			if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 				Skip("CRIU is missing or too old.")
 			}
 			// Given
@@ -204,7 +204,7 @@ var _ = t.Describe("Oci", func() {
 			Expect(err).To(BeNil())
 		})
 		It("CheckpointContainer should fail", func() {
-			if !criu.CheckForCriu(criu.PodCriuVersion) {
+			if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 				Skip("CRIU is missing or too old.")
 			}
 			// Given
@@ -231,7 +231,7 @@ var _ = t.Describe("Oci", func() {
 			Expect(err.Error()).To(Equal("configured runtime does not support checkpoint/restore"))
 		})
 		It("RestoreContainer should fail with destination sandbox detection", func() {
-			if !criu.CheckForCriu(criu.PodCriuVersion) {
+			if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 				Skip("CRIU is missing or too old.")
 			}
 			// Given
@@ -258,7 +258,7 @@ var _ = t.Describe("Oci", func() {
 			Expect(err.Error()).To(Equal("failed to detect destination sandbox of to be restored container containerID"))
 		})
 		It("RestoreContainer should fail with destination sandbox detection", func() {
-			if !criu.CheckForCriu(criu.PodCriuVersion) {
+			if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 				Skip("CRIU is missing or too old.")
 			}
 			// Given
@@ -281,7 +281,7 @@ var _ = t.Describe("Oci", func() {
 			Expect(err.Error()).To(Equal("failed to detect sandbox of to be restored container containerID"))
 		})
 		It("RestoreContainer should fail", func() {
-			if !criu.CheckForCriu(criu.PodCriuVersion) {
+			if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 				Skip("CRIU is missing or too old.")
 			}
 			// Given
@@ -333,7 +333,7 @@ var _ = t.Describe("Oci", func() {
 			Expect(err.Error()).To(ContainSubstring("failed to wait"))
 		})
 		It("RestoreContainer should fail with missing inventory", func() {
-			if !criu.CheckForCriu(criu.PodCriuVersion) {
+			if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 				Skip("CRIU is missing or too old.")
 			}
 			// Given

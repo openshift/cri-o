@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package libpod
 
 import (
@@ -66,4 +69,11 @@ func (p *Pod) refresh() error {
 
 	// Save changes
 	return p.save()
+}
+
+// resetPodState resets state fields to default values.
+// It is performed before a refresh and clears the state after a reboot.
+// It does not save the results - assumes the database will do that for us.
+func resetPodState(state *podState) {
+	state.CgroupPath = ""
 }

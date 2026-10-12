@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package generate
 
 import (
@@ -14,8 +17,10 @@ import (
 	"github.com/containers/podman/v4/libpod/define"
 	"github.com/containers/podman/v4/pkg/rootless"
 	"github.com/containers/podman/v4/pkg/specgen"
+	"github.com/docker/go-units"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
 
@@ -26,6 +31,15 @@ func setProcOpts(s *specgen.SpecGenerator, g *generate.Generator) {
 	for i := range g.Config.Mounts {
 		if g.Config.Mounts[i].Destination == "/proc" {
 			g.Config.Mounts[i].Options = s.ProcOpts
+			return
+		}
+	}
+}
+
+func setDevOptsReadOnly(g *generate.Generator) {
+	for i := range g.Config.Mounts {
+		if g.Config.Mounts[i].Destination == "/dev" {
+			g.Config.Mounts[i].Options = append(g.Config.Mounts[i].Options, "ro")
 			return
 		}
 	}
@@ -47,7 +61,7 @@ func canMountSys(isRootless, isNewUserns bool, s *specgen.SpecGenerator) bool {
 	return true
 }
 
-func getCgroupPermissons(unmask []string) string {
+func getCgroupPermissions(unmask []string) string {
 	ro := "ro"
 	rw := "rw"
 	cgroup := "/sys/fs/cgroup"
@@ -57,7 +71,7 @@ func getCgroupPermissons(unmask []string) string {
 		return ro
 	}
 
-	if unmask != nil && unmask[0] == "ALL" {
+	if len(unmask) != 0 && unmask[0] == "ALL" {
 		return rw
 	}
 
@@ -71,7 +85,7 @@ func getCgroupPermissons(unmask []string) string {
 
 // SpecGenToOCI returns the base configuration for the container.
 func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runtime, rtc *config.Config, newImage *libimage.Image, mounts []spec.Mount, pod *libpod.Pod, finalCmd []string, compatibleOptions *libpod.InfraInherit) (*spec.Spec, error) {
-	cgroupPerm := getCgroupPermissons(s.Unmask)
+	cgroupPerm := getCgroupPermissions(s.Unmask)
 
 	g, err := generate.New("linux")
 	if err != nil {
@@ -107,17 +121,18 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 		}
 		sysMnt := spec.Mount{
 			Destination: "/sys",
-			Type:        "bind",
+			Type:        define.TypeBind,
 			Source:      "/sys",
 			Options:     []string{"rprivate", "nosuid", "noexec", "nodev", r, "rbind"},
 		}
 		g.AddMount(sysMnt)
 		g.RemoveMount("/sys/fs/cgroup")
+
 		sysFsCgroupMnt := spec.Mount{
 			Destination: "/sys/fs/cgroup",
-			Type:        "bind",
+			Type:        "cgroup",
 			Source:      "/sys/fs/cgroup",
-			Options:     []string{"rprivate", "nosuid", "noexec", "nodev", r, "rbind"},
+			Options:     []string{"rprivate", "nosuid", "noexec", "nodev", r},
 		}
 		g.AddMount(sysFsCgroupMnt)
 		if !s.Privileged && isRootless {
@@ -151,8 +166,8 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 		g.RemoveMount("/dev/pts")
 		devPts := spec.Mount{
 			Destination: "/dev/pts",
-			Type:        "devpts",
-			Source:      "devpts",
+			Type:        define.TypeDevpts,
+			Source:      define.TypeDevpts,
 			Options:     []string{"rprivate", "nosuid", "noexec", "newinstance", "ptmxmode=0666", "mode=0620"},
 		}
 		g.AddMount(devPts)
@@ -164,9 +179,9 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 		g.RemoveMount("/dev/mqueue")
 		devMqueue := spec.Mount{
 			Destination: "/dev/mqueue",
-			Type:        "bind", // constant ?
+			Type:        define.TypeBind, // constant ?
 			Source:      "/dev/mqueue",
-			Options:     []string{"bind", "nosuid", "noexec", "nodev"},
+			Options:     []string{define.TypeBind, "nosuid", "noexec", "nodev"},
 		}
 		g.AddMount(devMqueue)
 	}
@@ -203,6 +218,12 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 		g.AddAnnotation(key, val)
 	}
 
+	if s.IntelRdt != nil {
+		if s.IntelRdt.ClosID != "" {
+			g.SetLinuxIntelRdtClosID(s.IntelRdt.ClosID)
+		}
+	}
+
 	if s.ResourceLimits != nil {
 		out, err := json.Marshal(s.ResourceLimits)
 		if err != nil {
@@ -235,7 +256,7 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 
 	if !s.Privileged {
 		// add default devices from containers.conf
-		for _, device := range rtc.Containers.Devices {
+		for _, device := range rtc.Containers.Devices.Get() {
 			if err = DevicesFromPath(&g, device); err != nil {
 				return nil, err
 			}
@@ -255,7 +276,10 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 	s.HostDeviceList = userDevices
 
 	// set the devices cgroup when not running in a user namespace
-	if !inUserNS && !s.Privileged {
+	if isRootless && len(s.DeviceCgroupRule) > 0 {
+		return nil, fmt.Errorf("device cgroup rules are not supported in rootless mode or in a user namespace")
+	}
+	if !isRootless && !s.Privileged {
 		for _, dev := range s.DeviceCgroupRule {
 			g.AddLinuxResourcesDevice(true, dev.Type, dev.Major, dev.Minor, dev.Access)
 		}
@@ -311,7 +335,11 @@ func SpecGenToOCI(ctx context.Context, s *specgen.SpecGenerator, rt *libpod.Runt
 	if s.OOMScoreAdj != nil {
 		g.SetProcessOOMScoreAdj(*s.OOMScoreAdj)
 	}
+
 	setProcOpts(s, &g)
+	if s.ReadOnlyFilesystem && !s.ReadWriteTmpfs {
+		setDevOptsReadOnly(&g)
+	}
 
 	return configSpec, nil
 }
@@ -330,4 +358,38 @@ func WeightDevices(wtDevices map[string]spec.LinuxWeightDevice) ([]spec.LinuxWei
 		devs = append(devs, *dev)
 	}
 	return devs, nil
+}
+
+// subNegativeOne translates Hard or soft limits of -1 to the current
+// processes Max limit
+func subNegativeOne(u spec.POSIXRlimit) spec.POSIXRlimit {
+	if !rootless.IsRootless() ||
+		(int64(u.Hard) != -1 && int64(u.Soft) != -1) {
+		return u
+	}
+
+	ul, err := units.ParseUlimit(fmt.Sprintf("%s=%d:%d", u.Type, int64(u.Soft), int64(u.Hard)))
+	if err != nil {
+		logrus.Warnf("Failed to check %s ulimit %q", u.Type, err)
+		return u
+	}
+	rl, err := ul.GetRlimit()
+	if err != nil {
+		logrus.Warnf("Failed to check %s ulimit %q", u.Type, err)
+		return u
+	}
+
+	var rlimit unix.Rlimit
+
+	if err := unix.Getrlimit(rl.Type, &rlimit); err != nil {
+		logrus.Warnf("Failed to return RLIMIT_NOFILE ulimit %q", err)
+		return u
+	}
+	if int64(u.Hard) == -1 {
+		u.Hard = rlimit.Max
+	}
+	if int64(u.Soft) == -1 {
+		u.Soft = rlimit.Max
+	}
+	return u
 }

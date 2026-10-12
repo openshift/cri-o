@@ -1,11 +1,12 @@
-//go:build linux
-// +build linux
+//go:build !remote
+// +build !remote
 
 package libpod
 
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/containers/common/libnetwork/slirp4netns"
 	"github.com/containers/common/libnetwork/types"
 	"github.com/containers/common/pkg/cgroups"
 	"github.com/containers/common/pkg/config"
@@ -28,12 +30,17 @@ import (
 )
 
 var (
-	bindOptions = []string{"bind", "rprivate"}
+	bindOptions = []string{define.TypeBind, "rprivate"}
 )
 
 func (c *Container) mountSHM(shmOptions string) error {
-	if err := unix.Mount("shm", c.config.ShmDir, "tmpfs", unix.MS_NOEXEC|unix.MS_NOSUID|unix.MS_NODEV,
-		label.FormatMountLabel(shmOptions, c.config.MountLabel)); err != nil {
+	contextType := "context"
+	if c.config.LabelNested {
+		contextType = "rootcontext"
+	}
+
+	if err := unix.Mount("shm", c.config.ShmDir, define.TypeTmpfs, unix.MS_NOEXEC|unix.MS_NOSUID|unix.MS_NODEV,
+		label.FormatMountLabelByType(shmOptions, c.config.MountLabel, contextType)); err != nil {
 		return fmt.Errorf("failed to mount shm tmpfs %q: %w", c.config.ShmDir, err)
 	}
 	return nil
@@ -205,6 +212,12 @@ func (c *Container) setupSystemd(mounts []spec.Mount, g generate.Generator) erro
 	if !containerUUIDSet {
 		g.AddProcessEnv("container_uuid", c.ID()[:32])
 	}
+	// limit systemd-specific tmpfs mounts if specified
+	// while creating a pod or ctr, if not, default back to 50%
+	var shmSizeSystemdMntOpt string
+	if c.config.ShmSizeSystemd != 0 {
+		shmSizeSystemdMntOpt = fmt.Sprintf("size=%d", c.config.ShmSizeSystemd)
+	}
 	options := []string{"rw", "rprivate", "nosuid", "nodev"}
 	for _, dest := range []string{"/run", "/run/lock"} {
 		if MountExists(mounts, dest) {
@@ -212,9 +225,9 @@ func (c *Container) setupSystemd(mounts []spec.Mount, g generate.Generator) erro
 		}
 		tmpfsMnt := spec.Mount{
 			Destination: dest,
-			Type:        "tmpfs",
-			Source:      "tmpfs",
-			Options:     append(options, "tmpcopyup"),
+			Type:        define.TypeTmpfs,
+			Source:      define.TypeTmpfs,
+			Options:     append(options, "tmpcopyup", shmSizeSystemdMntOpt),
 		}
 		g.AddMount(tmpfsMnt)
 	}
@@ -224,9 +237,9 @@ func (c *Container) setupSystemd(mounts []spec.Mount, g generate.Generator) erro
 		}
 		tmpfsMnt := spec.Mount{
 			Destination: dest,
-			Type:        "tmpfs",
-			Source:      "tmpfs",
-			Options:     append(options, "tmpcopyup"),
+			Type:        define.TypeTmpfs,
+			Source:      define.TypeTmpfs,
+			Options:     append(options, "tmpcopyup", shmSizeSystemdMntOpt),
 		}
 		g.AddMount(tmpfsMnt)
 	}
@@ -236,16 +249,16 @@ func (c *Container) setupSystemd(mounts []spec.Mount, g generate.Generator) erro
 		return err
 	}
 
+	hasCgroupNs := false
+	for _, ns := range c.config.Spec.Linux.Namespaces {
+		if ns.Type == spec.CgroupNamespace {
+			hasCgroupNs = true
+			break
+		}
+	}
+
 	if unified {
 		g.RemoveMount("/sys/fs/cgroup")
-
-		hasCgroupNs := false
-		for _, ns := range c.config.Spec.Linux.Namespaces {
-			if ns.Type == spec.CgroupNamespace {
-				hasCgroupNs = true
-				break
-			}
-		}
 
 		var systemdMnt spec.Mount
 		if hasCgroupNs {
@@ -258,47 +271,53 @@ func (c *Container) setupSystemd(mounts []spec.Mount, g generate.Generator) erro
 		} else {
 			systemdMnt = spec.Mount{
 				Destination: "/sys/fs/cgroup",
-				Type:        "bind",
+				Type:        define.TypeBind,
 				Source:      "/sys/fs/cgroup",
-				Options:     []string{"bind", "private", "rw"},
+				Options:     []string{define.TypeBind, "private", "rw"},
 			}
 		}
 		g.AddMount(systemdMnt)
 	} else {
-		mountOptions := []string{"bind", "rprivate"}
-		skipMount := false
-
-		var statfs unix.Statfs_t
-		if err := unix.Statfs("/sys/fs/cgroup/systemd", &statfs); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				// If the mount is missing on the host, we cannot bind mount it so
-				// just skip it.
-				skipMount = true
-			}
-			mountOptions = append(mountOptions, "nodev", "noexec", "nosuid")
-		} else {
-			if statfs.Flags&unix.MS_NODEV == unix.MS_NODEV {
-				mountOptions = append(mountOptions, "nodev")
-			}
-			if statfs.Flags&unix.MS_NOEXEC == unix.MS_NOEXEC {
-				mountOptions = append(mountOptions, "noexec")
-			}
-			if statfs.Flags&unix.MS_NOSUID == unix.MS_NOSUID {
-				mountOptions = append(mountOptions, "nosuid")
-			}
-			if statfs.Flags&unix.MS_RDONLY == unix.MS_RDONLY {
-				mountOptions = append(mountOptions, "ro")
-			}
+		hasSystemdMount := MountExists(mounts, "/sys/fs/cgroup/systemd")
+		if hasCgroupNs && !hasSystemdMount {
+			return errors.New("cgroup namespace is not supported with cgroup v1 and systemd mode")
 		}
-		if !skipMount {
-			systemdMnt := spec.Mount{
-				Destination: "/sys/fs/cgroup/systemd",
-				Type:        "bind",
-				Source:      "/sys/fs/cgroup/systemd",
-				Options:     mountOptions,
+		mountOptions := []string{define.TypeBind, "rprivate"}
+
+		if !hasSystemdMount {
+			skipMount := hasSystemdMount
+			var statfs unix.Statfs_t
+			if err := unix.Statfs("/sys/fs/cgroup/systemd", &statfs); err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					// If the mount is missing on the host, we cannot bind mount it so
+					// just skip it.
+					skipMount = true
+				}
+				mountOptions = append(mountOptions, "nodev", "noexec", "nosuid")
+			} else {
+				if statfs.Flags&unix.MS_NODEV == unix.MS_NODEV {
+					mountOptions = append(mountOptions, "nodev")
+				}
+				if statfs.Flags&unix.MS_NOEXEC == unix.MS_NOEXEC {
+					mountOptions = append(mountOptions, "noexec")
+				}
+				if statfs.Flags&unix.MS_NOSUID == unix.MS_NOSUID {
+					mountOptions = append(mountOptions, "nosuid")
+				}
+				if statfs.Flags&unix.MS_RDONLY == unix.MS_RDONLY {
+					mountOptions = append(mountOptions, "ro")
+				}
 			}
-			g.AddMount(systemdMnt)
-			g.AddLinuxMaskedPaths("/sys/fs/cgroup/systemd/release_agent")
+			if !skipMount {
+				systemdMnt := spec.Mount{
+					Destination: "/sys/fs/cgroup/systemd",
+					Type:        define.TypeBind,
+					Source:      "/sys/fs/cgroup/systemd",
+					Options:     mountOptions,
+				}
+				g.AddMount(systemdMnt)
+				g.AddLinuxMaskedPaths("/sys/fs/cgroup/systemd/release_agent")
+			}
 		}
 	}
 
@@ -440,7 +459,7 @@ func (c *Container) addNetworkNamespace(g *generate.Generator) error {
 func (c *Container) addSystemdMounts(g *generate.Generator) error {
 	if c.Systemd() {
 		if err := c.setupSystemd(g.Mounts(), *g); err != nil {
-			return fmt.Errorf("adding systemd-specific mounts: %w", err)
+			return err
 		}
 	}
 	return nil
@@ -603,7 +622,7 @@ func (c *Container) setCgroupsPath(g *generate.Generator) error {
 func (c *Container) addSlirp4netnsDNS(nameservers []string) []string {
 	// slirp4netns has a built in DNS forwarder.
 	if c.config.NetMode.IsSlirp4netns() {
-		slirp4netnsDNS, err := GetSlirp4netnsDNS(c.slirp4netnsSubnet)
+		slirp4netnsDNS, err := slirp4netns.GetDNS(c.slirp4netnsSubnet)
 		if err != nil {
 			logrus.Warn("Failed to determine Slirp4netns DNS: ", err.Error())
 		} else {
@@ -613,20 +632,28 @@ func (c *Container) addSlirp4netnsDNS(nameservers []string) []string {
 	return nameservers
 }
 
-func (c *Container) isSlirp4netnsIPv6() (bool, error) {
+func (c *Container) isSlirp4netnsIPv6() bool {
 	if c.config.NetMode.IsSlirp4netns() {
-		ctrNetworkSlipOpts := []string{}
-		if c.config.NetworkOptions != nil {
-			ctrNetworkSlipOpts = append(ctrNetworkSlipOpts, c.config.NetworkOptions["slirp4netns"]...)
+		extraOptions := c.config.NetworkOptions[slirp4netns.BinaryName]
+		options := make([]string, 0, len(c.runtime.config.Engine.NetworkCmdOptions.Get())+len(extraOptions))
+		options = append(options, c.runtime.config.Engine.NetworkCmdOptions.Get()...)
+		options = append(options, extraOptions...)
+
+		// loop backwards as the last argument wins and we can exit early
+		// This should be kept in sync with c/common/libnetwork/slirp4netns.
+		for i := len(options) - 1; i >= 0; i-- {
+			switch options[i] {
+			case "enable_ipv6=true":
+				return true
+			case "enable_ipv6=false":
+				return false
+			}
 		}
-		slirpOpts, err := parseSlirp4netnsNetworkOptions(c.runtime, ctrNetworkSlipOpts)
-		if err != nil {
-			return false, err
-		}
-		return slirpOpts.enableIPv6, nil
+		// default is true
+		return true
 	}
 
-	return false, nil
+	return false
 }
 
 // check for net=none
@@ -678,4 +705,122 @@ func (c *Container) getConmonPidFd() int {
 		}
 	}
 	return -1
+}
+
+type safeMountInfo struct {
+	// file is the open File.
+	file *os.File
+
+	// mountPoint is the mount point.
+	mountPoint string
+}
+
+// Close releases the resources allocated with the safe mount info.
+func (s *safeMountInfo) Close() {
+	_ = unix.Unmount(s.mountPoint, unix.MNT_DETACH)
+	_ = s.file.Close()
+}
+
+// safeMountSubPath securely mounts a subpath inside a volume to a new temporary location.
+// The function checks that the subpath is a valid subpath within the volume and that it
+// does not escape the boundaries of the mount point (volume).
+//
+// The caller is responsible for closing the file descriptor and unmounting the subpath
+// when it's no longer needed.
+func (c *Container) safeMountSubPath(mountPoint, subpath string) (s *safeMountInfo, err error) {
+	joinedPath := filepath.Clean(filepath.Join(mountPoint, subpath))
+	fd, err := unix.Open(joinedPath, unix.O_RDONLY|unix.O_PATH, 0)
+	if err != nil {
+		return nil, err
+	}
+	f := os.NewFile(uintptr(fd), joinedPath)
+	defer func() {
+		if err != nil {
+			f.Close()
+		}
+	}()
+
+	// Once we got the file descriptor, we need to check that the subpath is a valid.  We
+	// refer to the open FD so there won't be other path lookups (and no risk to follow a symlink).
+	fdPath := fmt.Sprintf("/proc/%d/fd/%d", os.Getpid(), f.Fd())
+	p, err := os.Readlink(fdPath)
+	if err != nil {
+		return nil, err
+	}
+	relPath, err := filepath.Rel(mountPoint, p)
+	if err != nil {
+		return nil, err
+	}
+	if relPath == ".." || strings.HasPrefix(relPath, "../") {
+		return nil, fmt.Errorf("subpath %q is outside of the volume %q", subpath, mountPoint)
+	}
+
+	fi, err := os.Stat(fdPath)
+	if err != nil {
+		return nil, err
+	}
+	var npath string
+	switch {
+	case fi.Mode()&fs.ModeSymlink != 0:
+		return nil, fmt.Errorf("file %q is a symlink", joinedPath)
+	case fi.IsDir():
+		npath, err = os.MkdirTemp(c.state.RunDir, "subpath")
+		if err != nil {
+			return nil, err
+		}
+	default:
+		tmp, err := os.CreateTemp(c.state.RunDir, "subpath")
+		if err != nil {
+			return nil, err
+		}
+		tmp.Close()
+		npath = tmp.Name()
+	}
+	if err := unix.Mount(fdPath, npath, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
+		return nil, err
+	}
+	return &safeMountInfo{
+		file:       f,
+		mountPoint: npath,
+	}, nil
+}
+
+func (c *Container) makePlatformMtabLink(etcInTheContainerFd, rootUID, rootGID int) error {
+	// If /etc/mtab does not exist in container image, then we need to
+	// create it, so that mount command within the container will work.
+	err := unix.Symlinkat("/proc/mounts", etcInTheContainerFd, "mtab")
+	if err != nil && !os.IsExist(err) {
+		return fmt.Errorf("creating /etc/mtab symlink: %w", err)
+	}
+	// If the symlink was created, then also chown it to root in the container
+	if err == nil && (rootUID != 0 || rootGID != 0) {
+		err = unix.Fchownat(etcInTheContainerFd, "mtab", rootUID, rootGID, unix.AT_SYMLINK_NOFOLLOW)
+		if err != nil {
+			return fmt.Errorf("chown /etc/mtab: %w", err)
+		}
+	}
+	return nil
+}
+
+func (c *Container) getPlatformRunPath() (string, error) {
+	return "/run", nil
+}
+
+func (c *Container) addMaskedPaths(g *generate.Generator) {
+	if !c.config.Privileged && g.Config != nil && g.Config.Linux != nil && len(g.Config.Linux.MaskedPaths) > 0 {
+		g.AddLinuxMaskedPaths("/sys/devices/virtual/powercap")
+	}
+}
+
+func (c *Container) hasPrivateUTS() bool {
+	privateUTS := false
+	if c.config.Spec.Linux != nil {
+		for _, ns := range c.config.Spec.Linux.Namespaces {
+			if ns.Type == spec.UTSNamespace {
+				privateUTS = true
+				break
+			}
+		}
+	}
+	return privateUTS
 }

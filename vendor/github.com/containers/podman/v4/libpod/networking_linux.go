@@ -1,5 +1,5 @@
-//go:build linux
-// +build linux
+//go:build !remote
+// +build !remote
 
 package libpod
 
@@ -10,19 +10,19 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/containers/common/libnetwork/resolvconf"
+	"github.com/containers/common/libnetwork/slirp4netns"
 	"github.com/containers/common/libnetwork/types"
+	netUtil "github.com/containers/common/libnetwork/util"
 	"github.com/containers/common/pkg/netns"
 	"github.com/containers/common/pkg/util"
-	"github.com/containers/podman/v4/pkg/errorhandling"
+	"github.com/containers/podman/v4/libpod/define"
 	"github.com/containers/podman/v4/pkg/rootless"
 	"github.com/containers/podman/v4/utils"
 	"github.com/containers/storage/pkg/lockfile"
@@ -34,12 +34,6 @@ import (
 )
 
 const (
-	// slirp4netnsMTU the default MTU override
-	slirp4netnsMTU = 65520
-
-	// default slirp4ns subnet
-	defaultSlirp4netnsSubnet = "10.0.2.0/24"
-
 	// rootlessNetNsName is the file name for the rootless network namespace bind mount
 	rootlessNetNsName = "rootless-netns"
 
@@ -78,7 +72,7 @@ func (r *RootlessNetNS) Do(toRun func() error) error {
 		// 1. XDG_RUNTIME_DIR -> XDG_RUNTIME_DIR/rootless-netns/XDG_RUNTIME_DIR
 		// 2. /run/systemd -> XDG_RUNTIME_DIR/rootless-netns/run/systemd (only if it exists)
 		// 3. XDG_RUNTIME_DIR/rootless-netns/resolv.conf -> /etc/resolv.conf or XDG_RUNTIME_DIR/rootless-netns/run/symlink/target
-		// 4. XDG_RUNTIME_DIR/rootless-netns/var/lib/cni -> /var/lib/cni (if /var/lib/cni does not exists use the parent dir)
+		// 4. XDG_RUNTIME_DIR/rootless-netns/var/lib/cni -> /var/lib/cni (if /var/lib/cni does not exist, use the parent dir)
 		// 5. XDG_RUNTIME_DIR/rootless-netns/run -> /run
 
 		// Create a new mount namespace,
@@ -124,7 +118,7 @@ func (r *RootlessNetNS) Do(toRun func() error) error {
 			// If /etc/resolv.conf has more than one symlink under /run, e.g.
 			// -> /run/systemd/resolve/stub-resolv.conf -> /run/systemd/resolve/resolv.conf
 			// we would put the netns resolv.conf file to the last path. However this will
-			// break dns because the second link does not exists in the mount ns.
+			// break dns because the second link does not exist in the mount ns.
 			// see https://github.com/containers/podman/issues/11222
 			//
 			// We also need to resolve all path components not just the last file.
@@ -187,7 +181,7 @@ func (r *RootlessNetNS) Do(toRun func() error) error {
 		// see: https://github.com/containers/podman/issues/10929
 		if strings.HasPrefix(resolvePath, "/run/systemd/resolve/") {
 			rsr := r.getPath("/run/systemd/resolve")
-			err = unix.Mount("", rsr, "tmpfs", unix.MS_NOEXEC|unix.MS_NOSUID|unix.MS_NODEV, "")
+			err = unix.Mount("", rsr, define.TypeTmpfs, unix.MS_NOEXEC|unix.MS_NOSUID|unix.MS_NODEV, "")
 			if err != nil {
 				return fmt.Errorf("failed to mount tmpfs on %q for rootless netns: %w", rsr, err)
 			}
@@ -255,7 +249,7 @@ func (r *RootlessNetNS) Do(toRun func() error) error {
 func (r *RootlessNetNS) Cleanup(runtime *Runtime) error {
 	_, err := os.Stat(r.dir)
 	if os.IsNotExist(err) {
-		// the directory does not exists no need for cleanup
+		// the directory does not exist, so no need for cleanup
 		return nil
 	}
 	activeNetns := func(c *Container) bool {
@@ -322,7 +316,7 @@ func (r *RootlessNetNS) Cleanup(runtime *Runtime) error {
 }
 
 // GetRootlessNetNs returns the rootless netns object. If create is set to true
-// the rootless network namespace will be created if it does not exists already.
+// the rootless network namespace will be created if it does not already exist.
 // If called as root it returns always nil.
 // On success the returned RootlessCNI lock is locked and must be unlocked by the caller.
 func (r *Runtime) GetRootlessNetNs(new bool) (*RootlessNetNS, error) {
@@ -365,103 +359,48 @@ func (r *Runtime) GetRootlessNetNs(new bool) (*RootlessNetNS, error) {
 	netnsName := fmt.Sprintf("%s-%x", rootlessNetNsName, hash[:10])
 
 	path := filepath.Join(nsDir, netnsName)
-	ns, err := ns.GetNS(path)
+	nsReference, err := ns.GetNS(path)
 	if err != nil {
 		if !new {
 			// return an error if we could not get the namespace and should no create one
 			return nil, fmt.Errorf("getting rootless network namespace: %w", err)
 		}
+
+		// When the netns is not valid but the file exists we have to remove it first,
+		// https://github.com/containers/common/pull/1381 changed the behavior from
+		// NewNSWithName()so it will now error when the file already exists.
+		// https://github.com/containers/podman/issues/17903#issuecomment-1494329622
+		if errors.As(err, &ns.NSPathNotNSErr{}) {
+			logrus.Infof("rootless netns is no longer valid: %v", err)
+			// ignore errors, if something is wrong NewNSWithName() will fail below anyway
+			_ = os.Remove(path)
+		}
+
 		// create a new namespace
 		logrus.Debugf("creating rootless network namespace with name %q", netnsName)
-		ns, err = netns.NewNSWithName(netnsName)
+		nsReference, err = netns.NewNSWithName(netnsName)
 		if err != nil {
 			return nil, fmt.Errorf("creating rootless network namespace: %w", err)
 		}
-		// set up slirp4netns here
-		path := r.config.Engine.NetworkCmdPath
-		if path == "" {
-			var err error
-			path, err = exec.LookPath("slirp4netns")
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		syncR, syncW, err := os.Pipe()
+		res, err := slirp4netns.Setup(&slirp4netns.SetupOptions{
+			Config:      r.config,
+			ContainerID: "rootless-netns",
+			Netns:       nsReference.Path(),
+		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to open pipe: %w", err)
-		}
-		defer errorhandling.CloseQuiet(syncR)
-		defer errorhandling.CloseQuiet(syncW)
-
-		netOptions, err := parseSlirp4netnsNetworkOptions(r, nil)
-		if err != nil {
-			return nil, err
-		}
-		slirpFeatures, err := checkSlirpFlags(path)
-		if err != nil {
-			return nil, fmt.Errorf("checking slirp4netns binary %s: %q: %w", path, err, err)
-		}
-		cmdArgs, err := createBasicSlirp4netnsCmdArgs(netOptions, slirpFeatures)
-		if err != nil {
-			return nil, err
-		}
-		// Note we do not use --exit-fd, we kill this process by pid
-		cmdArgs = append(cmdArgs, "-c", "-r", "3")
-		cmdArgs = append(cmdArgs, "--netns-type=path", ns.Path(), "tap0")
-
-		cmd := exec.Command(path, cmdArgs...)
-		logrus.Debugf("slirp4netns command: %s", strings.Join(cmd.Args, " "))
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			Setpgid: true,
-		}
-
-		// workaround for https://github.com/rootless-containers/slirp4netns/pull/153
-		if !netOptions.noPivotRoot && slirpFeatures.HasEnableSandbox {
-			cmd.SysProcAttr.Cloneflags = syscall.CLONE_NEWNS
-			cmd.SysProcAttr.Unshareflags = syscall.CLONE_NEWNS
-		}
-
-		// Leak one end of the pipe in slirp4netns
-		cmd.ExtraFiles = append(cmd.ExtraFiles, syncW)
-
-		logPath := filepath.Join(r.config.Engine.TmpDir, "slirp4netns-rootless-netns.log")
-		logFile, err := os.Create(logPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open slirp4netns log file %s: %w", logPath, err)
-		}
-		defer logFile.Close()
-		// Unlink immediately the file so we won't need to worry about cleaning it up later.
-		// It is still accessible through the open fd logFile.
-		if err := os.Remove(logPath); err != nil {
-			return nil, fmt.Errorf("delete file %s: %w", logPath, err)
-		}
-		cmd.Stdout = logFile
-		cmd.Stderr = logFile
-		if err := cmd.Start(); err != nil {
-			return nil, fmt.Errorf("failed to start slirp4netns process: %w", err)
+			return nil, fmt.Errorf("failed to start rootless-netns slirp4netns: %w", err)
 		}
 		// create pid file for the slirp4netns process
 		// this is need to kill the process in the cleanup
-		pid := strconv.Itoa(cmd.Process.Pid)
+		pid := strconv.Itoa(res.Pid)
 		err = os.WriteFile(filepath.Join(rootlessNetNsDir, rootlessNetNsSilrp4netnsPidFile), []byte(pid), 0700)
 		if err != nil {
 			return nil, fmt.Errorf("unable to write rootless-netns slirp4netns pid file: %w", err)
 		}
 
-		defer func() {
-			if err := cmd.Process.Release(); err != nil {
-				logrus.Errorf("Unable to release command process: %q", err)
-			}
-		}()
-
-		if err := waitForSync(syncR, cmd, logFile, 1*time.Second); err != nil {
-			return nil, err
-		}
-
 		if utils.RunsOnSystemd() {
 			// move to systemd scope to prevent systemd from killing it
-			err = utils.MoveRootlessNetnsSlirpProcessToUserSlice(cmd.Process.Pid)
+			err = utils.MoveRootlessNetnsSlirpProcessToUserSlice(res.Pid)
 			if err != nil {
 				// only log this, it is not fatal but can lead to issues when running podman inside systemd units
 				logrus.Errorf("failed to move the rootless netns slirp4netns process to the systemd user.slice: %v", err)
@@ -469,20 +408,9 @@ func (r *Runtime) GetRootlessNetNs(new bool) (*RootlessNetNS, error) {
 		}
 
 		// build a new resolv.conf file which uses the slirp4netns dns server address
-		resolveIP, err := GetSlirp4netnsDNS(nil)
+		resolveIP, err := slirp4netns.GetDNS(res.Subnet)
 		if err != nil {
 			return nil, fmt.Errorf("failed to determine default slirp4netns DNS address: %w", err)
-		}
-
-		if netOptions.cidr != "" {
-			_, cidr, err := net.ParseCIDR(netOptions.cidr)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse slirp4netns cidr: %w", err)
-			}
-			resolveIP, err = GetSlirp4netnsDNS(cidr)
-			if err != nil {
-				return nil, fmt.Errorf("failed to determine slirp4netns DNS address from cidr: %s: %w", cidr.String(), err)
-			}
 		}
 
 		if err := resolvconf.New(&resolvconf.Params{
@@ -491,7 +419,7 @@ func (r *Runtime) GetRootlessNetNs(new bool) (*RootlessNetNS, error) {
 			Namespaces: []specs.LinuxNamespace{
 				{Type: specs.NetworkNamespace},
 			},
-			IPv6Enabled:     netOptions.enableIPv6,
+			IPv6Enabled:     res.IPv6,
 			KeepHostServers: true,
 			Nameservers:     []string{resolveIP.String()},
 		}); err != nil {
@@ -530,7 +458,7 @@ func (r *Runtime) GetRootlessNetNs(new bool) (*RootlessNetNS, error) {
 	// The CNI plugins and netavark need access to iptables in $PATH. As it turns out debian doesn't put
 	// /usr/sbin in $PATH for rootless users. This will break rootless networking completely.
 	// We might break existing users and we cannot expect everyone to change their $PATH so
-	// lets add /usr/sbin to $PATH ourselves.
+	// let's add /usr/sbin to $PATH ourselves.
 	path = os.Getenv("PATH")
 	if !strings.Contains(path, "/usr/sbin") {
 		path += ":/usr/sbin"
@@ -540,7 +468,7 @@ func (r *Runtime) GetRootlessNetNs(new bool) (*RootlessNetNS, error) {
 	// Important set rootlessNetNS as last step.
 	// Do not return any errors after this.
 	rootlessNetNS = &RootlessNetNS{
-		ns:   ns,
+		ns:   nsReference,
 		dir:  rootlessNetNsDir,
 		Lock: lock,
 	}
@@ -581,6 +509,14 @@ func (r *Runtime) configureNetNS(ctr *Container, ctrNS string) (status map[strin
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		// do not forget to tear down the netns when a later error happened.
+		if rerr != nil {
+			if err := r.teardownNetworkBackend(ctrNS, netOpts); err != nil {
+				logrus.Warnf("failed to teardown network after failed setup: %v", err)
+			}
+		}
+	}()
 
 	// set up rootless port forwarder when rootless with ports and the network status is empty,
 	// if this is called from network reload the network status will not be empty and we should
@@ -758,13 +694,14 @@ func getContainerNetIO(ctr *Container) (*netlink.LinkStatistics, error) {
 	return netStats, err
 }
 
-func (c *Container) joinedNetworkNSPath() string {
+// joinedNetworkNSPath returns netns path and bool if netns was set
+func (c *Container) joinedNetworkNSPath() (string, bool) {
 	for _, namespace := range c.config.Spec.Linux.Namespaces {
 		if namespace.Type == specs.NetworkNamespace {
-			return namespace.Path
+			return namespace.Path, true
 		}
 	}
-	return ""
+	return "", false
 }
 
 func (c *Container) inspectJoinedNetworkNS(networkns string) (q types.StatusBlock, retErr error) {
@@ -824,11 +761,12 @@ func (c *Container) inspectJoinedNetworkNS(networkns string) (q types.StatusBloc
 	return result, err
 }
 
-type logrusDebugWriter struct {
-	prefix string
-}
-
-func (w *logrusDebugWriter) Write(p []byte) (int, error) {
-	logrus.Debugf("%s%s", w.prefix, string(p))
-	return len(p), nil
+func getPastaIP(state *ContainerState) (net.IP, error) {
+	var ip string
+	err := ns.WithNetNSPath(state.NetNS, func(_ ns.NetNS) error {
+		// get the first ip in the netns
+		ip = netUtil.GetLocalIP()
+		return nil
+	})
+	return net.ParseIP(ip), err
 }

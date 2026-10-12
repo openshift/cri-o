@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
-	"github.com/checkpoint-restore/go-criu/v6/stats"
+	"github.com/checkpoint-restore/go-criu/v7/stats"
 	"github.com/containers/storage/pkg/archive"
 	"github.com/opencontainers/selinux/go-selinux/label"
 )
@@ -75,7 +75,7 @@ func CRImportCheckpointConfigOnly(destination, input string) error {
 // it exists deletes all files listed.
 func CRRemoveDeletedFiles(id, baseDirectory, containerRootDirectory string) error {
 	deletedFiles, _, err := metadata.ReadContainerCheckpointDeletedFiles(baseDirectory)
-	if os.IsNotExist(errors.Unwrap(errors.Unwrap(err))) {
+	if os.IsNotExist(err) {
 		// No files to delete. Just return
 		return nil
 	}

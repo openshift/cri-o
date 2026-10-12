@@ -1,4 +1,5 @@
-//go:build linux || freebsd
+//go:build !remote && (linux || freebsd)
+// +build !remote
 // +build linux freebsd
 
 package libpod
@@ -7,10 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 
-	"github.com/containers/common/pkg/cgroups"
-	"github.com/containers/common/pkg/config"
 	"github.com/containers/podman/v4/libpod/define"
 	"github.com/containers/podman/v4/libpod/events"
 	"github.com/containers/podman/v4/pkg/specgen"
@@ -56,8 +54,12 @@ func (r *Runtime) NewPod(ctx context.Context, p specgen.PodSpecGenerator, option
 
 	pod.valid = true
 
-	if err := r.platformMakePod(pod, p); err != nil {
+	parentCgroup, err := r.platformMakePod(pod, p.ResourceLimits)
+	if err != nil {
 		return nil, err
+	}
+	if p.InfraContainerSpec != nil {
+		p.InfraContainerSpec.CgroupParent = parentCgroup
 	}
 
 	if !pod.HasInfraContainer() && pod.SharesNamespaces() {
@@ -124,8 +126,9 @@ func (r *Runtime) SavePod(pod *Pod) error {
 
 // DO NOT USE THIS FUNCTION DIRECTLY. Use removePod(), below. It will call
 // removeMalformedPod() if necessary.
-func (r *Runtime) removeMalformedPod(ctx context.Context, p *Pod, ctrs []*Container, force bool, timeout *uint, ctrNamedVolumes map[string]*ContainerNamedVolume) error {
-	var removalErr error
+func (r *Runtime) removeMalformedPod(ctx context.Context, p *Pod, ctrs []*Container, force bool, timeout *uint, ctrNamedVolumes map[string]*ContainerNamedVolume) (map[string]error, error) {
+	removedCtrs := make(map[string]error)
+	errored := false
 	for _, ctr := range ctrs {
 		err := func() error {
 			ctrLock := ctr.lock
@@ -142,17 +145,33 @@ func (r *Runtime) removeMalformedPod(ctx context.Context, p *Pod, ctrs []*Contai
 				ctrNamedVolumes[vol.Name] = vol
 			}
 
-			return r.removeContainer(ctx, ctr, force, false, true, true, timeout)
+			opts := ctrRmOpts{
+				Force:      force,
+				RemovePod:  true,
+				IgnoreDeps: true,
+				Timeout:    timeout,
+			}
+			_, _, err := r.removeContainer(ctx, ctr, opts)
+			return err
 		}()
-
-		if removalErr == nil {
-			removalErr = err
-		} else {
-			logrus.Errorf("Removing container %s from pod %s: %v", ctr.ID(), p.ID(), err)
+		removedCtrs[ctr.ID()] = err
+		if err != nil {
+			errored = true
 		}
 	}
-	if removalErr != nil {
-		return removalErr
+
+	// So, technically, no containers have been *removed*.
+	// They're still in the DB.
+	// So just return nil for removed containers. Squash all the errors into
+	// a multierror so we don't lose them.
+	if errored {
+		var allErrors error
+		for ctr, err := range removedCtrs {
+			if err != nil {
+				allErrors = multierror.Append(allErrors, fmt.Errorf("removing container %s: %w", ctr, err))
+			}
+		}
+		return nil, fmt.Errorf("no containers were removed due to the following errors: %w", allErrors)
 	}
 
 	// Clear infra container ID before we remove the infra container.
@@ -161,7 +180,7 @@ func (r *Runtime) removeMalformedPod(ctx context.Context, p *Pod, ctrs []*Contai
 	// later - we end up with a reference to a nonexistent infra container.
 	p.state.InfraContainerID = ""
 	if err := p.save(); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Remove all containers in the pod from the state.
@@ -169,20 +188,22 @@ func (r *Runtime) removeMalformedPod(ctx context.Context, p *Pod, ctrs []*Contai
 		// If this fails, there isn't much more we can do.
 		// The containers in the pod are unusable, but they still exist,
 		// so pod removal will fail.
-		return err
+		return nil, err
 	}
 
-	return nil
+	return removedCtrs, nil
 }
 
-func (r *Runtime) removePod(ctx context.Context, p *Pod, removeCtrs, force bool, timeout *uint) error {
+func (r *Runtime) removePod(ctx context.Context, p *Pod, removeCtrs, force bool, timeout *uint) (map[string]error, error) {
+	removedCtrs := make(map[string]error)
+
 	if err := p.updatePod(); err != nil {
-		return err
+		return nil, err
 	}
 
 	ctrs, err := r.state.PodContainers(p)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	numCtrs := len(ctrs)
 
@@ -193,7 +214,7 @@ func (r *Runtime) removePod(ctx context.Context, p *Pod, removeCtrs, force bool,
 		force = true
 	}
 	if !removeCtrs && numCtrs > 0 {
-		return fmt.Errorf("pod %s contains containers and cannot be removed: %w", p.ID(), define.ErrCtrExists)
+		return nil, fmt.Errorf("pod %s contains containers and cannot be removed: %w", p.ID(), define.ErrCtrExists)
 	}
 
 	var removalErr error
@@ -205,14 +226,15 @@ func (r *Runtime) removePod(ctx context.Context, p *Pod, removeCtrs, force bool,
 		// We have to allow the pod to be removed.
 		// But let's only do it if force is set.
 		if !force {
-			return fmt.Errorf("cannot create container graph for pod %s: %w", p.ID(), err)
+			return nil, fmt.Errorf("cannot create container graph for pod %s: %w", p.ID(), err)
 		}
 
 		removalErr = fmt.Errorf("creating container graph for pod %s failed, fell back to loop removal: %w", p.ID(), err)
 
-		if err := r.removeMalformedPod(ctx, p, ctrs, force, timeout, ctrNamedVolumes); err != nil {
+		removedCtrs, err = r.removeMalformedPod(ctx, p, ctrs, force, timeout, ctrNamedVolumes)
+		if err != nil {
 			logrus.Errorf("Error creating container graph for pod %s: %v. Falling back to loop removal.", p.ID(), err)
-			return err
+			return removedCtrs, err
 		}
 	} else {
 		ctrErrors := make(map[string]error)
@@ -222,16 +244,13 @@ func (r *Runtime) removePod(ctx context.Context, p *Pod, removeCtrs, force bool,
 			removeNode(ctx, node, p, force, timeout, false, ctrErrors, ctrsVisited, ctrNamedVolumes)
 		}
 
-		// This is gross, but I don't want to change the signature on
-		// removePod - especially since any change here eventually has
-		// to map down to one error unless we want to make a breaking
-		// API change.
+		// Finalize the removed containers list
+		for ctr := range ctrsVisited {
+			removedCtrs[ctr] = ctrErrors[ctr]
+		}
+
 		if len(ctrErrors) > 0 {
-			var allErrs error
-			for id, err := range ctrErrors {
-				allErrs = multierror.Append(allErrs, fmt.Errorf("removing container %s from pod %s: %w", id, p.ID(), err))
-			}
-			return allErrs
+			return removedCtrs, fmt.Errorf("not all containers could be removed from pod %s: %w", p.ID(), define.ErrRemovingCtrs)
 		}
 	}
 
@@ -245,80 +264,26 @@ func (r *Runtime) removePod(ctx context.Context, p *Pod, removeCtrs, force bool,
 			continue
 		}
 		if err := r.removeVolume(ctx, volume, false, timeout, false); err != nil {
-			if errors.Is(err, define.ErrNoSuchVolume) || errors.Is(err, define.ErrVolumeRemoved) {
+			// If the anonymous volume is still being used that means it was likely transferred
+			// to another container via --volumes-from so no need to log this as real error.
+			if errors.Is(err, define.ErrNoSuchVolume) || errors.Is(err, define.ErrVolumeRemoved) || errors.Is(err, define.ErrVolumeBeingUsed) {
 				continue
 			}
 			logrus.Errorf("Removing volume %s: %v", volName, err)
 		}
 	}
 
-	// Remove pod cgroup, if present
-	if p.state.CgroupPath != "" {
-		logrus.Debugf("Removing pod cgroup %s", p.state.CgroupPath)
-
-		switch p.runtime.config.Engine.CgroupManager {
-		case config.SystemdCgroupsManager:
-			if err := deleteSystemdCgroup(p.state.CgroupPath, p.ResourceLim()); err != nil {
-				if removalErr == nil {
-					removalErr = fmt.Errorf("removing pod %s cgroup: %w", p.ID(), err)
-				} else {
-					logrus.Errorf("Deleting pod %s cgroup %s: %v", p.ID(), p.state.CgroupPath, err)
-				}
-			}
-		case config.CgroupfsCgroupsManager:
-			// Delete the cgroupfs cgroup
-			// Make sure the conmon cgroup is deleted first
-			// Since the pod is almost gone, don't bother failing
-			// hard - instead, just log errors.
-			conmonCgroupPath := filepath.Join(p.state.CgroupPath, "conmon")
-			conmonCgroup, err := cgroups.Load(conmonCgroupPath)
-			if err != nil && err != cgroups.ErrCgroupDeleted && err != cgroups.ErrCgroupV1Rootless {
-				if removalErr == nil {
-					removalErr = fmt.Errorf("retrieving pod %s conmon cgroup: %w", p.ID(), err)
-				} else {
-					logrus.Debugf("Error retrieving pod %s conmon cgroup %s: %v", p.ID(), conmonCgroupPath, err)
-				}
-			}
-			if err == nil {
-				if err = conmonCgroup.Delete(); err != nil {
-					if removalErr == nil {
-						removalErr = fmt.Errorf("removing pod %s conmon cgroup: %w", p.ID(), err)
-					} else {
-						logrus.Errorf("Deleting pod %s conmon cgroup %s: %v", p.ID(), conmonCgroupPath, err)
-					}
-				}
-			}
-			cgroup, err := cgroups.Load(p.state.CgroupPath)
-			if err != nil && err != cgroups.ErrCgroupDeleted && err != cgroups.ErrCgroupV1Rootless {
-				if removalErr == nil {
-					removalErr = fmt.Errorf("retrieving pod %s cgroup: %w", p.ID(), err)
-				} else {
-					logrus.Errorf("Retrieving pod %s cgroup %s: %v", p.ID(), p.state.CgroupPath, err)
-				}
-			}
-			if err == nil {
-				if err := cgroup.Delete(); err != nil {
-					if removalErr == nil {
-						removalErr = fmt.Errorf("removing pod %s cgroup: %w", p.ID(), err)
-					} else {
-						logrus.Errorf("Deleting pod %s cgroup %s: %v", p.ID(), p.state.CgroupPath, err)
-					}
-				}
-			}
-		default:
-			// This should be caught much earlier, but let's still
-			// keep going so we make sure to evict the pod before
-			// ending up with an inconsistent state.
-			if removalErr == nil {
-				removalErr = fmt.Errorf("unrecognized cgroup manager %s when removing pod %s cgroups: %w", p.runtime.config.Engine.CgroupManager, p.ID(), define.ErrInternal)
-			} else {
-				logrus.Errorf("Unknown cgroups manager %s specified - cannot remove pod %s cgroup", p.runtime.config.Engine.CgroupManager, p.ID())
-			}
+	// Remove pod cgroup
+	if err := p.removePodCgroup(); err != nil {
+		if removalErr == nil {
+			removalErr = fmt.Errorf("removing pod %s cgroup: %w", p.ID(), err)
+		} else {
+			logrus.Errorf("Deleting pod %s cgroup %s: %v", p.ID(), p.state.CgroupPath, err)
 		}
 	}
 
 	if err := p.maybeRemoveServiceContainer(); err != nil {
-		return err
+		return removedCtrs, err
 	}
 
 	// Remove pod from state
@@ -326,7 +291,7 @@ func (r *Runtime) removePod(ctx context.Context, p *Pod, removeCtrs, force bool,
 		if removalErr != nil {
 			logrus.Errorf("%v", removalErr)
 		}
-		return err
+		return removedCtrs, err
 	}
 
 	// Mark pod invalid
@@ -342,5 +307,5 @@ func (r *Runtime) removePod(ctx context.Context, p *Pod, removeCtrs, force bool,
 		}
 	}
 
-	return removalErr
+	return removedCtrs, removalErr
 }

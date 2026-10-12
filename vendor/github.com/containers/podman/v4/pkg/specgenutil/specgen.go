@@ -21,6 +21,11 @@ import (
 	"github.com/containers/podman/v4/pkg/util"
 	"github.com/docker/go-units"
 	"github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/opencontainers/selinux/go-selinux"
+)
+
+const (
+	rlimitPrefix = "rlimit_"
 )
 
 func getCPULimits(c *entities.ContainerCreateOptions) *specs.LinuxCPU {
@@ -189,7 +194,7 @@ func getMemoryLimits(c *entities.ContainerCreateOptions) (*specs.LinuxMemory, er
 	return memory, nil
 }
 
-func setNamespaces(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions) error {
+func setNamespaces(rtc *config.Config, s *specgen.SpecGenerator, c *entities.ContainerCreateOptions) error {
 	var err error
 
 	if c.PID != "" {
@@ -216,9 +221,13 @@ func setNamespaces(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions)
 			return err
 		}
 	}
-	userns := os.Getenv("PODMAN_USERNS")
-	if c.UserNS != "" {
-		userns = c.UserNS
+	userns := c.UserNS
+	if userns == "" && c.Pod == "" {
+		if ns, ok := os.LookupEnv("PODMAN_USERNS"); ok {
+			userns = ns
+		} else {
+			userns = rtc.Containers.UserNS
+		}
 	}
 	// userns must be treated differently
 	if userns != "" {
@@ -230,7 +239,85 @@ func setNamespaces(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions)
 	if c.Net != nil {
 		s.NetNS = c.Net.Network
 	}
+
+	if s.IDMappings == nil {
+		userNS := namespaces.UsernsMode(s.UserNS.NSMode)
+		tempIDMap, err := util.ParseIDMapping(namespaces.UsernsMode(userns), []string{}, []string{}, "", "")
+		if err != nil {
+			return err
+		}
+		s.IDMappings, err = util.ParseIDMapping(userNS, c.UIDMap, c.GIDMap, c.SubUIDName, c.SubGIDName)
+		if err != nil {
+			return err
+		}
+		if len(s.IDMappings.GIDMap) == 0 {
+			s.IDMappings.AutoUserNsOpts.AdditionalGIDMappings = tempIDMap.AutoUserNsOpts.AdditionalGIDMappings
+			if s.UserNS.NSMode == specgen.NamespaceMode("auto") {
+				s.IDMappings.AutoUserNs = true
+			}
+		}
+		if len(s.IDMappings.UIDMap) == 0 {
+			s.IDMappings.AutoUserNsOpts.AdditionalUIDMappings = tempIDMap.AutoUserNsOpts.AdditionalUIDMappings
+			if s.UserNS.NSMode == specgen.NamespaceMode("auto") {
+				s.IDMappings.AutoUserNs = true
+			}
+		}
+		if tempIDMap.AutoUserNsOpts.Size != 0 {
+			s.IDMappings.AutoUserNsOpts.Size = tempIDMap.AutoUserNsOpts.Size
+		}
+		// If some mappings are specified, assume a private user namespace
+		if userNS.IsDefaultValue() && (!s.IDMappings.HostUIDMapping || !s.IDMappings.HostGIDMapping) {
+			s.UserNS.NSMode = specgen.Private
+		} else {
+			s.UserNS.NSMode = specgen.NamespaceMode(userNS)
+		}
+	}
+
 	return nil
+}
+
+func GenRlimits(ulimits []string) ([]specs.POSIXRlimit, error) {
+	rlimits := make([]specs.POSIXRlimit, 0, len(ulimits))
+	// Rlimits/Ulimits
+	for _, ulimit := range ulimits {
+		if ulimit == "host" {
+			rlimits = nil
+			break
+		}
+		// `ulimitNameMapping` from go-units uses lowercase and names
+		// without prefixes, e.g. `RLIMIT_NOFILE` should be converted to `nofile`.
+		// https://github.com/containers/podman/issues/9803
+		u := strings.TrimPrefix(strings.ToLower(ulimit), rlimitPrefix)
+		ul, err := units.ParseUlimit(u)
+		if err != nil {
+			return nil, fmt.Errorf("ulimit option %q requires name=SOFT:HARD, failed to be parsed: %w", u, err)
+		}
+		rl := specs.POSIXRlimit{
+			Type: ul.Name,
+			Hard: uint64(ul.Hard),
+			Soft: uint64(ul.Soft),
+		}
+		rlimits = append(rlimits, rl)
+	}
+	return rlimits, nil
+}
+
+func currentLabelOpts() ([]string, error) {
+	label, err := selinux.CurrentLabel()
+	if err != nil {
+		return nil, err
+	}
+	if label == "" {
+		return nil, nil
+	}
+	con, err := selinux.NewContext(label)
+	if err != nil {
+		return nil, err
+	}
+	return []string{
+		fmt.Sprintf("label=user:%s", con["user"]),
+		fmt.Sprintf("label=role:%s", con["role"]),
+	}, nil
 }
 
 func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions, args []string) error {
@@ -239,6 +326,14 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 		return err
 	}
 
+	if rtc.Containers.EnableLabeledUsers {
+		defSecurityOpts, err := currentLabelOpts()
+		if err != nil {
+			return err
+		}
+
+		c.SecurityOpt = append(defSecurityOpts, c.SecurityOpt...)
+	}
 	// validate flags as needed
 	if err := validate(c); err != nil {
 		return err
@@ -290,41 +385,8 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 		s.StartupHealthConfig.Successes = int(c.StartupHCSuccesses)
 	}
 
-	if err := setNamespaces(s, c); err != nil {
+	if err := setNamespaces(rtc, s, c); err != nil {
 		return err
-	}
-
-	if s.IDMappings == nil {
-		userNS := namespaces.UsernsMode(s.UserNS.NSMode)
-		tempIDMap, err := util.ParseIDMapping(namespaces.UsernsMode(c.UserNS), []string{}, []string{}, "", "")
-		if err != nil {
-			return err
-		}
-		s.IDMappings, err = util.ParseIDMapping(userNS, c.UIDMap, c.GIDMap, c.SubUIDName, c.SubGIDName)
-		if err != nil {
-			return err
-		}
-		if len(s.IDMappings.GIDMap) == 0 {
-			s.IDMappings.AutoUserNsOpts.AdditionalGIDMappings = tempIDMap.AutoUserNsOpts.AdditionalGIDMappings
-			if s.UserNS.NSMode == specgen.NamespaceMode("auto") {
-				s.IDMappings.AutoUserNs = true
-			}
-		}
-		if len(s.IDMappings.UIDMap) == 0 {
-			s.IDMappings.AutoUserNsOpts.AdditionalUIDMappings = tempIDMap.AutoUserNsOpts.AdditionalUIDMappings
-			if s.UserNS.NSMode == specgen.NamespaceMode("auto") {
-				s.IDMappings.AutoUserNs = true
-			}
-		}
-		if tempIDMap.AutoUserNsOpts.Size != 0 {
-			s.IDMappings.AutoUserNsOpts.Size = tempIDMap.AutoUserNsOpts.Size
-		}
-		// If some mappings are specified, assume a private user namespace
-		if userNS.IsDefaultValue() && (!s.IDMappings.HostUIDMapping || !s.IDMappings.HostGIDMapping) {
-			s.UserNS.NSMode = specgen.Private
-		} else {
-			s.UserNS.NSMode = specgen.NamespaceMode(userNS)
-		}
 	}
 
 	if !s.Terminal {
@@ -429,6 +491,12 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 		s.Labels = labels
 	}
 
+	// Intel RDT CAT
+	if c.IntelRdtClosID != "" {
+		s.IntelRdt = &specs.LinuxIntelRdt{}
+		s.IntelRdt.ClosID = c.IntelRdtClosID
+	}
+
 	// ANNOTATIONS
 	annotations := make(map[string]string)
 
@@ -488,6 +556,16 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 		s.ShmSize = &val
 	}
 
+	// SHM Size Systemd
+	if c.ShmSizeSystemd != "" {
+		val, err := units.RAMInBytes(c.ShmSizeSystemd)
+		if err != nil {
+			return fmt.Errorf("unable to translate --shm-size-systemd: %w", err)
+		}
+
+		s.ShmSizeSystemd = &val
+	}
+
 	if c.Net != nil {
 		s.Networks = c.Net.Networks
 	}
@@ -512,7 +590,7 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 	if len(s.ImageVolumeMode) == 0 {
 		s.ImageVolumeMode = rtc.Engine.ImageVolumeMode
 	}
-	if s.ImageVolumeMode == "bind" {
+	if s.ImageVolumeMode == define.TypeBind {
 		s.ImageVolumeMode = "anonymous"
 	}
 
@@ -610,53 +688,57 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 	}
 
 	for _, opt := range c.SecurityOpt {
-		if opt == "no-new-privileges" {
-			s.ContainerSecurityConfig.NoNewPrivileges = true
+		// Docker deprecated the ":" syntax but still supports it,
+		// so we need to as well
+		var con []string
+		if strings.Contains(opt, "=") {
+			con = strings.SplitN(opt, "=", 2)
 		} else {
-			// Docker deprecated the ":" syntax but still supports it,
-			// so we need to as well
-			var con []string
-			if strings.Contains(opt, "=") {
-				con = strings.SplitN(opt, "=", 2)
-			} else {
-				con = strings.SplitN(opt, ":", 2)
+			con = strings.SplitN(opt, ":", 2)
+		}
+		if len(con) != 2 &&
+			con[0] != "no-new-privileges" {
+			return fmt.Errorf("invalid --security-opt 1: %q", opt)
+		}
+		switch con[0] {
+		case "apparmor":
+			s.ContainerSecurityConfig.ApparmorProfile = con[1]
+			s.Annotations[define.InspectAnnotationApparmor] = con[1]
+		case "label":
+			if con[1] == "nested" {
+				s.ContainerSecurityConfig.LabelNested = true
+				continue
 			}
-			if len(con) != 2 {
-				return fmt.Errorf("invalid --security-opt 1: %q", opt)
-			}
-			switch con[0] {
-			case "apparmor":
-				s.ContainerSecurityConfig.ApparmorProfile = con[1]
-				s.Annotations[define.InspectAnnotationApparmor] = con[1]
-			case "label":
-				// TODO selinux opts and label opts are the same thing
-				s.ContainerSecurityConfig.SelinuxOpts = append(s.ContainerSecurityConfig.SelinuxOpts, con[1])
-				s.Annotations[define.InspectAnnotationLabel] = strings.Join(s.ContainerSecurityConfig.SelinuxOpts, ",label=")
-			case "mask":
-				s.ContainerSecurityConfig.Mask = append(s.ContainerSecurityConfig.Mask, strings.Split(con[1], ":")...)
-			case "proc-opts":
-				s.ProcOpts = strings.Split(con[1], ",")
-			case "seccomp":
-				s.SeccompProfilePath = con[1]
-				s.Annotations[define.InspectAnnotationSeccomp] = con[1]
+			// TODO selinux opts and label opts are the same thing
+			s.ContainerSecurityConfig.SelinuxOpts = append(s.ContainerSecurityConfig.SelinuxOpts, con[1])
+			s.Annotations[define.InspectAnnotationLabel] = strings.Join(s.ContainerSecurityConfig.SelinuxOpts, ",label=")
+		case "mask":
+			s.ContainerSecurityConfig.Mask = append(s.ContainerSecurityConfig.Mask, strings.Split(con[1], ":")...)
+		case "proc-opts":
+			s.ProcOpts = strings.Split(con[1], ",")
+		case "seccomp":
+			s.SeccompProfilePath = con[1]
+			s.Annotations[define.InspectAnnotationSeccomp] = con[1]
 			// this option is for docker compatibility, it is the same as unmask=ALL
-			case "systempaths":
-				if con[1] == "unconfined" {
-					s.ContainerSecurityConfig.Unmask = append(s.ContainerSecurityConfig.Unmask, []string{"ALL"}...)
-				} else {
-					return fmt.Errorf("invalid systempaths option %q, only `unconfined` is supported", con[1])
-				}
-			case "unmask":
-				s.ContainerSecurityConfig.Unmask = append(s.ContainerSecurityConfig.Unmask, con[1:]...)
-			case "no-new-privileges":
-				noNewPrivileges, err := strconv.ParseBool(con[1])
+		case "systempaths":
+			if con[1] == "unconfined" {
+				s.ContainerSecurityConfig.Unmask = append(s.ContainerSecurityConfig.Unmask, []string{"ALL"}...)
+			} else {
+				return fmt.Errorf("invalid systempaths option %q, only `unconfined` is supported", con[1])
+			}
+		case "unmask":
+			s.ContainerSecurityConfig.Unmask = append(s.ContainerSecurityConfig.Unmask, con[1:]...)
+		case "no-new-privileges":
+			noNewPrivileges := true
+			if len(con) == 2 {
+				noNewPrivileges, err = strconv.ParseBool(con[1])
 				if err != nil {
 					return fmt.Errorf("invalid --security-opt 2: %q", opt)
 				}
-				s.ContainerSecurityConfig.NoNewPrivileges = noNewPrivileges
-			default:
-				return fmt.Errorf("invalid --security-opt 2: %q", opt)
 			}
+			s.ContainerSecurityConfig.NoNewPrivileges = noNewPrivileges
+		default:
+			return fmt.Errorf("invalid --security-opt 2: %q", opt)
 		}
 	}
 
@@ -670,7 +752,7 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 
 	// Only add read-only tmpfs mounts in case that we are read-only and the
 	// read-only tmpfs flag has been set.
-	mounts, volumes, overlayVolumes, imageVolumes, err := parseVolumes(c.Volume, c.Mount, c.TmpFS)
+	mounts, volumes, overlayVolumes, imageVolumes, err := parseVolumes(rtc, c.Volume, c.Mount, c.TmpFS)
 	if err != nil {
 		return err
 	}
@@ -679,6 +761,17 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 	}
 	if len(s.Volumes) == 0 || len(c.Volume) != 0 {
 		s.Volumes = volumes
+	}
+
+	if s.ContainerSecurityConfig.LabelNested {
+		// Need to unmask the SELinux file system
+		s.Unmask = append(s.Unmask, "/sys/fs/selinux", "/proc")
+		s.Mounts = append(s.Mounts, specs.Mount{
+			Source:      "/sys/fs/selinux",
+			Destination: "/sys/fs/selinux",
+			Type:        define.TypeBind,
+		})
+		s.Annotations[define.RunOCIMountContextType] = "rootcontext"
 	}
 	// TODO make sure these work in clone
 	if len(s.OverlayVolumes) == 0 {
@@ -713,21 +806,9 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 	// DeviceCgroupRules: c.StringSlice("device-cgroup-rule"),
 
 	// Rlimits/Ulimits
-	for _, u := range c.Ulimit {
-		if u == "host" {
-			s.Rlimits = nil
-			break
-		}
-		ul, err := units.ParseUlimit(u)
-		if err != nil {
-			return fmt.Errorf("ulimit option %q requires name=SOFT:HARD, failed to be parsed: %w", u, err)
-		}
-		rl := specs.POSIXRlimit{
-			Type: ul.Name,
-			Hard: uint64(ul.Hard),
-			Soft: uint64(ul.Soft),
-		}
-		s.Rlimits = append(s.Rlimits, rl)
+	s.Rlimits, err = GenRlimits(c.Ulimit)
+	if err != nil {
+		return err
 	}
 
 	logOpts := make(map[string]string)
@@ -765,27 +846,12 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 		s.OOMScoreAdj = c.OOMScoreAdj
 	}
 	if c.Restart != "" {
-		splitRestart := strings.Split(c.Restart, ":")
-		switch len(splitRestart) {
-		case 1:
-			// No retries specified
-		case 2:
-			if strings.ToLower(splitRestart[0]) != "on-failure" {
-				return errors.New("restart policy retries can only be specified with on-failure restart policy")
-			}
-			retries, err := strconv.Atoi(splitRestart[1])
-			if err != nil {
-				return fmt.Errorf("parsing restart policy retry count: %w", err)
-			}
-			if retries < 0 {
-				return errors.New("must specify restart policy retry count as a number greater than 0")
-			}
-			var retriesUint = uint(retries)
-			s.RestartRetries = &retriesUint
-		default:
-			return errors.New("invalid restart policy: may specify retries at most once")
+		policy, retries, err := util.ParseRestartPolicy(c.Restart)
+		if err != nil {
+			return err
 		}
-		s.RestartPolicy = splitRestart[0]
+		s.RestartPolicy = policy
+		s.RestartRetries = &retries
 	}
 
 	if len(s.Secrets) == 0 || len(c.Secrets) != 0 {
@@ -846,6 +912,10 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 
 	if len(s.PasswdEntry) == 0 || len(c.PasswdEntry) != 0 {
 		s.PasswdEntry = c.PasswdEntry
+	}
+
+	if len(s.GroupEntry) == 0 || len(c.GroupEntry) != 0 {
+		s.GroupEntry = c.GroupEntry
 	}
 
 	return nil

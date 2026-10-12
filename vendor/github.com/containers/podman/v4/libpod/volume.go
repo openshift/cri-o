@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package libpod
 
 import (
@@ -6,7 +9,7 @@ import (
 	"github.com/containers/podman/v4/libpod/define"
 	"github.com/containers/podman/v4/libpod/lock"
 	"github.com/containers/podman/v4/libpod/plugin"
-	"github.com/containers/podman/v4/pkg/util"
+	"github.com/containers/storage/pkg/directory"
 )
 
 // Volume is a libpod named volume.
@@ -67,6 +70,8 @@ type VolumeConfig struct {
 	// StorageImageID is the ID of the image the volume was based off of.
 	// Only used for image volumes.
 	StorageImageID string `json:"storageImageID,omitempty"`
+	// MountLabel is the SELinux label to assign to mount points
+	MountLabel string `json:"mountlabel,omitempty"`
 }
 
 // VolumeState holds the volume's mutable state.
@@ -107,7 +112,8 @@ func (v *Volume) Name() string {
 
 // Returns the size on disk of volume
 func (v *Volume) Size() (uint64, error) {
-	return util.SizeOfPath(v.config.MountPoint)
+	size, err := directory.Size(v.config.MountPoint)
+	return uint64(size), err
 }
 
 // Driver retrieves the volume's driver.
@@ -134,7 +140,7 @@ func (v *Volume) Labels() map[string]string {
 // MountPoint returns the volume's mountpoint on the host
 func (v *Volume) MountPoint() (string, error) {
 	// For the sake of performance, avoid locking unless we have to.
-	if v.UsesVolumeDriver() {
+	if v.UsesVolumeDriver() || v.config.Driver == define.VolumeDriverImage {
 		v.lock.Lock()
 		defer v.lock.Unlock()
 

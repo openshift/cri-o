@@ -2,11 +2,12 @@ package capnp
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"strconv"
 	"sync"
 
 	"capnproto.org/go/capnp/v3/exc"
+	"capnproto.org/go/capnp/v3/internal/str"
 	"capnproto.org/go/capnp/v3/internal/syncutil"
 )
 
@@ -75,7 +76,7 @@ type Promise struct {
 
 type clientAndPromise struct {
 	client  Client
-	promise *ClientPromise
+	promise *clientPromise
 }
 
 // NewPromise creates a new unresolved promise.  The PipelineCaller will
@@ -147,7 +148,7 @@ func (p *Promise) Reject(e error) {
 // If e != nil, then this is equivalent to p.Reject(e).
 // Otherwise, it is equivalent to p.Fulfill(r).
 func (p *Promise) Resolve(r Ptr, e error) {
-	var shutdownPromises []*ClientPromise
+	var shutdownPromises []*clientPromise
 	syncutil.With(&p.mu, func() {
 		if e != nil {
 			p.requireUnresolved("Reject")
@@ -156,28 +157,29 @@ func (p *Promise) Resolve(r Ptr, e error) {
 		}
 		p.caller = nil
 
-		if len(p.clients) > 0 || p.ongoingCalls > 0 {
-			// Pending resolution state: wait for clients to be fulfilled
-			// and calls to have answers.  p.clients cannot be touched in the
-			// pending resolution state, so we have exclusive access to the
-			// variable.
-			if p.ongoingCalls > 0 {
-				p.callsStopped = make(chan struct{})
-			}
-			syncutil.Without(&p.mu, func() {
-				res := resolution{p.method, r, e}
-				for path, cp := range p.clients {
-					t := path.transform()
-					cp.promise.fulfill(res.client(t))
-					shutdownPromises = append(shutdownPromises, cp.promise)
-					cp.promise = nil
-				}
-				if p.callsStopped != nil {
-					<-p.callsStopped
-				}
-			})
+		if p.ongoingCalls > 0 {
+			p.callsStopped = make(chan struct{})
 		}
+	})
 
+	if len(p.clients) > 0 || p.ongoingCalls > 0 {
+		// Pending resolution state: wait for clients to be fulfilled
+		// and calls to have answers.  p.clients cannot be touched in the
+		// pending resolution state, so we have exclusive access to the
+		// variable.
+		res := resolution{p.method, r, e}
+		for path, cp := range p.clients {
+			t := path.transform()
+			cp.promise.fulfill(res.client(t))
+			shutdownPromises = append(shutdownPromises, cp.promise)
+			cp.promise = nil
+		}
+		if p.callsStopped != nil {
+			<-p.callsStopped
+		}
+	}
+
+	syncutil.With(&p.mu, func() {
 		// Move p into resolved state.
 		p.callsStopped = nil
 		p.result, p.err = r, e
@@ -205,7 +207,7 @@ func (p *Promise) requireUnresolved(callerMethod string) {
 		if p.err == nil {
 			prevMethod = "Fulfill"
 		} else {
-			prevMethod = fmt.Sprintf("Reject (error = %q)", p.err)
+			prevMethod = "Reject (error = " + strconv.Quote(p.err.Error()) + ")"
 		}
 
 		panic("Promise." + callerMethod +
@@ -268,12 +270,12 @@ func ErrorAnswer(m Method, e error) *Answer {
 	return &p.ans
 }
 
-// ImmediateAnswer returns an Answer that accesses s.
-func ImmediateAnswer(m Method, s Struct) *Answer {
+// ImmediateAnswer returns an Answer that accesses ptr.
+func ImmediateAnswer(m Method, ptr Ptr) *Answer {
 	p := &Promise{
 		method:   m,
 		resolved: closedSignal,
-		result:   s.ToPtr(),
+		result:   ptr,
 	}
 	p.ans.f.promise = p
 	p.ans.metadata = *NewMetadata()
@@ -300,6 +302,12 @@ func (ans *Answer) Done() <-chan struct{} {
 // this answer represents.
 func (ans *Answer) Struct() (Struct, error) {
 	return ans.f.Struct()
+}
+
+// List waits until the answer is resolved and returns the list
+// this answer represents.
+func (ans *Answer) List() (List, error) {
+	return ans.f.List()
 }
 
 // Client returns the answer as a client.  If the answer's originating
@@ -419,15 +427,29 @@ func (f *Future) Done() <-chan struct{} {
 	return f.promise.resolved
 }
 
-// Struct waits until the answer is resolved and returns the struct
+// Ptr waits until the answer is resolved and returns the pointer
 // this future represents.
-func (f *Future) Struct() (Struct, error) {
+func (f *Future) Ptr() (Ptr, error) {
 	p := f.promise
 	<-p.resolved
 	p.mu.Lock()
 	r := p.resolution()
 	p.mu.Unlock()
-	return r.strct(f.transform())
+	return r.ptr(f.transform())
+}
+
+// Struct waits until the answer is resolved and returns the struct
+// this answer represents.
+func (f *Future) Struct() (Struct, error) {
+	p, err := f.Ptr()
+	return p.Struct(), err
+}
+
+// List waits until the answer is resolved and returns the list
+// this answer represents.
+func (f *Future) List() (List, error) {
+	p, err := f.Ptr()
+	return p.List(), err
 }
 
 // Client returns the future as a client.  If the answer's originating
@@ -444,7 +466,7 @@ func (f *Future) Client() Client {
 		if cp := p.clients[cpath]; cp != nil {
 			return cp.client
 		}
-		c, pr := NewPromisedClient(PipelineClient{
+		c, pr := newPromisedClient(PipelineClient{
 			p:         p,
 			transform: ft,
 		})
@@ -518,6 +540,13 @@ func (pc PipelineClient) Brand() Brand {
 func (pc PipelineClient) Shutdown() {
 }
 
+func (pc PipelineClient) String() string {
+	return "PipelineClient{transform: " +
+		str.Slice(pc.transform) +
+		", promise: 0x" + str.PtrToHex(pc.p) +
+		"}"
+}
+
 // A PipelineOp describes a step in transforming a pipeline.
 // It maps closely with the PromisedAnswer.Op struct in rpc.capnp.
 type PipelineOp struct {
@@ -548,26 +577,34 @@ func Transform(p Ptr, transform []PipelineOp) (Ptr, error) {
 	for i, op := range transform[:n-1] {
 		field, err := s.Ptr(op.Field)
 		if err != nil {
-			return Ptr{}, errorf("transform: op %d: pointer field %d: %v", i, op.Field, err)
+			return Ptr{}, newTransformError(i, op.Field, err, false)
 		}
 		s, err = field.StructDefault(op.DefaultValue)
 		if err != nil {
-			return Ptr{}, errorf("transform: op %d: pointer field %d with default: %v", i, op.Field, err)
+			return Ptr{}, newTransformError(i, op.Field, err, true)
 		}
 	}
 	op := transform[n-1]
 	p, err := s.Ptr(op.Field)
 	if err != nil {
-		return Ptr{}, errorf("transform: op %d: pointer field %d: %v", n-1, op.Field, err)
+		return Ptr{}, newTransformError(n-1, op.Field, err, false)
 	}
 	if op.DefaultValue != nil {
 		p, err = p.Default(op.DefaultValue)
 		if err != nil {
-			return Ptr{}, errorf("transform: op %d: pointer field %d with default: %v", n-1, op.Field, err)
+			return Ptr{}, newTransformError(n-1, op.Field, err, true)
 		}
 		return p, nil
 	}
 	return p, nil
+}
+
+func newTransformError(index int, field uint16, err error, withDefault bool) error {
+	msg := "transform: op " + str.Itod(index) + ": pointer field " + str.Utod(field)
+	if withDefault {
+		msg += " with default"
+	}
+	return exc.WrapError(msg, err)
 }
 
 // A resolution is the outcome of a future.
@@ -589,12 +626,6 @@ func (r resolution) ptr(transform []PipelineOp) (Ptr, error) {
 	return p, nil
 }
 
-// strct obtains a Struct by applying a transform.
-func (r resolution) strct(transform []PipelineOp) (Struct, error) {
-	p, err := r.ptr(transform)
-	return p.Struct(), err
-}
-
 // client obtains a Client by applying a transform.
 func (r resolution) client(transform []PipelineOp) Client {
 	p, err := r.ptr(transform)
@@ -603,7 +634,7 @@ func (r resolution) client(transform []PipelineOp) Client {
 	}
 	iface := p.Interface()
 	if p.IsValid() && !iface.IsValid() {
-		return ErrorClient(errorf("not a capability"))
+		return ErrorClient(errors.New("not a capability"))
 	}
 	return iface.Client()
 }

@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package generate
 
 import (
@@ -95,7 +98,7 @@ func securityConfigureGenerator(s *specgen.SpecGenerator, g *generate.Generator,
 			return err
 		}
 	} else {
-		mergedCaps, err := capabilities.MergeCapabilities(rtc.Containers.DefaultCapabilities, s.CapAdd, s.CapDrop)
+		mergedCaps, err := capabilities.MergeCapabilities(rtc.Containers.DefaultCapabilities.Get(), s.CapAdd, s.CapDrop)
 		if err != nil {
 			return err
 		}
@@ -115,7 +118,7 @@ func securityConfigureGenerator(s *specgen.SpecGenerator, g *generate.Generator,
 
 		privCapsRequired := []string{}
 
-		// If the container image specifies an label with a
+		// If the container image specifies a label with a
 		// capabilities.ContainerImageLabel then split the comma separated list
 		// of capabilities and record them.  This list indicates the only
 		// capabilities, required to run the container.
@@ -125,7 +128,9 @@ func securityConfigureGenerator(s *specgen.SpecGenerator, g *generate.Generator,
 				capsRequiredRequested = strings.Split(val, ",")
 			}
 		}
-		if !s.Privileged && len(capsRequiredRequested) > 0 {
+		if !s.Privileged && len(capsRequiredRequested) == 1 && capsRequiredRequested[0] == "" {
+			caplist = []string{}
+		} else if !s.Privileged && len(capsRequiredRequested) > 0 {
 			// Pass capRequiredRequested in CapAdd field to normalize capabilities names
 			capsRequired, err := capabilities.MergeCapabilities(nil, capsRequiredRequested, nil)
 			if err != nil {

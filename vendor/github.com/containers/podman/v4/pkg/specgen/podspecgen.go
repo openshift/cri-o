@@ -53,6 +53,9 @@ type PodBasicConfig struct {
 	// Conflicts with NoInfra=true.
 	// Optional.
 	InfraName string `json:"infra_name,omitempty"`
+	// Ipc sets the IPC namespace of the pod, set to private by default.
+	// This configuration will then be shared with the entire pod if PID namespace sharing is enabled via --share
+	Ipc Namespace `json:"ipcns,omitempty"`
 	// SharedNamespaces instructs the pod to share a set of namespaces.
 	// Shared namespaces will be joined (by default) by every container
 	// which joins the pod.
@@ -61,6 +64,17 @@ type PodBasicConfig struct {
 	// Conflicts with NoInfra=true.
 	// Optional.
 	SharedNamespaces []string `json:"shared_namespaces,omitempty"`
+	// RestartPolicy is the pod's restart policy - an action which
+	// will be taken when one or all the containers in the pod exits.
+	// If not given, the default policy will be set to Always, which
+	// restarts the containers in the pod when they exit indefinitely.
+	// Optional.
+	RestartPolicy string `json:"restart_policy,omitempty"`
+	// RestartRetries is the number of attempts that will be made to restart
+	// the container.
+	// Only available when RestartPolicy is set to "on-failure".
+	// Optional.
+	RestartRetries *uint `json:"restart_tries,omitempty"`
 	// PodCreateCommand is the command used to create this pod.
 	// This will be shown in the output of Inspect() on the pod, and may
 	// also be used by some tools that wish to recreate the pod
@@ -189,6 +203,10 @@ type PodStorageConfig struct {
 	// Conflicts with ShmSize if IpcNS is not private.
 	// Optional.
 	ShmSize *int64 `json:"shm_size,omitempty"`
+	// ShmSizeSystemd is the size of systemd-specific tmpfs mounts
+	// specifically /run, /run/lock, /var/log/journal and /tmp.
+	// Optional
+	ShmSizeSystemd *int64 `json:"shm_size_systemd,omitempty"`
 }
 
 // PodCgroupConfig contains configuration options about a pod's cgroups.

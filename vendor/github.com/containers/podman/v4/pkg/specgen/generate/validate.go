@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package generate
 
 import (
@@ -5,12 +8,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 
 	"github.com/containers/common/pkg/cgroups"
 	"github.com/containers/common/pkg/sysinfo"
 	"github.com/containers/podman/v4/pkg/rootless"
 	"github.com/containers/podman/v4/pkg/specgen"
 	"github.com/containers/podman/v4/utils"
+	"github.com/opencontainers/runtime-spec/specs-go"
 )
 
 // Verify resource limits are sanely set when running on cgroup v1.
@@ -19,13 +24,17 @@ func verifyContainerResourcesCgroupV1(s *specgen.SpecGenerator) ([]string, error
 
 	sysInfo := sysinfo.New(true)
 
-	if s.ResourceLimits != nil && rootless.IsRootless() {
-		s.ResourceLimits = nil
-		warnings = append(warnings, "Resource limits are not supported and ignored on cgroups V1 rootless systems")
+	// If ResourceLimits is nil, return without warning
+	resourceNil := &specgen.SpecGenerator{}
+	resourceNil.ResourceLimits = &specs.LinuxResources{}
+	if s.ResourceLimits == nil || reflect.DeepEqual(s.ResourceLimits, resourceNil.ResourceLimits) {
+		return nil, nil
 	}
 
-	if s.ResourceLimits == nil {
-		return warnings, nil
+	// Cgroups V1 rootless system does not support Resource limits
+	if rootless.IsRootless() {
+		s.ResourceLimits = nil
+		return []string{"Resource limits are not supported and ignored on cgroups V1 rootless systems"}, nil
 	}
 
 	if s.ResourceLimits.Unified != nil {

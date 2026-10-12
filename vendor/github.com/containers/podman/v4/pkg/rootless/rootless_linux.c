@@ -163,20 +163,11 @@ exec_binary (const char *path, char **argv, int argc)
       exit (EXIT_FAILURE);
     }
   if (WIFEXITED(status) && WEXITSTATUS (status))
-    {
-      fprintf (stderr, "external preexec hook %s failed\n", path);
-      exit (WEXITSTATUS(status));
-    }
+    exit (WEXITSTATUS(status));
   if (WIFSIGNALED (status))
-    {
-      fprintf (stderr, "external preexec hook %s failed\n", path);
-      exit (127+WTERMSIG (status));
-    }
+    exit (127+WTERMSIG (status));
   if (WIFSTOPPED (status))
-    {
-      fprintf (stderr, "external preexec hook %s failed\n", path);
       exit (EXIT_FAILURE);
-    }
 }
 
 static void
@@ -263,6 +254,13 @@ do_preexec_hooks_dir (const char *dir, char **argv, int argc)
 static void
 do_preexec_hooks (char **argv, int argc)
 {
+  // Access the preexec_hooks_dir indicator file
+  // return without processing if the file doesn't exist
+  char preexec_hooks_path[] = "/etc/containers/podman_preexec_hooks.txt";
+  if (access(preexec_hooks_path, F_OK) != 0) {
+    return;
+  }
+
   char *preexec_hooks = getenv ("PODMAN_PREEXEC_HOOKS_DIR");
   do_preexec_hooks_dir (LIBEXECPODMAN "/pre-exec-hooks", argv, argc);
   do_preexec_hooks_dir (ETC_PREEXEC_HOOKS, argv, argc);
@@ -287,7 +285,7 @@ do_pause ()
     sigaction (sig[i], &act, NULL);
 
   /* Attempt to execv catatonit to keep the pause process alive.  */
-  execl (LIBEXECPODMAN "catatonit", "catatonit", "-P", NULL);
+  execl (LIBEXECPODMAN "/catatonit", "catatonit", "-P", NULL);
   execl ("/usr/bin/catatonit", "catatonit", "-P", NULL);
   /* and if the catatonit executable could not be found, fallback here... */
 
@@ -386,8 +384,10 @@ can_use_shortcut (char **argv)
 
       if (strcmp (argv[argc], "mount") == 0
           || strcmp (argv[argc], "machine") == 0
+          || strcmp (argv[argc], "version") == 0
           || strcmp (argv[argc], "context") == 0
           || strcmp (argv[argc], "search") == 0
+          || strcmp (argv[argc], "compose") == 0
           || (strcmp (argv[argc], "system") == 0 && argv[argc+1] && strcmp (argv[argc+1], "service") != 0))
         {
           ret = false;

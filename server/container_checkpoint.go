@@ -18,6 +18,17 @@ import (
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
+// CheckpointedPodOptions is the metadata stored inside a pod checkpoint
+// archive. checkpointctl dropped its own copy of this type, so CRI-O now owns
+// it; the JSON field names must stay as they are to keep the on-disk format of
+// metadata.PodOptionsFile readable by existing tooling.
+type CheckpointedPodOptions struct {
+	Version      int      `json:"version"`
+	Containers   []string `json:"containers,omitempty"`
+	MountLabel   string   `json:"mountLabel"`
+	ProcessLabel string   `json:"processLabel"`
+}
+
 // CheckpointContainer checkpoints a container
 func (s *Server) CheckpointContainer(ctx context.Context, req *types.CheckpointContainerRequest) error {
 	if !s.config.RuntimeConfig.CheckpointRestore() {
@@ -26,7 +37,7 @@ func (s *Server) CheckpointContainer(ctx context.Context, req *types.CheckpointC
 
 	var opts []*lib.ContainerCheckpointRestoreOptions
 	var podCheckpointDirectory string
-	var checkpointedPodOptions metadata.CheckpointedPodOptions
+	var checkpointedPodOptions CheckpointedPodOptions
 
 	_, err := s.GetContainerFromShortID(req.ContainerId)
 	if err != nil {

@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package libpod
 
 import (
@@ -203,7 +206,6 @@ type ContainerState struct {
 	// restart policy. This is NOT incremented by normal container restarts
 	// (only by restart policy).
 	RestartCount uint `json:"restartCount,omitempty"`
-
 	// StartupHCPassed indicates that the startup healthcheck has
 	// succeeded and the main healthcheck can begin.
 	StartupHCPassed bool `json:"startupHCPassed,omitempty"`
@@ -684,6 +686,15 @@ func (c *Container) Hostname() string {
 		return c.config.Spec.Hostname
 	}
 
+	// if the container is not running in a private UTS namespace,
+	// return the host's hostname.
+	privateUTS := c.hasPrivateUTS()
+	if !privateUTS {
+		hostname, err := os.Hostname()
+		if err == nil {
+			return hostname
+		}
+	}
 	if len(c.ID()) < 11 {
 		return c.ID()
 	}
@@ -714,6 +725,14 @@ func (c *Container) LinuxResources() *spec.LinuxResources {
 	return nil
 }
 
+// Env returns the default environment variables defined for the container
+func (c *Container) Env() []string {
+	if c.config.Spec != nil && c.config.Spec.Process != nil {
+		return c.config.Spec.Process.Env
+	}
+	return nil
+}
+
 // State Accessors
 // Require locking
 
@@ -728,6 +747,18 @@ func (c *Container) State() (define.ContainerStatus, error) {
 		}
 	}
 	return c.state.State, nil
+}
+
+func (c *Container) RestartCount() (uint, error) {
+	if !c.batched {
+		c.lock.Lock()
+		defer c.lock.Unlock()
+
+		if err := c.syncContainer(); err != nil {
+			return 0, err
+		}
+	}
+	return c.state.RestartCount, nil
 }
 
 // Mounted returns whether the container is mounted and the path it is mounted
@@ -880,6 +911,17 @@ func (c *Container) execSessionNoCopy(id string) (*ExecSession, error) {
 	session, ok := c.state.ExecSessions[id]
 	if !ok {
 		return nil, fmt.Errorf("no exec session with ID %s found in container %s: %w", id, c.ID(), define.ErrNoSuchExecSession)
+	}
+
+	// make sure to update the exec session if needed #18424
+	alive, err := c.ociRuntime.ExecUpdateStatus(c, id)
+	if err != nil {
+		return nil, err
+	}
+	if !alive {
+		if err := retrieveAndWriteExecExitCode(c, session.ID()); err != nil {
+			return nil, err
+		}
 	}
 
 	return session, nil
@@ -1188,29 +1230,14 @@ func (c *Container) HostNetwork() bool {
 	if c.config.CreateNetNS || c.config.NetNsCtr != "" {
 		return false
 	}
-	for _, ns := range c.config.Spec.Linux.Namespaces {
-		if ns.Type == spec.NetworkNamespace {
-			return false
+	if c.config.Spec.Linux != nil {
+		for _, ns := range c.config.Spec.Linux.Namespaces {
+			if ns.Type == spec.NetworkNamespace {
+				return false
+			}
 		}
 	}
 	return true
-}
-
-// ContainerState returns containerstate struct
-func (c *Container) ContainerState() (*ContainerState, error) {
-	if !c.batched {
-		c.lock.Lock()
-		defer c.lock.Unlock()
-
-		if err := c.syncContainer(); err != nil {
-			return nil, err
-		}
-	}
-	returnConfig := new(ContainerState)
-	if err := JSONDeepCopy(c.state, returnConfig); err != nil {
-		return nil, fmt.Errorf("copying container %s state: %w", c.ID(), err)
-	}
-	return c.state, nil
 }
 
 // HasHealthCheck returns bool as to whether there is a health check
@@ -1330,6 +1357,21 @@ func (d ContainerNetworkDescriptions) getInterfaceByName(networkName string) (st
 		return "", exists
 	}
 	return fmt.Sprintf("eth%d", val), exists
+}
+
+// GetNetworkStatus returns the current network status for this container.
+// This returns a map without deep copying which means this should only ever
+// be used as read only access, do not modify this status.
+func (c *Container) GetNetworkStatus() (map[string]types.StatusBlock, error) {
+	if !c.batched {
+		c.lock.Lock()
+		defer c.lock.Unlock()
+
+		if err := c.syncContainer(); err != nil {
+			return nil, err
+		}
+	}
+	return c.getNetworkStatus(), nil
 }
 
 // getNetworkStatus get the current network status from the state. If the container

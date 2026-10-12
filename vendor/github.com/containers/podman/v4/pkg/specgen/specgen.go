@@ -6,7 +6,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/containers/common/libimage"
 	nettypes "github.com/containers/common/libnetwork/types"
 	"github.com/containers/image/v5/manifest"
 	"github.com/containers/podman/v4/libpod/define"
@@ -160,7 +159,7 @@ type ContainerBasicConfig struct {
 	// Conflicts with UtsNS if UtsNS is not set to private.
 	// Optional.
 	Hostname string `json:"hostname,omitempty"`
-	// HostUses is a list of host usernames or UIDs to add to the container
+	// HostUsers is a list of host usernames or UIDs to add to the container
 	// /etc/passwd file
 	HostUsers []string `json:"hostusers,omitempty"`
 	// Sysctl sets kernel parameters for the container
@@ -219,6 +218,8 @@ type ContainerBasicConfig struct {
 	Passwd *bool `json:"manage_password,omitempty"`
 	// PasswdEntry specifies arbitrary data to append to a file.
 	PasswdEntry string `json:"passwd_entry,omitempty"`
+	// GroupEntry specifies arbitrary data to append to a file.
+	GroupEntry string `json:"group_entry,omitempty"`
 }
 
 // ContainerStorageConfig contains information on the storage configuration of a
@@ -238,6 +239,8 @@ type ContainerStorageConfig struct {
 	Rootfs string `json:"rootfs,omitempty"`
 	// RootfsOverlay tells if rootfs is actually an overlay on top of base path
 	RootfsOverlay bool `json:"rootfs_overlay,omitempty"`
+	// RootfsMapping specifies if there are mappings to apply to the rootfs.
+	RootfsMapping *string `json:"rootfs_mapping,omitempty"`
 	// ImageVolumeMode indicates how image volumes will be created.
 	// Supported modes are "ignore" (do not create), "tmpfs" (create as
 	// tmpfs), and "anonymous" (create as anonymous volumes).
@@ -293,6 +296,10 @@ type ContainerStorageConfig struct {
 	// Conflicts with ShmSize if IpcNS is not private.
 	// Optional.
 	ShmSize *int64 `json:"shm_size,omitempty"`
+	// ShmSizeSystemd is the size of systemd-specific tmpfs mounts
+	// specifically /run, /run/lock, /var/log/journal and /tmp.
+	// Optional
+	ShmSizeSystemd *int64 `json:"shm_size_systemd,omitempty"`
 	// WorkDir is the container's working directory.
 	// If unset, the default, /, will be used.
 	// Optional.
@@ -387,6 +394,10 @@ type ContainerSecurityConfig struct {
 	// ReadWriteTmpfs indicates that when running with a ReadOnlyFilesystem
 	// mount temporary file systems
 	ReadWriteTmpfs bool `json:"read_write_tmpfs,omitempty"`
+
+	// LabelNested indicates whether or not the container is allowed to
+	// run fully nested containers including labelling
+	LabelNested bool `json:"label_nested,omitempty"`
 
 	// Umask is the umask the init process of the container will be run with.
 	Umask string `json:"umask,omitempty"`
@@ -503,6 +514,10 @@ type ContainerNetworkConfig struct {
 
 // ContainerResourceConfig contains information on container resource limits.
 type ContainerResourceConfig struct {
+	// IntelRdt defines the Intel RDT CAT Class of Service (COS) that all processes
+	// of the container should run in.
+	// Optional.
+	IntelRdt *spec.LinuxIntelRdt `json:"intelRdt,omitempty"`
 	// ResourceLimits are resource limits to apply to the container.,
 	// Can only be set as root on cgroups v1 systems, but can be set as
 	// rootless as well for cgroups v2.
@@ -558,20 +573,13 @@ type SpecGenerator struct {
 	ContainerResourceConfig
 	ContainerHealthCheckConfig
 
-	image             *libimage.Image `json:"-"`
-	resolvedImageName string          `json:"-"`
+	//nolint:unused // this is needed for the local client but golangci-lint
+	// does not seems to happy when we test the remote stub
+	cacheLibImage
 }
 
-// SetImage sets the associated for the generator.
-func (s *SpecGenerator) SetImage(image *libimage.Image, resolvedImageName string) {
-	s.image = image
-	s.resolvedImageName = resolvedImageName
-}
-
-// Image returns the associated image for the generator.
-// May be nil if no image has been set yet.
-func (s *SpecGenerator) GetImage() (*libimage.Image, string) {
-	return s.image, s.resolvedImageName
+func (s *SpecGenerator) IsInitContainer() bool {
+	return len(s.InitContainerType) != 0
 }
 
 type Secret struct {
@@ -600,9 +608,15 @@ func NewSpecGenerator(arg string, rootfs bool) *SpecGenerator {
 		csc.Rootfs = arg
 		// check if rootfs should use overlay
 		lastColonIndex := strings.LastIndex(csc.Rootfs, ":")
-		if lastColonIndex != -1 && lastColonIndex+1 < len(csc.Rootfs) && csc.Rootfs[lastColonIndex+1:] == "O" {
-			csc.RootfsOverlay = true
-			csc.Rootfs = csc.Rootfs[:lastColonIndex]
+		if lastColonIndex != -1 {
+			lastPart := csc.Rootfs[lastColonIndex+1:]
+			if lastPart == "O" {
+				csc.RootfsOverlay = true
+				csc.Rootfs = csc.Rootfs[:lastColonIndex]
+			} else if lastPart == "idmap" || strings.HasPrefix(lastPart, "idmap=") {
+				csc.RootfsMapping = &lastPart
+				csc.Rootfs = csc.Rootfs[:lastColonIndex]
+			}
 		}
 	} else {
 		csc.Image = arg

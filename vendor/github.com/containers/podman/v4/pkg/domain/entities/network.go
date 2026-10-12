@@ -50,11 +50,14 @@ type NetworkCreateOptions struct {
 	NetworkDNSServers []string
 	Ranges            []string
 	Subnets           []string
+	Routes            []string
 	IPv6              bool
 	// Mapping of driver options and values.
 	Options map[string]string
 	// IgnoreIfExists if true, do not fail if the network already exists
 	IgnoreIfExists bool
+	// InterfaceName sets the NetworkInterface in the network config
+	InterfaceName string
 }
 
 // NetworkUpdateOptions describes options to update a network

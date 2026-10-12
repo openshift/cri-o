@@ -1,4 +1,5 @@
-//go:build linux || freebsd
+//go:build !remote && (linux || freebsd)
+// +build !remote
 // +build linux freebsd
 
 package libpod
@@ -101,7 +102,7 @@ func (v *Volume) mount() error {
 	}
 	switch volType {
 	case "":
-	case "bind":
+	case define.TypeBind:
 		mountArgs = append(mountArgs, "-o", volType)
 	default:
 		mountArgs = append(mountArgs, "-t", volType)

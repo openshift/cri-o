@@ -16,7 +16,7 @@ import (
 var _ = t.Describe("ContainerRestore", func() {
 	// Prepare the sut
 	BeforeEach(func() {
-		if !criu.CheckForCriu(criu.PodCriuVersion) {
+		if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 			Skip("CRIU is missing or too old.")
 		}
 		beforeEach()
@@ -68,7 +68,7 @@ var _ = t.Describe("ContainerRestore", func() {
 				nil,
 			)
 			// Then
-			Expect(err.Error()).To(ContainSubstring(`failed to read "spec.dump": failed to read`))
+			Expect(err.Error()).To(ContainSubstring(`failed to read "spec.dump":`))
 		})
 	})
 	t.Describe("ContainerRestore from archive into new pod", func() {
