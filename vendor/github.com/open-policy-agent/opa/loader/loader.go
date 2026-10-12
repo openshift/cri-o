@@ -8,16 +8,17 @@ package loader
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"io/fs"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/ghodss/yaml"
+	"sigs.k8s.io/yaml"
 
 	"github.com/open-policy-agent/opa/ast"
+	astJSON "github.com/open-policy-agent/opa/ast/json"
 	"github.com/open-policy-agent/opa/bundle"
 	fileurl "github.com/open-policy-agent/opa/internal/file/url"
 	"github.com/open-policy-agent/opa/internal/merge"
@@ -80,7 +81,7 @@ type Filter = filter.LoaderFilter
 // GlobExcludeName excludes files and directories whose names do not match the
 // shell style pattern at minDepth or greater.
 func GlobExcludeName(pattern string, minDepth int) Filter {
-	return func(abspath string, info fs.FileInfo, depth int) bool {
+	return func(_ string, info fs.FileInfo, depth int) bool {
 		match, _ := filepath.Match(pattern, info.Name())
 		return match && depth >= minDepth
 	}
@@ -92,12 +93,17 @@ type FileLoader interface {
 	All(paths []string) (*Result, error)
 	Filtered(paths []string, filter Filter) (*Result, error)
 	AsBundle(path string) (*bundle.Bundle, error)
-	WithFS(fsys fs.FS) FileLoader
-	WithMetrics(m metrics.Metrics) FileLoader
-	WithFilter(filter Filter) FileLoader
+	WithReader(io.Reader) FileLoader
+	WithFS(fs.FS) FileLoader
+	WithMetrics(metrics.Metrics) FileLoader
+	WithFilter(Filter) FileLoader
 	WithBundleVerificationConfig(*bundle.VerificationConfig) FileLoader
-	WithSkipBundleVerification(skipVerify bool) FileLoader
-	WithProcessAnnotation(processAnnotation bool) FileLoader
+	WithSkipBundleVerification(bool) FileLoader
+	WithProcessAnnotation(bool) FileLoader
+	WithCapabilities(*ast.Capabilities) FileLoader
+	WithJSONOptions(*astJSON.Options) FileLoader
+	WithRegoVersion(ast.RegoVersion) FileLoader
+	WithFollowSymlinks(bool) FileLoader
 }
 
 // NewFileLoader returns a new FileLoader instance.
@@ -109,13 +115,15 @@ func NewFileLoader() FileLoader {
 }
 
 type fileLoader struct {
-	metrics    metrics.Metrics
-	filter     Filter
-	bvc        *bundle.VerificationConfig
-	skipVerify bool
-	files      map[string]bundle.FileInfo
-	opts       ast.ParserOptions
-	fsys       fs.FS
+	metrics        metrics.Metrics
+	filter         Filter
+	bvc            *bundle.VerificationConfig
+	skipVerify     bool
+	files          map[string]bundle.FileInfo
+	opts           ast.ParserOptions
+	fsys           fs.FS
+	reader         io.Reader
+	followSymlinks bool
 }
 
 // WithFS provides an fs.FS to use for loading files. You can pass nil to
@@ -123,6 +131,14 @@ type fileLoader struct {
 // behaviour.
 func (fl *fileLoader) WithFS(fsys fs.FS) FileLoader {
 	fl.fsys = fsys
+	return fl
+}
+
+// WithReader provides an io.Reader to use for loading the bundle tarball.
+// An io.Reader passed via WithReader takes precedence over an fs.FS passed
+// via WithFS.
+func (fl *fileLoader) WithReader(rdr io.Reader) FileLoader {
+	fl.reader = rdr
 	return fl
 }
 
@@ -156,6 +172,30 @@ func (fl *fileLoader) WithProcessAnnotation(processAnnotation bool) FileLoader {
 	return fl
 }
 
+// WithCapabilities sets the supported capabilities when loading the files
+func (fl *fileLoader) WithCapabilities(caps *ast.Capabilities) FileLoader {
+	fl.opts.Capabilities = caps
+	return fl
+}
+
+// WithJSONOptions sets the JSONOptions for use when parsing files
+func (fl *fileLoader) WithJSONOptions(opts *astJSON.Options) FileLoader {
+	fl.opts.JSONOptions = opts
+	return fl
+}
+
+// WithRegoVersion sets the ast.RegoVersion to use when parsing and compiling modules.
+func (fl *fileLoader) WithRegoVersion(version ast.RegoVersion) FileLoader {
+	fl.opts.RegoVersion = version
+	return fl
+}
+
+// WithFollowSymlinks enables or disables following symlinks when loading files
+func (fl *fileLoader) WithFollowSymlinks(followSymlinks bool) FileLoader {
+	fl.followSymlinks = followSymlinks
+	return fl
+}
+
 // All returns a Result object loaded (recursively) from the specified paths.
 func (fl fileLoader) All(paths []string) (*Result, error) {
 	return fl.Filtered(paths, nil)
@@ -174,7 +214,7 @@ func (fl fileLoader) Filtered(paths []string, filter Filter) (*Result, error) {
 		if fl.fsys != nil {
 			bs, err = fs.ReadFile(fl.fsys, path)
 		} else {
-			bs, err = ioutil.ReadFile(path)
+			bs, err = os.ReadFile(path)
 		}
 		if err != nil {
 			return err
@@ -206,16 +246,33 @@ func (fl fileLoader) AsBundle(path string) (*bundle.Bundle, error) {
 	if err != nil {
 		return nil, err
 	}
-	bundleLoader, isDir, err := GetBundleDirectoryLoaderWithFilter(path, fl.filter)
+
+	if err := checkForUNCPath(path); err != nil {
+		return nil, err
+	}
+
+	var bundleLoader bundle.DirectoryLoader
+	var isDir bool
+	if fl.reader != nil {
+		bundleLoader = bundle.NewTarballLoaderWithBaseURL(fl.reader, path).WithFilter(fl.filter)
+	} else {
+		bundleLoader, isDir, err = GetBundleDirectoryLoaderFS(fl.fsys, path, fl.filter)
+	}
+
 	if err != nil {
 		return nil, err
 	}
+	bundleLoader = bundleLoader.WithFollowSymlinks(fl.followSymlinks)
 
 	br := bundle.NewCustomReader(bundleLoader).
 		WithMetrics(fl.metrics).
 		WithBundleVerificationConfig(fl.bvc).
 		WithSkipBundleVerification(fl.skipVerify).
-		WithProcessAnnotations(fl.opts.ProcessAnnotation)
+		WithProcessAnnotations(fl.opts.ProcessAnnotation).
+		WithCapabilities(fl.opts.Capabilities).
+		WithJSONOptions(fl.opts.JSONOptions).
+		WithFollowSymlinks(fl.followSymlinks).
+		WithRegoVersion(fl.opts.RegoVersion)
 
 	// For bundle directories add the full path in front of module file names
 	// to simplify debugging.
@@ -232,55 +289,61 @@ func (fl fileLoader) AsBundle(path string) (*bundle.Bundle, error) {
 }
 
 // GetBundleDirectoryLoader returns a bundle directory loader which can be used to load
-// files in the directory.
+// files in the directory
 func GetBundleDirectoryLoader(path string) (bundle.DirectoryLoader, bool, error) {
-	path, err := fileurl.Clean(path)
-	if err != nil {
-		return nil, false, err
-	}
-
-	fi, err := os.Stat(path)
-	if err != nil {
-		return nil, false, fmt.Errorf("error reading %q: %s", path, err)
-	}
-
-	var bundleLoader bundle.DirectoryLoader
-
-	if fi.IsDir() {
-		bundleLoader = bundle.NewDirectoryLoader(path)
-	} else {
-		fh, err := os.Open(path)
-		if err != nil {
-			return nil, false, err
-		}
-		bundleLoader = bundle.NewTarballLoaderWithBaseURL(fh, path)
-	}
-	return bundleLoader, fi.IsDir(), nil
+	return GetBundleDirectoryLoaderFS(nil, path, nil)
 }
 
 // GetBundleDirectoryLoaderWithFilter returns a bundle directory loader which can be used to load
 // files in the directory after applying the given filter.
 func GetBundleDirectoryLoaderWithFilter(path string, filter Filter) (bundle.DirectoryLoader, bool, error) {
+	return GetBundleDirectoryLoaderFS(nil, path, filter)
+}
+
+// GetBundleDirectoryLoaderFS returns a bundle directory loader which can be used to load
+// files in the directory.
+func GetBundleDirectoryLoaderFS(fsys fs.FS, path string, filter Filter) (bundle.DirectoryLoader, bool, error) {
 	path, err := fileurl.Clean(path)
 	if err != nil {
 		return nil, false, err
 	}
 
-	fi, err := os.Stat(path)
+	if err := checkForUNCPath(path); err != nil {
+		return nil, false, err
+	}
+
+	var fi fs.FileInfo
+	if fsys != nil {
+		fi, err = fs.Stat(fsys, path)
+	} else {
+		fi, err = os.Stat(path)
+	}
 	if err != nil {
 		return nil, false, fmt.Errorf("error reading %q: %s", path, err)
 	}
 
 	var bundleLoader bundle.DirectoryLoader
-
 	if fi.IsDir() {
-		bundleLoader = bundle.NewDirectoryLoader(path).WithFilter(filter)
+		if fsys != nil {
+			bundleLoader = bundle.NewFSLoaderWithRoot(fsys, path)
+		} else {
+			bundleLoader = bundle.NewDirectoryLoader(path)
+		}
 	} else {
-		fh, err := os.Open(path)
+		var fh fs.File
+		if fsys != nil {
+			fh, err = fsys.Open(path)
+		} else {
+			fh, err = os.Open(path)
+		}
 		if err != nil {
 			return nil, false, err
 		}
-		bundleLoader = bundle.NewTarballLoaderWithBaseURL(fh, path).WithFilter(filter)
+		bundleLoader = bundle.NewTarballLoaderWithBaseURL(fh, path)
+	}
+
+	if filter != nil {
+		bundleLoader = bundleLoader.WithFilter(filter)
 	}
 	return bundleLoader, fi.IsDir(), nil
 }
@@ -404,7 +467,7 @@ func getSchemaSetByPathKey(path string) ast.Ref {
 }
 
 func loadOneSchema(path string) (interface{}, error) {
-	bs, err := ioutil.ReadFile(path)
+	bs, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -442,7 +505,7 @@ func AsBundle(path string) (*bundle.Bundle, error) {
 // AllRegos returns a Result object loaded (recursively) with all Rego source
 // files from the specified paths.
 func AllRegos(paths []string) (*Result, error) {
-	return NewFileLoader().Filtered(paths, func(_ string, info os.FileInfo, depth int) bool {
+	return NewFileLoader().Filtered(paths, func(_ string, info os.FileInfo, _ int) bool {
 		return !info.IsDir() && !strings.HasSuffix(info.Name(), bundle.RegoExt)
 	})
 }
@@ -458,7 +521,7 @@ func RegoWithOpts(path string, opts ast.ParserOptions) (*RegoFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	bs, err := ioutil.ReadFile(path)
+	bs, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -478,7 +541,7 @@ func Paths(path string, recurse bool) (paths []string, err error) {
 	if err != nil {
 		return nil, err
 	}
-	err = filepath.Walk(path, func(f string, info os.FileInfo, err error) error {
+	err = filepath.Walk(path, func(f string, _ os.FileInfo, _ error) error {
 		if !recurse {
 			if path != f && path != filepath.Dir(f) {
 				return filepath.SkipDir
@@ -609,12 +672,18 @@ func allRec(fsys fs.FS, path string, filter Filter, errors *Errors, loaded *Resu
 		return
 	}
 
+	if err := checkForUNCPath(path); err != nil {
+		errors.add(err)
+		return
+	}
+
 	var info fs.FileInfo
 	if fsys != nil {
 		info, err = fs.Stat(fsys, path)
 	} else {
 		info, err = os.Stat(path)
 	}
+
 	if err != nil {
 		errors.add(err)
 		return
@@ -663,7 +732,7 @@ func loadKnownTypes(path string, bs []byte, m metrics.Metrics, opts ast.ParserOp
 		return loadYAML(path, bs, m)
 	default:
 		if strings.HasSuffix(path, ".tar.gz") {
-			r, err := loadBundleFile(path, bs, m)
+			r, err := loadBundleFile(path, bs, m, opts)
 			if err != nil {
 				err = fmt.Errorf("bundle %s: %w", path, err)
 			}
@@ -689,9 +758,15 @@ func loadFileForAnyType(path string, bs []byte, m metrics.Metrics, opts ast.Pars
 	return nil, unrecognizedFile(path)
 }
 
-func loadBundleFile(path string, bs []byte, m metrics.Metrics) (bundle.Bundle, error) {
+func loadBundleFile(path string, bs []byte, m metrics.Metrics, opts ast.ParserOptions) (bundle.Bundle, error) {
 	tl := bundle.NewTarballLoaderWithBaseURL(bytes.NewBuffer(bs), path)
-	br := bundle.NewCustomReader(tl).WithMetrics(m).WithSkipBundleVerification(true).IncludeManifestInData(true)
+	br := bundle.NewCustomReader(tl).
+		WithRegoVersion(opts.RegoVersion).
+		WithJSONOptions(opts.JSONOptions).
+		WithProcessAnnotations(opts.ProcessAnnotation).
+		WithMetrics(m).
+		WithSkipBundleVerification(true).
+		IncludeManifestInData(true)
 	return br.Read()
 }
 
@@ -714,11 +789,10 @@ func loadRego(path string, bs []byte, m metrics.Metrics, opts ast.ParserOptions)
 
 func loadJSON(path string, bs []byte, m metrics.Metrics) (interface{}, error) {
 	m.Timer(metrics.RegoDataParse).Start()
-	buf := bytes.NewBuffer(bs)
-	decoder := util.NewJSONDecoder(buf)
 	var x interface{}
-	err := decoder.Decode(&x)
+	err := util.UnmarshalJSON(bs, &x)
 	m.Timer(metrics.RegoDataParse).Stop()
+
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
@@ -744,4 +818,20 @@ func makeDir(path []string, x interface{}) (map[string]interface{}, bool) {
 		return obj, true
 	}
 	return makeDir(path[:len(path)-1], map[string]interface{}{path[len(path)-1]: x})
+}
+
+// isUNC reports whether path is a UNC path.
+func isUNC(path string) bool {
+	return len(path) > 1 && isSlash(path[0]) && isSlash(path[1])
+}
+
+func isSlash(c uint8) bool {
+	return c == '\\' || c == '/'
+}
+
+func checkForUNCPath(path string) error {
+	if isUNC(path) {
+		return fmt.Errorf("UNC path read is not allowed: %s", path)
+	}
+	return nil
 }

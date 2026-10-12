@@ -14,9 +14,9 @@ import (
 	"time"
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
-	"github.com/containers/common/pkg/cgroups"
-	"github.com/containers/common/pkg/signal"
-	"github.com/containers/storage/pkg/idtools"
+	"go.podman.io/common/pkg/cgroups"
+	"go.podman.io/common/pkg/signal"
+	"go.podman.io/storage/pkg/idtools"
 	"github.com/cri-o/cri-o/internal/config/nsmgr"
 	"github.com/cri-o/cri-o/internal/log"
 	ann "github.com/cri-o/cri-o/pkg/annotations"

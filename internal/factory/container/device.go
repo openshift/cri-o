@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/container-orchestrated-devices/container-device-interface/pkg/cdi"
+	"tags.cncf.io/container-device-interface/pkg/cdi"
 	devicecfg "github.com/cri-o/cri-o/internal/config/device"
 
 	"github.com/cri-o/cri-o/internal/log"
@@ -185,8 +185,7 @@ func (c *container) specInjectCDIDevices() error {
 		return nil
 	}
 
-	registry := cdi.GetRegistry()
-	if err := registry.Refresh(); err != nil {
+	if err := cdi.Refresh(); err != nil {
 		// We don't consider registry refresh failure a fatal error.
 		// For instance, a dynamically generated invalid CDI Spec file for
 		// any particular vendor shouldn't prevent injection of devices of
@@ -196,7 +195,7 @@ func (c *container) specInjectCDIDevices() error {
 		log.Warnf(context.TODO(), "CDI registry has errors: %v", err)
 	}
 
-	if _, err := registry.InjectDevices(c.Spec().Config, names...); err != nil {
+	if _, err := cdi.InjectDevices(c.Spec().Config, names...); err != nil {
 		return fmt.Errorf("CDI device injection failed: %w", err)
 	}
 

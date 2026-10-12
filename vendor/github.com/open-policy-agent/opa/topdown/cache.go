@@ -9,16 +9,40 @@ import (
 	"github.com/open-policy-agent/opa/util"
 )
 
+// VirtualCache defines the interface for a cache that stores the results of
+// evaluated virtual documents (rules).
+// The cache is a stack of frames, where each frame is a mapping from references
+// to values.
+type VirtualCache interface {
+	// Push pushes a new, empty frame of value mappings onto the stack.
+	Push()
+
+	// Pop pops the top frame of value mappings from the stack, removing all associated entries.
+	Pop()
+
+	// Get returns the value associated with the given reference. The second return value
+	// indicates whether the reference has a recorded 'undefined' result.
+	Get(ref ast.Ref) (*ast.Term, bool)
+
+	// Put associates the given reference with the given value. If the value is nil, the reference
+	// is marked as having an 'undefined' result.
+	Put(ref ast.Ref, value *ast.Term)
+
+	// Keys returns the set of keys that have been cached for the active frame.
+	Keys() []ast.Ref
+}
+
 type virtualCache struct {
 	stack []*virtualCacheElem
 }
 
 type virtualCacheElem struct {
-	value    *ast.Term
-	children *util.HashMap
+	value     *ast.Term
+	children  *util.HashMap
+	undefined bool
 }
 
-func newVirtualCache() *virtualCache {
+func NewVirtualCache() VirtualCache {
 	cache := &virtualCache{}
 	cache.Push()
 	return cache
@@ -32,18 +56,31 @@ func (c *virtualCache) Pop() {
 	c.stack = c.stack[:len(c.stack)-1]
 }
 
-func (c *virtualCache) Get(ref ast.Ref) *ast.Term {
+// Returns the resolved value of the AST term and a flag indicating if the value
+// should be interpretted as undefined:
+//
+//	nil, true indicates the ref is undefined
+//	ast.Term, false indicates the ref is defined
+//	nil, false indicates the ref has not been cached
+//	ast.Term, true is impossible
+func (c *virtualCache) Get(ref ast.Ref) (*ast.Term, bool) {
 	node := c.stack[len(c.stack)-1]
 	for i := 0; i < len(ref); i++ {
 		x, ok := node.children.Get(ref[i])
 		if !ok {
-			return nil
+			return nil, false
 		}
 		node = x.(*virtualCacheElem)
 	}
-	return node.value
+	if node.undefined {
+		return nil, true
+	}
+
+	return node.value, false
 }
 
+// If value is a nil pointer, set the 'undefined' flag on the cache element to
+// indicate that the Ref has resolved to undefined.
 func (c *virtualCache) Put(ref ast.Ref, value *ast.Term) {
 	node := c.stack[len(c.stack)-1]
 	for i := 0; i < len(ref); i++ {
@@ -56,7 +93,31 @@ func (c *virtualCache) Put(ref ast.Ref, value *ast.Term) {
 			node = next
 		}
 	}
-	node.value = value
+	if value != nil {
+		node.value = value
+	} else {
+		node.undefined = true
+	}
+}
+
+func (c *virtualCache) Keys() []ast.Ref {
+	node := c.stack[len(c.stack)-1]
+	return keysRecursive(nil, node)
+}
+
+func keysRecursive(root ast.Ref, node *virtualCacheElem) []ast.Ref {
+	var keys []ast.Ref
+	node.children.Iter(func(k, v util.T) bool {
+		ref := root.Append(k.(*ast.Term))
+		if v.(*virtualCacheElem).value != nil {
+			keys = append(keys, ref)
+		}
+		if v.(*virtualCacheElem).children.Len() > 0 {
+			keys = append(keys, keysRecursive(ref, v.(*virtualCacheElem))...)
+		}
+		return false
+	})
+	return keys
 }
 
 func newVirtualCacheElem() *virtualCacheElem {

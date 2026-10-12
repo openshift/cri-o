@@ -6,8 +6,8 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -17,6 +17,8 @@ import (
 
 	"github.com/open-policy-agent/opa/storage"
 )
+
+const maxSizeLimitBytesErrMsg = "bundle file %s size (%d bytes) exceeds configured size_limit_bytes (%d bytes)"
 
 // Descriptor contains information about a file and
 // can be used to read the file contents.
@@ -64,7 +66,7 @@ func (f *lazyFile) Close() error {
 	return nil
 }
 
-func newDescriptor(url, path string, reader io.Reader) *Descriptor {
+func NewDescriptor(url, path string, reader io.Reader) *Descriptor {
 	return &Descriptor{
 		url:    url,
 		path:   path,
@@ -72,7 +74,7 @@ func newDescriptor(url, path string, reader io.Reader) *Descriptor {
 	}
 }
 
-func (d *Descriptor) withCloser(closer io.Closer) *Descriptor {
+func (d *Descriptor) WithCloser(closer io.Closer) *Descriptor {
 	d.closer = closer
 	d.closeOnce = new(sync.Once)
 	return d
@@ -108,6 +110,14 @@ func (d *Descriptor) Close() error {
 	return err
 }
 
+type PathFormat int64
+
+const (
+	Chrooted PathFormat = iota
+	SlashRooted
+	Passthrough
+)
+
 // DirectoryLoader defines an interface which can be used to load
 // files from a directory by iterating over each one in the tree.
 type DirectoryLoader interface {
@@ -115,23 +125,26 @@ type DirectoryLoader interface {
 	// descriptor should *always* be closed when no longer needed.
 	NextFile() (*Descriptor, error)
 	WithFilter(filter filter.LoaderFilter) DirectoryLoader
+	WithPathFormat(PathFormat) DirectoryLoader
+	WithSizeLimitBytes(sizeLimitBytes int64) DirectoryLoader
+	WithFollowSymlinks(followSymlinks bool) DirectoryLoader
 }
 
 type dirLoader struct {
-	root   string
-	files  []string
-	idx    int
-	filter filter.LoaderFilter
+	root              string
+	files             []string
+	idx               int
+	filter            filter.LoaderFilter
+	pathFormat        PathFormat
+	maxSizeLimitBytes int64
+	followSymlinks    bool
 }
 
-// NewDirectoryLoader returns a basic DirectoryLoader implementation
-// that will load files from a given root directory path.
-func NewDirectoryLoader(root string) DirectoryLoader {
-
+// Normalize root directory, ex "./src/bundle" -> "src/bundle"
+// We don't need an absolute path, but this makes the joined/trimmed
+// paths more uniform.
+func normalizeRootDirectory(root string) string {
 	if len(root) > 1 {
-		// Normalize relative directories, ex "./src/bundle" -> "src/bundle"
-		// We don't need an absolute path, but this makes the joined/trimmed
-		// paths more uniform.
 		if root[0] == '.' && root[1] == filepath.Separator {
 			if len(root) == 2 {
 				root = root[:1] // "./" -> "."
@@ -140,9 +153,15 @@ func NewDirectoryLoader(root string) DirectoryLoader {
 			}
 		}
 	}
+	return root
+}
 
+// NewDirectoryLoader returns a basic DirectoryLoader implementation
+// that will load files from a given root directory path.
+func NewDirectoryLoader(root string) DirectoryLoader {
 	d := dirLoader{
-		root: root,
+		root:       normalizeRootDirectory(root),
+		pathFormat: Chrooted,
 	}
 	return &d
 }
@@ -153,19 +172,76 @@ func (d *dirLoader) WithFilter(filter filter.LoaderFilter) DirectoryLoader {
 	return d
 }
 
+// WithPathFormat specifies how a path is formatted in a Descriptor
+func (d *dirLoader) WithPathFormat(pathFormat PathFormat) DirectoryLoader {
+	d.pathFormat = pathFormat
+	return d
+}
+
+// WithSizeLimitBytes specifies the maximum size of any file in the directory to read
+func (d *dirLoader) WithSizeLimitBytes(sizeLimitBytes int64) DirectoryLoader {
+	d.maxSizeLimitBytes = sizeLimitBytes
+	return d
+}
+
+// WithFollowSymlinks specifies whether to follow symlinks when loading files from the directory
+func (d *dirLoader) WithFollowSymlinks(followSymlinks bool) DirectoryLoader {
+	d.followSymlinks = followSymlinks
+	return d
+}
+
+func formatPath(fileName string, root string, pathFormat PathFormat) string {
+	switch pathFormat {
+	case SlashRooted:
+		if !strings.HasPrefix(fileName, string(filepath.Separator)) {
+			return string(filepath.Separator) + fileName
+		}
+		return fileName
+	case Chrooted:
+		// Trim off the root directory and return path as if chrooted
+		result := strings.TrimPrefix(fileName, filepath.FromSlash(root))
+		if root == "." && filepath.Base(fileName) == ManifestExt {
+			result = fileName
+		}
+		if !strings.HasPrefix(result, string(filepath.Separator)) {
+			result = string(filepath.Separator) + result
+		}
+		return result
+	case Passthrough:
+		fallthrough
+	default:
+		return fileName
+	}
+}
+
 // NextFile iterates to the next file in the directory tree
 // and returns a file Descriptor for the file.
 func (d *dirLoader) NextFile() (*Descriptor, error) {
 	// build a list of all files we will iterate over and read, but only one time
 	if d.files == nil {
 		d.files = []string{}
-		err := filepath.Walk(d.root, func(path string, info os.FileInfo, err error) error {
-			if info != nil && info.Mode().IsRegular() {
+		err := filepath.Walk(d.root, func(path string, info os.FileInfo, _ error) error {
+			if info == nil {
+				return nil
+			}
+
+			if info.Mode().IsRegular() {
 				if d.filter != nil && d.filter(filepath.ToSlash(path), info, getdepth(path, false)) {
 					return nil
 				}
-				d.files = append(d.files, filepath.ToSlash(path))
-			} else if info != nil && info.Mode().IsDir() {
+				if d.maxSizeLimitBytes > 0 && info.Size() > d.maxSizeLimitBytes {
+					return fmt.Errorf(maxSizeLimitBytesErrMsg, strings.TrimPrefix(path, "/"), info.Size(), d.maxSizeLimitBytes)
+				}
+				d.files = append(d.files, path)
+			} else if d.followSymlinks && info.Mode().Type()&fs.ModeSymlink == fs.ModeSymlink {
+				if d.filter != nil && d.filter(filepath.ToSlash(path), info, getdepth(path, false)) {
+					return nil
+				}
+				if d.maxSizeLimitBytes > 0 && info.Size() > d.maxSizeLimitBytes {
+					return fmt.Errorf(maxSizeLimitBytesErrMsg, strings.TrimPrefix(path, "/"), info.Size(), d.maxSizeLimitBytes)
+				}
+				d.files = append(d.files, path)
+			} else if info.Mode().IsDir() {
 				if d.filter != nil && d.filter(filepath.ToSlash(path), info, getdepth(path, true)) {
 					return filepath.SkipDir
 				}
@@ -187,28 +263,21 @@ func (d *dirLoader) NextFile() (*Descriptor, error) {
 	d.idx++
 	fh := newLazyFile(fileName)
 
-	// Trim off the root directory and return path as if chrooted
-	cleanedPath := strings.TrimPrefix(fileName, d.root)
-	if d.root == "." && filepath.Base(fileName) == ManifestExt {
-		cleanedPath = fileName
-	}
-
-	if !strings.HasPrefix(cleanedPath, "/") {
-		cleanedPath = "/" + cleanedPath
-	}
-
-	f := newDescriptor(path.Join(d.root, cleanedPath), cleanedPath, fh).withCloser(fh)
+	cleanedPath := formatPath(fileName, d.root, d.pathFormat)
+	f := NewDescriptor(filepath.Join(d.root, cleanedPath), cleanedPath, fh).WithCloser(fh)
 	return f, nil
 }
 
 type tarballLoader struct {
-	baseURL string
-	r       io.Reader
-	tr      *tar.Reader
-	files   []file
-	idx     int
-	filter  filter.LoaderFilter
-	skipDir map[string]struct{}
+	baseURL           string
+	r                 io.Reader
+	tr                *tar.Reader
+	files             []file
+	idx               int
+	filter            filter.LoaderFilter
+	skipDir           map[string]struct{}
+	pathFormat        PathFormat
+	maxSizeLimitBytes int64
 }
 
 type file struct {
@@ -221,7 +290,8 @@ type file struct {
 // NewTarballLoader is deprecated. Use NewTarballLoaderWithBaseURL instead.
 func NewTarballLoader(r io.Reader) DirectoryLoader {
 	l := tarballLoader{
-		r: r,
+		r:          r,
+		pathFormat: Passthrough,
 	}
 	return &l
 }
@@ -231,8 +301,9 @@ func NewTarballLoader(r io.Reader) DirectoryLoader {
 // with the baseURL.
 func NewTarballLoaderWithBaseURL(r io.Reader, baseURL string) DirectoryLoader {
 	l := tarballLoader{
-		baseURL: strings.TrimSuffix(baseURL, "/"),
-		r:       r,
+		baseURL:    strings.TrimSuffix(baseURL, "/"),
+		r:          r,
+		pathFormat: Passthrough,
 	}
 	return &l
 }
@@ -240,6 +311,23 @@ func NewTarballLoaderWithBaseURL(r io.Reader, baseURL string) DirectoryLoader {
 // WithFilter specifies the filter object to use to filter files while loading bundles
 func (t *tarballLoader) WithFilter(filter filter.LoaderFilter) DirectoryLoader {
 	t.filter = filter
+	return t
+}
+
+// WithPathFormat specifies how a path is formatted in a Descriptor
+func (t *tarballLoader) WithPathFormat(pathFormat PathFormat) DirectoryLoader {
+	t.pathFormat = pathFormat
+	return t
+}
+
+// WithSizeLimitBytes specifies the maximum size of any file in the tarball to read
+func (t *tarballLoader) WithSizeLimitBytes(sizeLimitBytes int64) DirectoryLoader {
+	t.maxSizeLimitBytes = sizeLimitBytes
+	return t
+}
+
+// WithFollowSymlinks is a no-op for tarballLoader
+func (t *tarballLoader) WithFollowSymlinks(_ bool) DirectoryLoader {
 	return t
 }
 
@@ -264,6 +352,7 @@ func (t *tarballLoader) NextFile() (*Descriptor, error) {
 
 		for {
 			header, err := t.tr.Next()
+
 			if err == io.EOF {
 				break
 			}
@@ -301,14 +390,19 @@ func (t *tarballLoader) NextFile() (*Descriptor, error) {
 					}
 				}
 
+				if t.maxSizeLimitBytes > 0 && header.Size > t.maxSizeLimitBytes {
+					return nil, fmt.Errorf(maxSizeLimitBytesErrMsg, header.Name, header.Size, t.maxSizeLimitBytes)
+				}
+
 				f := file{name: header.Name}
 
-				var buf bytes.Buffer
-				if _, err := io.Copy(&buf, t.tr); err != nil {
+				// Note(philipc): We rely on the previous size check in this loop for safety.
+				buf := bytes.NewBuffer(make([]byte, 0, header.Size))
+				if _, err := io.Copy(buf, t.tr); err != nil {
 					return nil, fmt.Errorf("failed to copy file %s: %w", header.Name, err)
 				}
 
-				f.reader = &buf
+				f.reader = buf
 
 				t.files = append(t.files, f)
 			} else if header.Typeflag == tar.TypeDir {
@@ -329,23 +423,24 @@ func (t *tarballLoader) NextFile() (*Descriptor, error) {
 	f := t.files[t.idx]
 	t.idx++
 
-	return newDescriptor(path.Join(t.baseURL, f.name), f.name, f.reader), nil
+	cleanedPath := formatPath(f.name, "", t.pathFormat)
+	d := NewDescriptor(filepath.Join(t.baseURL, cleanedPath), cleanedPath, f.reader)
+	return d, nil
 }
 
 // Next implements the storage.Iterator interface.
 // It iterates to the next policy or data file in the directory tree
 // and returns a storage.Update for the file.
 func (it *iterator) Next() (*storage.Update, error) {
-
 	if it.files == nil {
 		it.files = []file{}
 
 		for _, item := range it.raw {
 			f := file{name: item.Path}
 
-			fpath := strings.TrimLeft(filepath.ToSlash(filepath.Dir(f.name)), "/.")
+			fpath := strings.TrimLeft(normalizePath(filepath.Dir(f.name)), "/.")
 			if strings.HasSuffix(f.name, RegoExt) {
-				fpath = strings.Trim(f.name, "/")
+				fpath = strings.Trim(normalizePath(f.name), "/")
 			}
 
 			p, ok := storage.ParsePathEscaped("/" + fpath)

@@ -27,35 +27,39 @@ type QueryResult map[ast.Var]*ast.Term
 
 // Query provides a configurable interface for performing query evaluation.
 type Query struct {
-	seed                   io.Reader
-	time                   time.Time
-	cancel                 Cancel
-	query                  ast.Body
-	queryCompiler          ast.QueryCompiler
-	compiler               *ast.Compiler
-	store                  storage.Store
-	txn                    storage.Transaction
-	input                  *ast.Term
-	external               *resolverTrie
-	tracers                []QueryTracer
-	plugTraceVars          bool
-	unknowns               []*ast.Term
-	partialNamespace       string
-	skipSaveNamespace      bool
-	metrics                metrics.Metrics
-	instr                  *Instrumentation
-	disableInlining        []ast.Ref
-	shallowInlining        bool
-	genvarprefix           string
-	runtime                *ast.Term
-	builtins               map[string]*Builtin
-	indexing               bool
-	earlyExit              bool
-	interQueryBuiltinCache cache.InterQueryCache
-	ndBuiltinCache         builtins.NDBCache
-	strictBuiltinErrors    bool
-	printHook              print.Hook
-	tracingOpts            tracing.Options
+	seed                        io.Reader
+	time                        time.Time
+	cancel                      Cancel
+	query                       ast.Body
+	queryCompiler               ast.QueryCompiler
+	compiler                    *ast.Compiler
+	store                       storage.Store
+	txn                         storage.Transaction
+	input                       *ast.Term
+	external                    *resolverTrie
+	tracers                     []QueryTracer
+	plugTraceVars               bool
+	unknowns                    []*ast.Term
+	partialNamespace            string
+	skipSaveNamespace           bool
+	metrics                     metrics.Metrics
+	instr                       *Instrumentation
+	disableInlining             []ast.Ref
+	shallowInlining             bool
+	genvarprefix                string
+	runtime                     *ast.Term
+	builtins                    map[string]*Builtin
+	indexing                    bool
+	earlyExit                   bool
+	interQueryBuiltinCache      cache.InterQueryCache
+	interQueryBuiltinValueCache cache.InterQueryValueCache
+	ndBuiltinCache              builtins.NDBCache
+	strictBuiltinErrors         bool
+	builtinErrorList            *[]Error
+	strictObjects               bool
+	printHook                   print.Hook
+	tracingOpts                 tracing.Options
+	virtualCache                VirtualCache
 }
 
 // Builtin represents a built-in function that queries can call.
@@ -243,6 +247,12 @@ func (q *Query) WithInterQueryBuiltinCache(c cache.InterQueryCache) *Query {
 	return q
 }
 
+// WithInterQueryBuiltinValueCache sets the inter-query value cache that built-in functions can utilize.
+func (q *Query) WithInterQueryBuiltinValueCache(c cache.InterQueryValueCache) *Query {
+	q.interQueryBuiltinValueCache = c
+	return q
+}
+
 // WithNDBuiltinCache sets the non-deterministic builtin cache.
 func (q *Query) WithNDBuiltinCache(c builtins.NDBCache) *Query {
 	q.ndBuiltinCache = c
@@ -252,6 +262,14 @@ func (q *Query) WithNDBuiltinCache(c builtins.NDBCache) *Query {
 // WithStrictBuiltinErrors tells the evaluator to treat all built-in function errors as fatal errors.
 func (q *Query) WithStrictBuiltinErrors(yes bool) *Query {
 	q.strictBuiltinErrors = yes
+	return q
+}
+
+// WithBuiltinErrorList supplies a pointer to an Error slice to store built-in function errors
+// encountered during evaluation. This error slice can be inspected after evaluation to determine
+// which built-in function errors occurred.
+func (q *Query) WithBuiltinErrorList(list *[]Error) *Query {
+	q.builtinErrorList = list
 	return q
 }
 
@@ -269,6 +287,22 @@ func (q *Query) WithPrintHook(h print.Hook) *Query {
 // WithDistributedTracingOpts sets the options to be used by distributed tracing.
 func (q *Query) WithDistributedTracingOpts(tr tracing.Options) *Query {
 	q.tracingOpts = tr
+	return q
+}
+
+// WithStrictObjects tells the evaluator to avoid the "lazy object" optimization
+// applied when reading objects from the store. It will result in higher memory
+// usage and should only be used temporarily while adjusting code that breaks
+// because of the optimization.
+func (q *Query) WithStrictObjects(yes bool) *Query {
+	q.strictObjects = yes
+	return q
+}
+
+// WithVirtualCache sets the VirtualCache to use during evaluation. This is
+// optional, and if not set, the default cache is used.
+func (q *Query) WithVirtualCache(vc VirtualCache) *Query {
+	q.virtualCache = vc
 	return q
 }
 
@@ -292,42 +326,52 @@ func (q *Query) PartialRun(ctx context.Context) (partials []ast.Body, support []
 	if q.metrics == nil {
 		q.metrics = metrics.New()
 	}
+
 	f := &queryIDFactory{}
 	b := newBindings(0, q.instr)
+
+	var vc VirtualCache
+	if q.virtualCache != nil {
+		vc = q.virtualCache
+	} else {
+		vc = NewVirtualCache()
+	}
+
 	e := &eval{
-		ctx:                    ctx,
-		metrics:                q.metrics,
-		seed:                   q.seed,
-		time:                   ast.NumberTerm(int64ToJSONNumber(q.time.UnixNano())),
-		cancel:                 q.cancel,
-		query:                  q.query,
-		queryCompiler:          q.queryCompiler,
-		queryIDFact:            f,
-		queryID:                f.Next(),
-		bindings:               b,
-		compiler:               q.compiler,
-		store:                  q.store,
-		baseCache:              newBaseCache(),
-		targetStack:            newRefStack(),
-		txn:                    q.txn,
-		input:                  q.input,
-		external:               q.external,
-		tracers:                q.tracers,
-		traceEnabled:           len(q.tracers) > 0,
-		plugTraceVars:          q.plugTraceVars,
-		instr:                  q.instr,
-		builtins:               q.builtins,
-		builtinCache:           builtins.Cache{},
-		functionMocks:          newFunctionMocksStack(),
-		interQueryBuiltinCache: q.interQueryBuiltinCache,
-		ndBuiltinCache:         q.ndBuiltinCache,
-		virtualCache:           newVirtualCache(),
-		comprehensionCache:     newComprehensionCache(),
-		saveSet:                newSaveSet(q.unknowns, b, q.instr),
-		saveStack:              newSaveStack(),
-		saveSupport:            newSaveSupport(),
-		saveNamespace:          ast.StringTerm(q.partialNamespace),
-		skipSaveNamespace:      q.skipSaveNamespace,
+		ctx:                         ctx,
+		metrics:                     q.metrics,
+		seed:                        q.seed,
+		time:                        ast.NumberTerm(int64ToJSONNumber(q.time.UnixNano())),
+		cancel:                      q.cancel,
+		query:                       q.query,
+		queryCompiler:               q.queryCompiler,
+		queryIDFact:                 f,
+		queryID:                     f.Next(),
+		bindings:                    b,
+		compiler:                    q.compiler,
+		store:                       q.store,
+		baseCache:                   newBaseCache(),
+		targetStack:                 newRefStack(),
+		txn:                         q.txn,
+		input:                       q.input,
+		external:                    q.external,
+		tracers:                     q.tracers,
+		traceEnabled:                len(q.tracers) > 0,
+		plugTraceVars:               q.plugTraceVars,
+		instr:                       q.instr,
+		builtins:                    q.builtins,
+		builtinCache:                builtins.Cache{},
+		functionMocks:               newFunctionMocksStack(),
+		interQueryBuiltinCache:      q.interQueryBuiltinCache,
+		interQueryBuiltinValueCache: q.interQueryBuiltinValueCache,
+		ndBuiltinCache:              q.ndBuiltinCache,
+		virtualCache:                vc,
+		comprehensionCache:          newComprehensionCache(),
+		saveSet:                     newSaveSet(q.unknowns, b, q.instr),
+		saveStack:                   newSaveStack(),
+		saveSupport:                 newSaveSupport(),
+		saveNamespace:               ast.StringTerm(q.partialNamespace),
+		skipSaveNamespace:           q.skipSaveNamespace,
 		inliningControl: &inliningControl{
 			shallow: q.shallowInlining,
 		},
@@ -337,6 +381,7 @@ func (q *Query) PartialRun(ctx context.Context) (partials []ast.Body, support []
 		earlyExit:     q.earlyExit,
 		builtinErrors: &builtinErrors{},
 		printHook:     q.printHook,
+		strictObjects: q.strictObjects,
 	}
 
 	if len(q.disableInlining) > 0 {
@@ -408,8 +453,25 @@ func (q *Query) PartialRun(ctx context.Context) (partials []ast.Body, support []
 
 	support = e.saveSupport.List()
 
-	if q.strictBuiltinErrors && len(e.builtinErrors.errs) > 0 {
-		err = e.builtinErrors.errs[0]
+	if len(e.builtinErrors.errs) > 0 {
+		if q.strictBuiltinErrors {
+			err = e.builtinErrors.errs[0]
+		} else if q.builtinErrorList != nil {
+			// If a builtinErrorList has been supplied, we must use pointer indirection
+			// to append to it. builtinErrorList is a slice pointer so that errors can be
+			// appended to it without returning a new slice and changing the interface
+			// of PartialRun.
+			for _, err := range e.builtinErrors.errs {
+				if tdError, ok := err.(*Error); ok {
+					*(q.builtinErrorList) = append(*(q.builtinErrorList), *tdError)
+				} else {
+					*(q.builtinErrorList) = append(*(q.builtinErrorList), Error{
+						Code:    BuiltinErr,
+						Message: err.Error(),
+					})
+				}
+			}
+		}
 	}
 
 	for i := range support {
@@ -434,6 +496,14 @@ func (q *Query) Run(ctx context.Context) (QueryResultSet, error) {
 // Iter executes the query and invokes the iter function with query results
 // produced by evaluating the query.
 func (q *Query) Iter(ctx context.Context, iter func(QueryResult) error) error {
+	// Query evaluation must not be allowed if the compiler has errors and is in an undefined, possibly inconsistent state
+	if q.compiler != nil && len(q.compiler.Errors) > 0 {
+		return &Error{
+			Code:    InternalErr,
+			Message: "compiler has errors",
+		}
+	}
+
 	if q.seed == nil {
 		q.seed = rand.Reader
 	}
@@ -443,43 +513,54 @@ func (q *Query) Iter(ctx context.Context, iter func(QueryResult) error) error {
 	if q.metrics == nil {
 		q.metrics = metrics.New()
 	}
+
 	f := &queryIDFactory{}
+
+	var vc VirtualCache
+	if q.virtualCache != nil {
+		vc = q.virtualCache
+	} else {
+		vc = NewVirtualCache()
+	}
+
 	e := &eval{
-		ctx:                    ctx,
-		metrics:                q.metrics,
-		seed:                   q.seed,
-		time:                   ast.NumberTerm(int64ToJSONNumber(q.time.UnixNano())),
-		cancel:                 q.cancel,
-		query:                  q.query,
-		queryCompiler:          q.queryCompiler,
-		queryIDFact:            f,
-		queryID:                f.Next(),
-		bindings:               newBindings(0, q.instr),
-		compiler:               q.compiler,
-		store:                  q.store,
-		baseCache:              newBaseCache(),
-		targetStack:            newRefStack(),
-		txn:                    q.txn,
-		input:                  q.input,
-		external:               q.external,
-		tracers:                q.tracers,
-		traceEnabled:           len(q.tracers) > 0,
-		plugTraceVars:          q.plugTraceVars,
-		instr:                  q.instr,
-		builtins:               q.builtins,
-		builtinCache:           builtins.Cache{},
-		functionMocks:          newFunctionMocksStack(),
-		interQueryBuiltinCache: q.interQueryBuiltinCache,
-		ndBuiltinCache:         q.ndBuiltinCache,
-		virtualCache:           newVirtualCache(),
-		comprehensionCache:     newComprehensionCache(),
-		genvarprefix:           q.genvarprefix,
-		runtime:                q.runtime,
-		indexing:               q.indexing,
-		earlyExit:              q.earlyExit,
-		builtinErrors:          &builtinErrors{},
-		printHook:              q.printHook,
-		tracingOpts:            q.tracingOpts,
+		ctx:                         ctx,
+		metrics:                     q.metrics,
+		seed:                        q.seed,
+		time:                        ast.NumberTerm(int64ToJSONNumber(q.time.UnixNano())),
+		cancel:                      q.cancel,
+		query:                       q.query,
+		queryCompiler:               q.queryCompiler,
+		queryIDFact:                 f,
+		queryID:                     f.Next(),
+		bindings:                    newBindings(0, q.instr),
+		compiler:                    q.compiler,
+		store:                       q.store,
+		baseCache:                   newBaseCache(),
+		targetStack:                 newRefStack(),
+		txn:                         q.txn,
+		input:                       q.input,
+		external:                    q.external,
+		tracers:                     q.tracers,
+		traceEnabled:                len(q.tracers) > 0,
+		plugTraceVars:               q.plugTraceVars,
+		instr:                       q.instr,
+		builtins:                    q.builtins,
+		builtinCache:                builtins.Cache{},
+		functionMocks:               newFunctionMocksStack(),
+		interQueryBuiltinCache:      q.interQueryBuiltinCache,
+		interQueryBuiltinValueCache: q.interQueryBuiltinValueCache,
+		ndBuiltinCache:              q.ndBuiltinCache,
+		virtualCache:                vc,
+		comprehensionCache:          newComprehensionCache(),
+		genvarprefix:                q.genvarprefix,
+		runtime:                     q.runtime,
+		indexing:                    q.indexing,
+		earlyExit:                   q.earlyExit,
+		builtinErrors:               &builtinErrors{},
+		printHook:                   q.printHook,
+		tracingOpts:                 q.tracingOpts,
+		strictObjects:               q.strictObjects,
 	}
 	e.caller = e
 	q.metrics.Timer(metrics.RegoQueryEval).Start()
@@ -492,8 +573,25 @@ func (q *Query) Iter(ctx context.Context, iter func(QueryResult) error) error {
 		return iter(qr)
 	})
 
-	if q.strictBuiltinErrors && err == nil && len(e.builtinErrors.errs) > 0 {
-		err = e.builtinErrors.errs[0]
+	if len(e.builtinErrors.errs) > 0 {
+		if q.strictBuiltinErrors {
+			err = e.builtinErrors.errs[0]
+		} else if q.builtinErrorList != nil {
+			// If a builtinErrorList has been supplied, we must use pointer indirection
+			// to append to it. builtinErrorList is a slice pointer so that errors can be
+			// appended to it without returning a new slice and changing the interface
+			// of Iter.
+			for _, err := range e.builtinErrors.errs {
+				if tdError, ok := err.(*Error); ok {
+					*(q.builtinErrorList) = append(*(q.builtinErrorList), *tdError)
+				} else {
+					*(q.builtinErrorList) = append(*(q.builtinErrorList), Error{
+						Code:    BuiltinErr,
+						Message: err.Error(),
+					})
+				}
+			}
+		}
 	}
 
 	q.metrics.Timer(metrics.RegoQueryEval).Stop()

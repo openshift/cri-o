@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/containers/podman/v4/pkg/criu"
+	"github.com/containers/podman/v5/pkg/criu"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/pkg/annotations"
 	libconfig "github.com/cri-o/cri-o/pkg/config"
@@ -178,7 +178,7 @@ var _ = t.Describe("Oci", func() {
 			Expect(privileged).To(Equal(false))
 		})
 		It("CheckpointContainer should succeed", func() {
-			if !criu.CheckForCriu(criu.PodCriuVersion) {
+			if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 				Skip("CRIU is missing or too old.")
 			}
 			// Given
@@ -204,7 +204,7 @@ var _ = t.Describe("Oci", func() {
 			Expect(err).To(BeNil())
 		})
 		It("CheckpointContainer should fail", func() {
-			if !criu.CheckForCriu(criu.PodCriuVersion) {
+			if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 				Skip("CRIU is missing or too old.")
 			}
 			// Given
@@ -231,7 +231,7 @@ var _ = t.Describe("Oci", func() {
 			Expect(err.Error()).To(Equal("configured runtime does not support checkpoint/restore"))
 		})
 		It("RestoreContainer should fail with destination sandbox detection", func() {
-			if !criu.CheckForCriu(criu.PodCriuVersion) {
+			if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 				Skip("CRIU is missing or too old.")
 			}
 			// Given
@@ -268,7 +268,7 @@ var _ = t.Describe("Oci", func() {
 			Expect(err.Error()).To(ContainSubstring("failed"))
 		})
 		It("RestoreContainer should fail", func() {
-			if !criu.CheckForCriu(criu.PodCriuVersion) {
+			if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 				Skip("CRIU is missing or too old.")
 			}
 			// Given
@@ -320,7 +320,7 @@ var _ = t.Describe("Oci", func() {
 			Expect(err.Error()).To(ContainSubstring("failed"))
 		})
 		It("RestoreContainer should fail with missing inventory", func() {
-			if !criu.CheckForCriu(criu.PodCriuVersion) {
+			if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 				Skip("CRIU is missing or too old.")
 			}
 			// Given

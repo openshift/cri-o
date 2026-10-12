@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/containers/podman/v4/pkg/criu"
-	"github.com/containers/storage/pkg/archive"
+	"github.com/containers/podman/v5/pkg/criu"
+	"go.podman.io/storage/pkg/archive"
 	"github.com/cri-o/cri-o/internal/lib"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/golang/mock/gomock"
@@ -26,7 +26,7 @@ var _ = t.Describe("ContainerRestore", func() {
 		beforeEach()
 		createDummyConfig()
 		mockRuncInLibConfigCheckpoint()
-		if !criu.CheckForCriu(criu.PodCriuVersion) {
+		if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 			Skip("CRIU is missing or too old.")
 		}
 	})

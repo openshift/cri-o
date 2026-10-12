@@ -3,11 +3,11 @@ package main
 import (
 	"os"
 
-	"github.com/containers/podman/v4/pkg/criu"
+	"github.com/containers/podman/v5/pkg/criu"
 )
 
 func main() {
-	if !criu.CheckForCriu(criu.PodCriuVersion) {
+	if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 		os.Exit(1)
 	}
 

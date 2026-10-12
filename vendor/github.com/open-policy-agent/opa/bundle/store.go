@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/open-policy-agent/opa/ast"
+	iCompiler "github.com/open-policy-agent/opa/internal/compiler"
 	"github.com/open-policy-agent/opa/internal/json/patch"
 	"github.com/open-policy-agent/opa/metrics"
 	"github.com/open-policy-agent/opa/storage"
@@ -58,9 +59,25 @@ func metadataPath(name string) storage.Path {
 	return append(BundlesBasePath, name, "manifest", "metadata")
 }
 
+func read(ctx context.Context, store storage.Store, txn storage.Transaction, path storage.Path) (interface{}, error) {
+	value, err := store.Read(ctx, txn, path)
+	if err != nil {
+		return nil, err
+	}
+
+	if astValue, ok := value.(ast.Value); ok {
+		value, err = ast.JSON(astValue)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return value, nil
+}
+
 // ReadBundleNamesFromStore will return a list of bundle names which have had their metadata stored.
 func ReadBundleNamesFromStore(ctx context.Context, store storage.Store, txn storage.Transaction) ([]string, error) {
-	value, err := store.Read(ctx, txn, BundlesBasePath)
+	value, err := read(ctx, store, txn, BundlesBasePath)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +169,7 @@ func eraseWasmModulesFromStore(ctx context.Context, store storage.Store, txn sto
 // ReadWasmMetadataFromStore will read Wasm module resolver metadata from the store.
 func ReadWasmMetadataFromStore(ctx context.Context, store storage.Store, txn storage.Transaction, name string) ([]WasmResolver, error) {
 	path := wasmEntrypointsPath(name)
-	value, err := store.Read(ctx, txn, path)
+	value, err := read(ctx, store, txn, path)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +192,7 @@ func ReadWasmMetadataFromStore(ctx context.Context, store storage.Store, txn sto
 // ReadWasmModulesFromStore will write Wasm module resolver metadata from the store.
 func ReadWasmModulesFromStore(ctx context.Context, store storage.Store, txn storage.Transaction, name string) (map[string][]byte, error) {
 	path := wasmModulePath(name)
-	value, err := store.Read(ctx, txn, path)
+	value, err := read(ctx, store, txn, path)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +221,7 @@ func ReadWasmModulesFromStore(ctx context.Context, store storage.Store, txn stor
 // If the bundle is not activated, this function will return
 // storage NotFound error.
 func ReadBundleRootsFromStore(ctx context.Context, store storage.Store, txn storage.Transaction, name string) ([]string, error) {
-	value, err := store.Read(ctx, txn, rootsPath(name))
+	value, err := read(ctx, store, txn, rootsPath(name))
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +251,7 @@ func ReadBundleRevisionFromStore(ctx context.Context, store storage.Store, txn s
 }
 
 func readRevisionFromStore(ctx context.Context, store storage.Store, txn storage.Transaction, path storage.Path) (string, error) {
-	value, err := store.Read(ctx, txn, path)
+	value, err := read(ctx, store, txn, path)
 	if err != nil {
 		return "", err
 	}
@@ -255,7 +272,7 @@ func ReadBundleMetadataFromStore(ctx context.Context, store storage.Store, txn s
 }
 
 func readMetadataFromStore(ctx context.Context, store storage.Store, txn storage.Transaction, path storage.Path) (map[string]interface{}, error) {
-	value, err := store.Read(ctx, txn, path)
+	value, err := read(ctx, store, txn, path)
 	if err != nil {
 		return nil, suppressNotFound(err)
 	}
@@ -276,7 +293,7 @@ func ReadBundleEtagFromStore(ctx context.Context, store storage.Store, txn stora
 }
 
 func readEtagFromStore(ctx context.Context, store storage.Store, txn storage.Transaction, path storage.Path) (string, error) {
-	value, err := store.Read(ctx, txn, path)
+	value, err := read(ctx, store, txn, path)
 	if err != nil {
 		return "", err
 	}
@@ -291,14 +308,16 @@ func readEtagFromStore(ctx context.Context, store storage.Store, txn storage.Tra
 
 // ActivateOpts defines options for the Activate API call.
 type ActivateOpts struct {
-	Ctx          context.Context
-	Store        storage.Store
-	Txn          storage.Transaction
-	TxnCtx       *storage.Context
-	Compiler     *ast.Compiler
-	Metrics      metrics.Metrics
-	Bundles      map[string]*Bundle     // Optional
-	ExtraModules map[string]*ast.Module // Optional
+	Ctx                      context.Context
+	Store                    storage.Store
+	Txn                      storage.Transaction
+	TxnCtx                   *storage.Context
+	Compiler                 *ast.Compiler
+	Metrics                  metrics.Metrics
+	Bundles                  map[string]*Bundle     // Optional
+	ExtraModules             map[string]*ast.Module // Optional
+	AuthorizationDecisionRef ast.Ref
+	ParserOptions            ast.ParserOptions
 
 	legacy bool
 }
@@ -312,10 +331,11 @@ func Activate(opts *ActivateOpts) error {
 
 // DeactivateOpts defines options for the Deactivate API call
 type DeactivateOpts struct {
-	Ctx         context.Context
-	Store       storage.Store
-	Txn         storage.Transaction
-	BundleNames map[string]struct{}
+	Ctx           context.Context
+	Store         storage.Store
+	Txn           storage.Transaction
+	BundleNames   map[string]struct{}
+	ParserOptions ast.ParserOptions
 }
 
 // Deactivate the bundle(s). This will erase associated data, policies, and the manifest entry from the store.
@@ -330,7 +350,7 @@ func Deactivate(opts *DeactivateOpts) error {
 			erase[root] = struct{}{}
 		}
 	}
-	_, err := eraseBundles(opts.Ctx, opts.Store, opts.Txn, opts.BundleNames, erase)
+	_, err := eraseBundles(opts.Ctx, opts.Store, opts.Txn, opts.ParserOptions, opts.BundleNames, erase)
 	return err
 }
 
@@ -380,7 +400,7 @@ func activateBundles(opts *ActivateOpts) error {
 
 	// Erase data and policies at new + old roots, and remove the old
 	// manifests before activating a new snapshot bundle.
-	remaining, err := eraseBundles(opts.Ctx, opts.Store, opts.Txn, names, erase)
+	remaining, err := eraseBundles(opts.Ctx, opts.Store, opts.Txn, opts.ParserOptions, names, erase)
 	if err != nil {
 		return err
 	}
@@ -450,7 +470,7 @@ func activateBundles(opts *ActivateOpts) error {
 		remainingAndExtra[name] = mod
 	}
 
-	err = compileModules(opts.Compiler, opts.Metrics, snapshotBundles, remainingAndExtra, opts.legacy)
+	err = compileModules(opts.Compiler, opts.Metrics, snapshotBundles, remainingAndExtra, opts.legacy, opts.AuthorizationDecisionRef)
 	if err != nil {
 		return err
 	}
@@ -491,7 +511,7 @@ func doDFS(obj map[string]json.RawMessage, path string, roots []string) error {
 
 		// Note: filepath.Join can return paths with '\' separators, always use
 		// filepath.ToSlash to keep them normalized.
-		newPath = strings.TrimLeft(filepath.ToSlash(newPath), "/.")
+		newPath = strings.TrimLeft(normalizePath(newPath), "/.")
 
 		contains := false
 		prefix := false
@@ -540,14 +560,7 @@ func activateDeltaBundles(opts *ActivateOpts, bundles map[string]*Bundle) error 
 			return err
 		}
 
-		bs, err := json.Marshal(value)
-		if err != nil {
-			return fmt.Errorf("corrupt manifest data: %w", err)
-		}
-
-		var manifest Manifest
-
-		err = util.UnmarshalJSON(bs, &manifest)
+		manifest, err := valueToManifest(value)
 		if err != nil {
 			return fmt.Errorf("corrupt manifest data: %w", err)
 		}
@@ -581,15 +594,39 @@ func activateDeltaBundles(opts *ActivateOpts, bundles map[string]*Bundle) error 
 	return nil
 }
 
+func valueToManifest(v interface{}) (Manifest, error) {
+	if astV, ok := v.(ast.Value); ok {
+		var err error
+		v, err = ast.JSON(astV)
+		if err != nil {
+			return Manifest{}, err
+		}
+	}
+
+	var manifest Manifest
+
+	bs, err := json.Marshal(v)
+	if err != nil {
+		return Manifest{}, err
+	}
+
+	err = util.UnmarshalJSON(bs, &manifest)
+	if err != nil {
+		return Manifest{}, err
+	}
+
+	return manifest, nil
+}
+
 // erase bundles by name and roots. This will clear all policies and data at its roots and remove its
 // manifest from storage.
-func eraseBundles(ctx context.Context, store storage.Store, txn storage.Transaction, names map[string]struct{}, roots map[string]struct{}) (map[string]*ast.Module, error) {
+func eraseBundles(ctx context.Context, store storage.Store, txn storage.Transaction, parserOpts ast.ParserOptions, names map[string]struct{}, roots map[string]struct{}) (map[string]*ast.Module, error) {
 
 	if err := eraseData(ctx, store, txn, roots); err != nil {
 		return nil, err
 	}
 
-	remaining, err := erasePolicies(ctx, store, txn, roots)
+	remaining, err := erasePolicies(ctx, store, txn, parserOpts, roots)
 	if err != nil {
 		return nil, err
 	}
@@ -631,7 +668,7 @@ func eraseData(ctx context.Context, store storage.Store, txn storage.Transaction
 	return nil
 }
 
-func erasePolicies(ctx context.Context, store storage.Store, txn storage.Transaction, roots map[string]struct{}) (map[string]*ast.Module, error) {
+func erasePolicies(ctx context.Context, store storage.Store, txn storage.Transaction, parserOpts ast.ParserOptions, roots map[string]struct{}) (map[string]*ast.Module, error) {
 
 	ids, err := store.ListPolicies(ctx, txn)
 	if err != nil {
@@ -645,7 +682,7 @@ func erasePolicies(ctx context.Context, store storage.Store, txn storage.Transac
 		if err != nil {
 			return nil, err
 		}
-		module, err := ast.ParseModule(id, string(bs))
+		module, err := ast.ParseModuleWithOpts(id, string(bs), parserOpts)
 		if err != nil {
 			return nil, err
 		}
@@ -755,7 +792,7 @@ func writeData(ctx context.Context, store storage.Store, txn storage.Transaction
 	return nil
 }
 
-func compileModules(compiler *ast.Compiler, m metrics.Metrics, bundles map[string]*Bundle, extraModules map[string]*ast.Module, legacy bool) error {
+func compileModules(compiler *ast.Compiler, m metrics.Metrics, bundles map[string]*Bundle, extraModules map[string]*ast.Module, legacy bool, authorizationDecisionRef ast.Ref) error {
 
 	m.Timer(metrics.RegoModuleCompile).Start()
 	defer m.Timer(metrics.RegoModuleCompile).Stop()
@@ -789,7 +826,11 @@ func compileModules(compiler *ast.Compiler, m metrics.Metrics, bundles map[strin
 		return compiler.Errors
 	}
 
-	return nil
+	if authorizationDecisionRef.Equal(ast.EmptyRef()) {
+		return nil
+	}
+
+	return iCompiler.VerifyAuthorizationPolicySchema(compiler, authorizationDecisionRef)
 }
 
 func writeModules(ctx context.Context, store storage.Store, txn storage.Transaction, compiler *ast.Compiler, m metrics.Metrics, bundles map[string]*Bundle, extraModules map[string]*ast.Module, legacy bool) error {

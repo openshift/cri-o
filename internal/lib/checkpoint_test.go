@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/containers/podman/v4/pkg/criu"
-	cstorage "github.com/containers/storage"
-	"github.com/containers/storage/pkg/archive"
+	"github.com/containers/podman/v5/pkg/criu"
+	cstorage "go.podman.io/storage"
+	"go.podman.io/storage/pkg/archive"
 	"github.com/cri-o/cri-o/internal/lib"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/golang/mock/gomock"
@@ -23,7 +23,7 @@ var _ = t.Describe("ContainerCheckpoint", func() {
 		beforeEach()
 		createDummyConfig()
 		mockRuncInLibConfig()
-		if !criu.CheckForCriu(criu.PodCriuVersion) {
+		if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 			Skip("CRIU is missing or too old.")
 		}
 	})

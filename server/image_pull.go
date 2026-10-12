@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	imageTypes "github.com/containers/image/v5/types"
+	imageTypes "go.podman.io/image/v5/types"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/storage"
 	"github.com/cri-o/cri-o/server/metrics"

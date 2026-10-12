@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/containers/common/pkg/seccomp"
+	"go.podman.io/common/pkg/seccomp"
 	"github.com/cri-o/cri-o/internal/log"
 	json "github.com/json-iterator/go"
 	"github.com/opencontainers/runtime-tools/generate"
@@ -32,7 +32,7 @@ func DefaultProfile() *seccomp.Seccomp {
 		const (
 			unshareName              = "unshare"
 			unshareParentStructIndex = 1
-			unshareIndex             = 363
+			unshareIndex             = 359
 		)
 		prof := seccomp.DefaultProfile()
 		// We know the default profile at compile time

@@ -3,7 +3,7 @@ package server_test
 import (
 	"context"
 
-	cstorage "github.com/containers/storage"
+	cstorage "go.podman.io/storage"
 	"github.com/cri-o/cri-o/internal/storage"
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
@@ -63,8 +63,10 @@ var _ = t.Describe("ImageStatus", func() {
 						User: "10",
 						Size: &size,
 						OCIConfig: &specs.Image{
-							Architecture: "arch",
-							OS:           "os",
+							Platform: specs.Platform{
+								Architecture: "arch",
+								OS:           "os",
+							},
 						},
 					},
 					nil,

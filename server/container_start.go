@@ -3,7 +3,7 @@ package server
 import (
 	"fmt"
 
-	"github.com/containers/podman/v4/libpod"
+	"github.com/containers/podman/v5/libpod"
 	"github.com/cri-o/cri-o/internal/lib"
 	"github.com/cri-o/cri-o/internal/log"
 	oci "github.com/cri-o/cri-o/internal/oci"

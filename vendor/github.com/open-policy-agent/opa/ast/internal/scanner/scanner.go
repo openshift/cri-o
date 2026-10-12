@@ -7,7 +7,6 @@ package scanner
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"unicode"
 	"unicode/utf8"
 
@@ -19,14 +18,16 @@ const bom = 0xFEFF
 // Scanner is used to tokenize an input stream of
 // Rego source code.
 type Scanner struct {
-	offset   int
-	row      int
-	col      int
-	bs       []byte
-	curr     rune
-	width    int
-	errors   []Error
-	keywords map[string]tokens.Token
+	offset           int
+	row              int
+	col              int
+	bs               []byte
+	curr             rune
+	width            int
+	errors           []Error
+	keywords         map[string]tokens.Token
+	tabs             []int
+	regoV1Compatible bool
 }
 
 // Error represents a scanner error.
@@ -37,17 +38,18 @@ type Error struct {
 
 // Position represents a point in the scanned source code.
 type Position struct {
-	Offset int // start offset in bytes
-	End    int // end offset in bytes
-	Row    int // line number computed in bytes
-	Col    int // column number computed in bytes
+	Offset int   // start offset in bytes
+	End    int   // end offset in bytes
+	Row    int   // line number computed in bytes
+	Col    int   // column number computed in bytes
+	Tabs   []int // positions of any tabs preceding Col
 }
 
 // New returns an initialized scanner that will scan
 // through the source code provided by the io.Reader.
 func New(r io.Reader) (*Scanner, error) {
 
-	bs, err := ioutil.ReadAll(r)
+	bs, err := io.ReadAll(r)
 	if err != nil {
 		return nil, err
 	}
@@ -60,6 +62,7 @@ func New(r io.Reader) (*Scanner, error) {
 		curr:     -1,
 		width:    0,
 		keywords: tokens.Keywords(),
+		tabs:     []int{},
 	}
 
 	s.next()
@@ -103,6 +106,23 @@ func (s *Scanner) AddKeyword(kw string, tok tokens.Token) {
 	}
 }
 
+func (s *Scanner) HasKeyword(keywords map[string]tokens.Token) bool {
+	for kw := range s.keywords {
+		if _, ok := keywords[kw]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Scanner) SetRegoV1Compatible() {
+	s.regoV1Compatible = true
+}
+
+func (s *Scanner) RegoV1Compatible() bool {
+	return s.regoV1Compatible
+}
+
 // WithKeywords returns a new copy of the Scanner struct `s`, with the set
 // of known keywords being that of `s` with `kws` added.
 func (s *Scanner) WithKeywords(kws map[string]tokens.Token) *Scanner {
@@ -139,7 +159,7 @@ func (s *Scanner) WithoutKeywords(kws map[string]tokens.Token) (*Scanner, map[st
 // for any errors before using the other values.
 func (s *Scanner) Scan() (tokens.Token, Position, string, []Error) {
 
-	pos := Position{Offset: s.offset - s.width, Row: s.row, Col: s.col}
+	pos := Position{Offset: s.offset - s.width, Row: s.row, Col: s.col, Tabs: s.tabs}
 	var tok tokens.Token
 	var lit string
 
@@ -393,8 +413,12 @@ func (s *Scanner) next() {
 	if s.curr == '\n' {
 		s.row++
 		s.col = 0
+		s.tabs = []int{}
 	} else {
 		s.col++
+		if s.curr == '\t' {
+			s.tabs = append(s.tabs, s.col)
+		}
 	}
 }
 

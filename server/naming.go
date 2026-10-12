@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/containers/storage/pkg/stringid"
+	"go.podman.io/storage/pkg/stringid"
 	"github.com/cri-o/cri-o/internal/oci"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )

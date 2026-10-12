@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	cstorage "github.com/containers/storage"
+	cstorage "go.podman.io/storage"
 	containerstoragemock "github.com/cri-o/cri-o/test/mocks/containerstorage"
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"

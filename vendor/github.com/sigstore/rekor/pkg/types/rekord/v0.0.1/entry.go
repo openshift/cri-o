@@ -162,7 +162,7 @@ func (v *V001Entry) fetchExternalEntities(ctx context.Context) (pki.PublicKey, p
 
 		computedSHA := hex.EncodeToString(hasher.Sum(nil))
 		if oldSHA != "" && computedSHA != oldSHA {
-			return closePipesOnError(types.ValidationError(fmt.Errorf("SHA mismatch: %s != %s", computedSHA, oldSHA)))
+			return closePipesOnError(&types.InputValidationError{Err: fmt.Errorf("SHA mismatch: %s != %s", computedSHA, oldSHA)})
 		}
 
 		select {
@@ -182,7 +182,7 @@ func (v *V001Entry) fetchExternalEntities(ctx context.Context) (pki.PublicKey, p
 
 		signature, err := af.NewSignature(sigReadCloser)
 		if err != nil {
-			return closePipesOnError(types.ValidationError(err))
+			return closePipesOnError(&types.InputValidationError{Err: err})
 		}
 
 		select {
@@ -202,7 +202,7 @@ func (v *V001Entry) fetchExternalEntities(ctx context.Context) (pki.PublicKey, p
 
 		key, err := af.NewPublicKey(keyReadCloser)
 		if err != nil {
-			return closePipesOnError(types.ValidationError(err))
+			return closePipesOnError(&types.InputValidationError{Err: err})
 		}
 
 		select {
@@ -226,7 +226,7 @@ func (v *V001Entry) fetchExternalEntities(ctx context.Context) (pki.PublicKey, p
 
 		var err error
 		if err = sigObj.Verify(sigR, keyObj); err != nil {
-			return closePipesOnError(types.ValidationError(err))
+			return closePipesOnError(&types.InputValidationError{Err: err})
 		}
 
 		select {
@@ -416,7 +416,7 @@ func (v V001Entry) CreateFromArtifactProperties(ctx context.Context, props types
 	}
 
 	if _, _, err := re.fetchExternalEntities(ctx); err != nil {
-		return nil, fmt.Errorf("error retrieving external entities: %v", err)
+		return nil, fmt.Errorf("error retrieving external entities: %w", err)
 	}
 
 	returnVal.APIVersion = swag.String(re.APIVersion())
@@ -425,21 +425,61 @@ func (v V001Entry) CreateFromArtifactProperties(ctx context.Context, props types
 	return &returnVal, nil
 }
 
-func (v V001Entry) Verifier() (pki.PublicKey, error) {
+func (v V001Entry) Verifiers() ([]pki.PublicKey, error) {
 	if v.RekordObj.Signature == nil || v.RekordObj.Signature.PublicKey == nil || v.RekordObj.Signature.PublicKey.Content == nil {
 		return nil, errors.New("rekord v0.0.1 entry not initialized")
 	}
 
+	var key pki.PublicKey
+	var err error
 	switch f := *v.RekordObj.Signature.Format; f {
 	case "x509":
-		return x509.NewPublicKey(bytes.NewReader(*v.RekordObj.Signature.PublicKey.Content))
+		key, err = x509.NewPublicKey(bytes.NewReader(*v.RekordObj.Signature.PublicKey.Content))
 	case "ssh":
-		return ssh.NewPublicKey(bytes.NewReader(*v.RekordObj.Signature.PublicKey.Content))
+		key, err = ssh.NewPublicKey(bytes.NewReader(*v.RekordObj.Signature.PublicKey.Content))
 	case "pgp":
-		return pgp.NewPublicKey(bytes.NewReader(*v.RekordObj.Signature.PublicKey.Content))
+		key, err = pgp.NewPublicKey(bytes.NewReader(*v.RekordObj.Signature.PublicKey.Content))
 	case "minisign":
-		return minisign.NewPublicKey(bytes.NewReader(*v.RekordObj.Signature.PublicKey.Content))
+		key, err = minisign.NewPublicKey(bytes.NewReader(*v.RekordObj.Signature.PublicKey.Content))
 	default:
 		return nil, fmt.Errorf("unexpected format of public key: %s", f)
 	}
+	if err != nil {
+		return nil, err
+	}
+	return []pki.PublicKey{key}, nil
+}
+
+func (v V001Entry) ArtifactHash() (string, error) {
+	if v.RekordObj.Data == nil || v.RekordObj.Data.Hash == nil || v.RekordObj.Data.Hash.Value == nil || v.RekordObj.Data.Hash.Algorithm == nil {
+		return "", errors.New("rekord v0.0.1 entry not initialized")
+	}
+	return strings.ToLower(fmt.Sprintf("%s:%s", *v.RekordObj.Data.Hash.Algorithm, *v.RekordObj.Data.Hash.Value)), nil
+}
+
+func (v V001Entry) Insertable() (bool, error) {
+	if v.RekordObj.Signature == nil {
+		return false, errors.New("missing signature property")
+	}
+	if v.RekordObj.Signature.Content == nil || len(*v.RekordObj.Signature.Content) == 0 {
+		return false, errors.New("missing signature content")
+	}
+	if v.RekordObj.Signature.PublicKey == nil {
+		return false, errors.New("missing publicKey property")
+	}
+	if v.RekordObj.Signature.PublicKey.Content == nil || len(*v.RekordObj.Signature.PublicKey.Content) == 0 {
+		return false, errors.New("missing publicKey content")
+	}
+	if v.RekordObj.Signature.Format == nil || len(*v.RekordObj.Signature.Format) == 0 {
+		return false, errors.New("missing signature format")
+	}
+
+	if v.RekordObj.Data == nil {
+		return false, errors.New("missing data property")
+	}
+	if len(v.RekordObj.Data.Content) == 0 {
+		return false, errors.New("missing data content")
+	}
+
+	return true, nil
 }

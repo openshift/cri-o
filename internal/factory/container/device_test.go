@@ -10,7 +10,7 @@ import (
 
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 
-	"github.com/container-orchestrated-devices/container-device-interface/pkg/cdi"
+	"tags.cncf.io/container-device-interface/pkg/cdi"
 	"github.com/opencontainers/runc/libcontainer/devices"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
@@ -204,7 +204,11 @@ var _ = t.Describe("Container", func() {
 				}
 			}
 
-			return cdi.GetRegistry(cdi.WithSpecDirs(dir)).Refresh()
+			if err := cdi.Configure(cdi.WithSpecDirs(dir)); err != nil {
+				return err
+			}
+
+			return cdi.Refresh()
 		}
 
 		type testdata struct {
@@ -242,7 +246,7 @@ var _ = t.Describe("Container", func() {
 				testDescription: "Expect properly injected resolvable CDI devices",
 				cdiSpecFiles: []string{
 					`
-cdiVersion: "0.2.0"
+cdiVersion: "0.3.0"
 kind: "vendor1.com/device"
 devices:
   - name: foo
@@ -259,7 +263,7 @@ containerEdits:
     - "VENDOR1=present"
 `,
 					`
-cdiVersion: "0.2.0"
+cdiVersion: "0.3.0"
 kind: "vendor2.com/device"
 devices:
   - name: bar

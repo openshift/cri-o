@@ -8,7 +8,7 @@ import (
 	"io"
 	"os/exec"
 
-	"github.com/containers/storage/pkg/pools"
+	"go.podman.io/storage/pkg/pools"
 	"github.com/creack/pty"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"

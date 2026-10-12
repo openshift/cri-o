@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/containers/common/pkg/cgroups"
-	"github.com/containers/podman/v4/pkg/rootless"
+	"go.podman.io/common/pkg/cgroups"
+	"github.com/containers/podman/v5/pkg/rootless"
 	"github.com/cri-o/cri-o/utils"
-	libctrCgMgr "github.com/opencontainers/runc/libcontainer/cgroups/manager"
+	libctrCgMgr "github.com/opencontainers/cgroups/manager"
 	cgcfgs "github.com/opencontainers/runc/libcontainer/configs"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"

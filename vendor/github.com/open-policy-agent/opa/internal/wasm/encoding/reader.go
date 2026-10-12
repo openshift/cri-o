@@ -9,7 +9,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"io/ioutil"
 
 	"github.com/open-policy-agent/opa/internal/leb128"
 	"github.com/open-policy-agent/opa/internal/wasm/constant"
@@ -206,7 +205,7 @@ func readSections(r io.Reader, m *module.Module) error {
 }
 
 func readCustomSection(r io.Reader, name string, s *[]module.CustomSection) error {
-	buf, err := ioutil.ReadAll(r)
+	buf, err := io.ReadAll(r)
 	if err != nil {
 		return err
 	}
@@ -376,9 +375,9 @@ func readTableSection(r io.Reader, s *module.TableSection) error {
 			return err
 		} else if elem != constant.ElementTypeAnyFunc {
 			return fmt.Errorf("illegal element type")
-		} else {
-			table.Type = types.Anyfunc
 		}
+
+		table.Type = types.Anyfunc
 
 		if err := readLimits(r, &table.Lim); err != nil {
 			return err
