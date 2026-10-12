@@ -3,7 +3,7 @@ package server_test
 import (
 	"context"
 
-	imageTypes "github.com/containers/image/v5/types"
+	imageTypes "go.podman.io/image/v5/types"
 	"github.com/cri-o/cri-o/internal/storage"
 	"github.com/cri-o/cri-o/internal/storage/references"
 	"github.com/golang/mock/gomock"

@@ -13,8 +13,8 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/containers/common/pkg/seccomp"
-	imagetypes "github.com/containers/image/v5/types"
+	"go.podman.io/common/pkg/seccomp"
+	imagetypes "go.podman.io/image/v5/types"
 	"github.com/cri-o/cri-o/internal/config/seccomp/seccompociartifact"
 	"github.com/cri-o/cri-o/internal/log"
 	json "github.com/json-iterator/go"
@@ -42,7 +42,7 @@ func DefaultProfile() *seccomp.Seccomp {
 		}{
 			{"clone", 1, 23},
 			{"clone3", 1, 24},
-			{"unshare", 1, 363},
+			{"unshare", 1, 359},
 		}
 
 		prof := seccomp.DefaultProfile()
@@ -132,7 +132,7 @@ func validateSyscallIndex(prof *seccomp.Seccomp, name string, parentStructIndex,
 	}
 	logrus.Fatalf(
 		`The default internal seccomp policy has been changed, and CRI-O can't adjust some risky syscalls.
-You are likely seeing this error because "github.com/containers/common/pkg/seccomp" was updated.
+You are likely seeing this error because "go.podman.io/common/pkg/seccomp" was updated.
 Please contact the developers or change "DefaultProfile()" in "internal/config/seccomp/seccomp.go"
 to match the updated policy as per the following hint: %s`, msg,
 	)

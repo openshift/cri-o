@@ -23,8 +23,8 @@ var (
 		fmt.Sprintf("See %s", appActionDeprecationURL), 2)
 	ignoreFlagPrefix = "test." // this is to ignore test flags when adding flags from other packages
 
-	SuggestFlag               SuggestFlagFunc    = nil // initialized in suggestions.go unless built with urfave_cli_no_suggest
-	SuggestCommand            SuggestCommandFunc = nil // initialized in suggestions.go unless built with urfave_cli_no_suggest
+	SuggestFlag               SuggestFlagFunc    = suggestFlag
+	SuggestCommand            SuggestCommandFunc = suggestCommand
 	SuggestDidYouMeanTemplate string             = suggestDidYouMeanTemplate
 )
 
@@ -39,8 +39,6 @@ type App struct {
 	Usage string
 	// Text to override the USAGE section of help
 	UsageText string
-	// Whether this command supports arguments
-	Args bool
 	// Description of the program argument format.
 	ArgsUsage string
 	// Version of the program
@@ -368,9 +366,6 @@ func (a *App) suggestFlagFromError(err error, command string) (string, error) {
 		hideHelp = hideHelp || cmd.HideHelp
 	}
 
-	if SuggestFlag == nil {
-		return "", err
-	}
 	suggestion := SuggestFlag(flags, flag, hideHelp)
 	if len(suggestion) == 0 {
 		return "", err

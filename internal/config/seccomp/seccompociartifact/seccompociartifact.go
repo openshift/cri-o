@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/containers/image/v5/types"
+	"go.podman.io/image/v5/types"
 
 	"github.com/cri-o/cri-o/internal/config/ociartifact"
 	"github.com/cri-o/cri-o/internal/log"

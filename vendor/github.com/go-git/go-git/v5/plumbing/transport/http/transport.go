@@ -14,21 +14,21 @@ type transportOptions struct {
 }
 
 func (c *client) addTransport(opts transportOptions, transport *http.Transport) {
-	c.mutex.Lock()
+	c.m.Lock()
 	c.transports.Add(opts, transport)
-	c.mutex.Unlock()
+	c.m.Unlock()
 }
 
 func (c *client) removeTransport(opts transportOptions) {
-	c.mutex.Lock()
+	c.m.Lock()
 	c.transports.Remove(opts)
-	c.mutex.Unlock()
+	c.m.Unlock()
 }
 
 func (c *client) fetchTransport(opts transportOptions) (*http.Transport, bool) {
-	c.mutex.RLock()
+	c.m.RLock()
 	t, ok := c.transports.Get(opts)
-	c.mutex.RUnlock()
+	c.m.RUnlock()
 	if !ok {
 		return nil, false
 	}

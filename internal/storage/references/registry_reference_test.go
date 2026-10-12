@@ -3,7 +3,7 @@ package references_test
 import (
 	"fmt"
 
-	"github.com/containers/image/v5/docker/reference"
+	"go.podman.io/image/v5/docker/reference"
 	"github.com/cri-o/cri-o/internal/storage/references"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
