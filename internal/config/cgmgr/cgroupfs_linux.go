@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/containers/storage/pkg/unshare"
+	"go.podman.io/storage/pkg/unshare"
 	"github.com/opencontainers/cgroups"
 	"github.com/opencontainers/cgroups/manager"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
