@@ -1026,7 +1026,7 @@ func (r *layerStore) load(lockedForWriting bool) (bool, error) {
 			}
 			modifiedLocations |= layer.location
 		}
-		if err := r.saveLayers(modifiedLocations, false); err != nil {
+		if err := r.saveLayers(modifiedLocations); err != nil {
 			return false, err
 		}
 		if incompleteDeletionErrors != nil {
@@ -1078,36 +1078,27 @@ func (r *layerStore) loadMounts() error {
 }
 
 // save saves the contents of the store to disk.
-// If needsSyncfs is true, all pending writes are flushed to disk before
-// saving the layer metadata.  Set it to false for metadata-only changes
 // The caller must hold r.lockfile locked for writing.
 // The caller must hold r.inProcessLock for WRITING.
-func (r *layerStore) save(saveLocations layerLocations, needsSyncfs bool) error {
+func (r *layerStore) save(saveLocations layerLocations) error {
 	r.mountsLockfile.Lock()
 	defer r.mountsLockfile.Unlock()
-	if err := r.saveLayers(saveLocations, needsSyncfs); err != nil {
+	if err := r.saveLayers(saveLocations); err != nil {
 		return err
 	}
 	return r.saveMounts()
 }
 
 // saveFor saves the contents of the store relevant for modifiedLayer to disk.
-// If needsSyncfs is true, all pending writes are flushed to disk before
-// saving the layer metadata.  Set it to false for metadata-only changes
-// (e.g. setting a flag, changing names).
 // The caller must hold r.lockfile locked for writing.
 // The caller must hold r.inProcessLock for WRITING.
-func (r *layerStore) saveFor(modifiedLayer *Layer, needsSyncfs bool) error {
-	return r.save(modifiedLayer.location, needsSyncfs)
+func (r *layerStore) saveFor(modifiedLayer *Layer) error {
+	return r.save(modifiedLayer.location)
 }
 
-// saveLayers writes the layer metadata to disk.
-// If needsSyncfs is true, all pending writes are flushed to disk before
-// saving the layer metadata.  Set it to false for metadata-only changes
-// (e.g. setting a flag, changing names).
 // The caller must hold r.lockfile locked for writing.
 // The caller must hold r.inProcessLock for WRITING.
-func (r *layerStore) saveLayers(saveLocations layerLocations, needsSyncfs bool) error {
+func (r *layerStore) saveLayers(saveLocations layerLocations) error {
 	if !r.lockfile.IsReadWrite() {
 		return fmt.Errorf("not allowed to modify the layer store at %q: %w", r.layerdir, ErrStoreIsReadOnly)
 	}
@@ -1147,21 +1138,6 @@ func (r *layerStore) saveLayers(saveLocations layerLocations, needsSyncfs bool) 
 		opts := ioutils.AtomicFileWriterOptions{}
 		if location == volatileLayerLocation {
 			opts.NoSync = true
-		}
-		// If the underlying storage driver is using sync and we are writing data (not just metadata),
-		// make sure we sync everything before saving the layer data, this ensures that all
-		// files/directories are properly created and written.
-		if needsSyncfs {
-			switch r.driver.SyncMode() {
-			case drivers.SyncModeNone:
-				// Nothing to do.
-			case drivers.SyncModeFilesystem:
-				if err := system.Syncfs(filepath.Dir(rpath)); err != nil {
-					return err
-				}
-			default:
-				return fmt.Errorf("unknown sync mode: %q", r.driver.SyncMode().String())
-			}
 		}
 		if err := ioutils.AtomicWriteFileWithOpts(rpath, jldata, 0o600, &opts); err != nil {
 			return err
@@ -1362,7 +1338,7 @@ func (r *layerStore) ClearFlag(id string, flag string) error {
 		return ErrLayerUnknown
 	}
 	delete(layer.Flags, flag)
-	return r.saveFor(layer, false)
+	return r.saveFor(layer)
 }
 
 // Requires startWriting.
@@ -1378,7 +1354,7 @@ func (r *layerStore) SetFlag(id string, flag string, value any) error {
 		layer.Flags = make(map[string]any)
 	}
 	layer.Flags[flag] = value
-	return r.saveFor(layer, false)
+	return r.saveFor(layer)
 }
 
 func (r *layerStore) Status() ([][2]string, error) {
@@ -1433,7 +1409,7 @@ func (r *layerStore) PutAdditionalLayer(id string, parentLayer *Layer, names []s
 	if layer.TOCDigest != "" {
 		r.bytocsum[layer.TOCDigest] = append(r.bytocsum[layer.TOCDigest], layer.ID)
 	}
-	if err := r.saveFor(layer, true); err != nil {
+	if err := r.saveFor(layer); err != nil {
 		if e := r.deleteWhileHoldingLock(layer.ID); e != nil {
 			logrus.Errorf("While recovering from a failure to save layers, error deleting layer %#v: %v", id, e)
 		}
@@ -1586,7 +1562,7 @@ func (r *layerStore) create(id string, parentLayer *Layer, names []string, mount
 		}
 	}()
 
-	if err = r.saveFor(layer, false); err != nil {
+	if err = r.saveFor(layer); err != nil {
 		cleanupFailureContext = "saving incomplete layer metadata"
 		return nil, -1, err
 	}
@@ -1647,7 +1623,7 @@ func (r *layerStore) create(id string, parentLayer *Layer, names []string, mount
 			cleanupFailureContext = "creating tar-split parent directory for a copy from template"
 			return nil, -1, err
 		}
-		if err = os.WriteFile(r.tspath(id), templateTSdata, 0o600); err != nil {
+		if err = ioutils.AtomicWriteFile(r.tspath(id), templateTSdata, 0o600); err != nil {
 			cleanupFailureContext = "creating a tar-split copy from template"
 			return nil, -1, err
 		}
@@ -1694,7 +1670,7 @@ func (r *layerStore) create(id string, parentLayer *Layer, names []string, mount
 	}
 
 	delete(layer.Flags, incompleteFlag)
-	if err = r.saveFor(layer, true); err != nil {
+	if err = r.saveFor(layer); err != nil {
 		cleanupFailureContext = "saving finished layer metadata"
 		return nil, -1, err
 	}
@@ -1928,7 +1904,7 @@ func (r *layerStore) updateNames(id string, names []string, op updateNameOperati
 		r.byname[name] = layer
 	}
 	layer.Names = names
-	return r.saveFor(layer, false)
+	return r.saveFor(layer)
 }
 
 func (r *layerStore) datadir(id string) string {
@@ -1991,7 +1967,7 @@ func (r *layerStore) setBigData(layer *Layer, key string, data io.Reader) error 
 
 	if !slices.Contains(layer.BigDataNames, key) {
 		layer.BigDataNames = append(layer.BigDataNames, key)
-		return r.saveFor(layer, false)
+		return r.saveFor(layer)
 	}
 	return nil
 }
@@ -2020,7 +1996,7 @@ func (r *layerStore) SetMetadata(id, metadata string) error {
 	}
 	if layer, ok := r.lookup(id); ok {
 		layer.Metadata = metadata
-		return r.saveFor(layer, false)
+		return r.saveFor(layer)
 	}
 	return ErrLayerUnknown
 }
@@ -2060,7 +2036,7 @@ func (r *layerStore) internalDelete(id string) ([]tempdir.CleanupTempDirFunc, er
 			layer.Flags = make(map[string]any)
 		}
 		layer.Flags[incompleteFlag] = true
-		if err := r.saveFor(layer, false); err != nil {
+		if err := r.saveFor(layer); err != nil {
 			return nil, err
 		}
 	}
@@ -2160,7 +2136,7 @@ func (r *layerStore) deferredDelete(id string) ([]tempdir.CleanupTempDirFunc, er
 	if err != nil {
 		return cleanFunctions, err
 	}
-	return cleanFunctions, r.saveFor(layer, false)
+	return cleanFunctions, r.saveFor(layer)
 }
 
 // Requires startReading or startWriting.
@@ -2629,7 +2605,7 @@ func applyDiff(layerOptions *LayerOptions, diff io.Reader, tarSplitFile *os.File
 	gidLog := make(map[uint32]struct{})
 	var uncompressedCounter *ioutils.WriteCounter
 
-	size, err := func() (retSize int64, retErr error) { // A scope for defer
+	size, err := func() (int64, error) { // A scope for defer
 		compressor, err := pgzip.NewWriterLevel(tarSplitWriter, pgzip.BestSpeed)
 		if err != nil {
 			return -1, err
@@ -2659,27 +2635,12 @@ func applyDiff(layerOptions *LayerOptions, diff io.Reader, tarSplitFile *os.File
 		if uncompressedDigester != nil {
 			uncompressedWriter = io.MultiWriter(uncompressedWriter, uncompressedDigester.Hash())
 		}
-		payload, done, err := asm.NewInputTarStreamWithDone(io.TeeReader(uncompressed, uncompressedWriter), metadata, storage.NewDiscardFilePutter())
+		payload, err := asm.NewInputTarStream(io.TeeReader(uncompressed, uncompressedWriter), metadata, storage.NewDiscardFilePutter())
 		if err != nil {
 			return -1, err
 		}
-		defer func() {
-			payload.Close()
-			if doneErr := <-done; doneErr != nil && retErr == nil {
-				retErr = doneErr
-			}
-		}()
 
-		size, err := applyDriverFunc(payload)
-		if err != nil {
-			return -1, err
-		}
-		// Fully consume the payload; it may contain trailing zero padding, and we need all of that
-		// recorded in tar-split (which happens when the data passes through NewInputTarStreamWithDone).
-		if _, err := io.Copy(io.Discard, payload); err != nil {
-			return -1, err
-		}
-		return size, nil
+		return applyDriverFunc(payload)
 	}()
 	if err != nil {
 		return nil, err
@@ -2724,7 +2685,7 @@ func applyDiff(layerOptions *LayerOptions, diff io.Reader, tarSplitFile *os.File
 }
 
 // Requires startWriting.
-func (r *layerStore) applyDiffWithOptions(to string, layerOptions *LayerOptions, diff io.Reader) (int64, error) {
+func (r *layerStore) applyDiffWithOptions(to string, layerOptions *LayerOptions, diff io.Reader) (_ int64, retErr error) {
 	if !r.lockfile.IsReadWrite() {
 		return -1, fmt.Errorf("not allowed to modify layer contents at %q: %w", r.layerdir, ErrStoreIsReadOnly)
 	}
@@ -2738,10 +2699,11 @@ func (r *layerStore) applyDiffWithOptions(to string, layerOptions *LayerOptions,
 	if err != nil {
 		return -1, err
 	}
-	tarSplitClosed := false
+	// make sure to check for errors on close and return that one.
 	defer func() {
-		if !tarSplitClosed {
-			tarSplitFile.Close()
+		closeErr := tarSplitFile.Close()
+		if retErr == nil {
+			retErr = closeErr
 		}
 	}()
 
@@ -2757,14 +2719,13 @@ func (r *layerStore) applyDiffWithOptions(to string, layerOptions *LayerOptions,
 		return -1, err
 	}
 
-	tarSplitClosed = true
-	if err := tarSplitFile.Close(); err != nil {
-		return -1, err
+	if err := tarSplitFile.Sync(); err != nil {
+		return -1, fmt.Errorf("sync tar-split file: %w", err)
 	}
 
 	r.applyDiffResultToLayer(layer, result)
 
-	err = r.saveFor(layer, true)
+	err = r.saveFor(layer)
 
 	return result.size, err
 }
@@ -2796,7 +2757,7 @@ func (r *layerStore) DifferTarget(id string) (string, error) {
 }
 
 // Requires startWriting.
-func (r *layerStore) applyDiffFromStagingDirectory(id string, diffOutput *drivers.DriverWithDifferOutput, options *drivers.ApplyDiffWithDifferOpts) error {
+func (r *layerStore) applyDiffFromStagingDirectory(id string, diffOutput *drivers.DriverWithDifferOutput, options *drivers.ApplyDiffWithDifferOpts) (retErr error) {
 	ddriver, ok := r.driver.(drivers.DriverWithDiffer)
 	if !ok {
 		return ErrNotSupported
@@ -2835,16 +2796,20 @@ func (r *layerStore) applyDiffFromStagingDirectory(id string, diffOutput *driver
 		}
 		maps.Copy(layer.Flags, options.Flags)
 	}
+	if err = r.saveFor(layer); err != nil {
+		return err
+	}
 
 	if diffOutput.TarSplit != nil {
 		tarSplitFile, err := createTarSplitFile(r, layer.ID)
 		if err != nil {
 			return err
 		}
-		tarSplitClosed := false
+		// make sure to check for errors on close and return that one.
 		defer func() {
-			if !tarSplitClosed {
-				tarSplitFile.Close()
+			closeErr := tarSplitFile.Close()
+			if retErr == nil {
+				retErr = closeErr
 			}
 		}()
 		tarSplitWriter := pools.BufioWriter32KPool.Get(tarSplitFile)
@@ -2870,12 +2835,10 @@ func (r *layerStore) applyDiffFromStagingDirectory(id string, diffOutput *driver
 		if err := tarSplitWriter.Flush(); err != nil {
 			return fmt.Errorf("failed to flush tar-split writer buffer: %w", err)
 		}
-		tarSplitClosed = true
-		if err := tarSplitFile.Close(); err != nil {
-			return err
+		if err := tarSplitFile.Sync(); err != nil {
+			return fmt.Errorf("sync tar-split file: %w", err)
 		}
 	}
-
 	for k, v := range diffOutput.BigData {
 		if err := r.SetBigData(id, k, bytes.NewReader(v)); err != nil {
 			if err2 := r.deleteWhileHoldingLock(id); err2 != nil {
@@ -2883,10 +2846,6 @@ func (r *layerStore) applyDiffFromStagingDirectory(id string, diffOutput *driver
 			}
 			return err
 		}
-	}
-
-	if err = r.saveFor(layer, true); err != nil {
-		return err
 	}
 	return err
 }
