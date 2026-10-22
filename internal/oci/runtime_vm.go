@@ -152,14 +152,6 @@ func (r *runtimeVM) CreateContainer(ctx context.Context, c *Container, cgroupPar
 	log.Debugf(ctx, "RuntimeVM.CreateContainer() start")
 	defer log.Debugf(ctx, "RuntimeVM.CreateContainer() end")
 
-	// This runtime will not drop the infra container, so we don't expect
-	// to run into this. But if the default runtimeHandler is kata, we might end
-	// here for a spoofed container, which is always set with the default handler.
-	// This test guards against it.
-	if c.Spoofed() {
-		return nil
-	}
-
 	// Lock the container
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
@@ -338,10 +330,6 @@ func (r *runtimeVM) startRuntimeDaemon(ctx context.Context, c *Container) error 
 func (r *runtimeVM) StartContainer(ctx context.Context, c *Container) error {
 	log.Debugf(ctx, "RuntimeVM.StartContainer() start")
 	defer log.Debugf(ctx, "RuntimeVM.StartContainer() end")
-
-	if c.Spoofed() {
-		return nil
-	}
 
 	// Lock the container
 	c.opLock.Lock()
@@ -655,13 +643,6 @@ func (r *runtimeVM) StopContainer(ctx context.Context, c *Container, timeout int
 	log.Debugf(ctx, "RuntimeVM.StopContainer() start")
 	defer log.Debugf(ctx, "RuntimeVM.StopContainer() end")
 
-	if c.Spoofed() {
-		c.state.Status = ContainerStateStopped
-		c.state.Finished = time.Now()
-
-		return nil
-	}
-
 	if err := r.shouldBeStopped(ctx, c); err != nil {
 		if errors.Is(err, ErrContainerStopped) {
 			err = nil
@@ -705,6 +686,7 @@ func (r *runtimeVM) StopContainer(ctx context.Context, c *Container, timeout int
 		err := r.waitCtrTerminate(sig, stopCh, timeoutDuration)
 		if err == nil {
 			c.state.Finished = time.Now()
+			c.state.Status = ContainerStateStopped
 
 			return nil
 		}
@@ -725,6 +707,7 @@ func (r *runtimeVM) StopContainer(ctx context.Context, c *Container, timeout int
 	}
 
 	c.state.Finished = time.Now()
+	c.state.Status = ContainerStateStopped
 
 	return nil
 }
@@ -771,10 +754,6 @@ func (r *runtimeVM) DeleteContainer(ctx context.Context, c *Container) error {
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
 
-	if c.Spoofed() {
-		return nil
-	}
-
 	if c.state.OOMKilled {
 		// Collect metric by container name
 		metrics.Instance().MetricContainersOOMCountTotalDelete(c.Name())
@@ -791,8 +770,14 @@ func (r *runtimeVM) deleteContainer(c *Container, force bool) error {
 	cInfo, ok := r.ctrs[c.ID()]
 	r.Unlock()
 
-	if !ok && !force {
-		return errors.New("could not retrieve container information")
+	if !ok {
+		if c.state.Status == ContainerStateStopped {
+			return nil
+		}
+
+		if !force {
+			return errors.New("could not retrieve container information")
+		}
 	}
 
 	if err := cInfo.cio.Close(); err != nil && !force {
@@ -827,6 +812,19 @@ func (r *runtimeVM) UpdateContainerStatus(ctx context.Context, c *Container) err
 	return r.updateContainerStatus(ctx, c)
 }
 
+func markContainerStopped(c *Container) {
+	if c.state.Status != ContainerStateStopped || c.state.Finished.IsZero() {
+		c.state.Finished = time.Now()
+	}
+
+	if c.state.Status != ContainerStateStopped || c.state.ExitCode == nil {
+		exitCode := int32(255)
+		c.state.ExitCode = &exitCode
+	}
+
+	c.state.Status = ContainerStateStopped
+}
+
 // updateContainerStatus is a UpdateContainerStatus helper, which actually does the container's
 // status refresh.
 // It does **not** Lock the container, thus it's the caller responsibility to do so, when needed.
@@ -849,6 +847,14 @@ func (r *runtimeVM) updateContainerStatus(ctx context.Context, c *Container) err
 				return nil
 			}
 
+			if errors.Is(err, os.ErrNotExist) {
+				log.Warnf(ctx,
+					"Shim address file missing for %s, marking container stopped", c.ID())
+				markContainerStopped(c)
+
+				return nil
+			}
+
 			log.Warnf(ctx, "Failed to read shim address: %v", err)
 
 			return errors.New("runtime not correctly setup")
@@ -858,7 +864,13 @@ func (r *runtimeVM) updateContainerStatus(ctx context.Context, c *Container) err
 
 		conn, err := client.Connect(address, client.AnonDialer)
 		if err != nil {
-			return err
+			log.Warnf(ctx,
+				"Failed to reconnect to shim for %s, marking container stopped: %v",
+				c.ID(), err)
+
+			markContainerStopped(c)
+
+			return nil
 		}
 
 		options := ttrpc.WithOnClose(func() { conn.Close() })
@@ -1174,7 +1186,7 @@ func (r *runtimeVM) kill(ctrID, execID string, signal syscall.Signal) error {
 		ExecID: execID,
 		Signal: uint32(signal),
 		All:    false,
-	}); err != nil {
+	}); err != nil && (signal == 0 || !errors.Is(err, ttrpc.ErrClosed)) {
 		return errdefs.FromGRPC(err)
 	}
 
