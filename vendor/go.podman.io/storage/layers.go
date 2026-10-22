@@ -121,7 +121,7 @@ type Layer struct {
 	// versions of the library did not track this information, so callers
 	// will likely want to use the IsZero() method to verify that a value
 	// is set before using it.
-	Created time.Time `json:"created,omitempty"`
+	Created time.Time `json:"created"`
 
 	// CompressedDigest is the digest of the blob that was last passed to
 	// ApplyDiff() or create(), as it was presented to us.
@@ -823,17 +823,60 @@ func (r *layerStore) GarbageCollect() error {
 		}
 
 		// Remove layer and any related data of unreferenced id
+		logrus.Debugf("removing driver layer %q", id)
 		if err := r.driver.Remove(id); err != nil {
-			logrus.Debugf("removing driver layer %q", id)
 			return err
 		}
-
-		logrus.Debugf("removing %q", r.tspath(id))
-		os.Remove(r.tspath(id))
-		logrus.Debugf("removing %q", r.datadir(id))
-		os.RemoveAll(r.datadir(id))
+		// Best-effort removal of orphaned metadata; the driver layer is
+		// already gone, so warn but don't fail the overall GC.
+		if err := os.Remove(r.tspath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			logrus.Warnf("Failed to remove tar-split file %q: %v", r.tspath(id), err)
+		}
+		if err := os.RemoveAll(r.datadir(id)); err != nil {
+			logrus.Warnf("Failed to remove data directory %q: %v", r.datadir(id), err)
+		}
 	}
-	return nil
+
+	// Clean up any orphaned tar-split or data files in the layer metadata
+	// directory that don't correspond to a known layer.
+	entries, err := os.ReadDir(r.layerdir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		var id string
+		var isDataDir bool
+		if strings.HasSuffix(name, tarSplitSuffix) {
+			id = strings.TrimSuffix(name, tarSplitSuffix)
+		} else if stringid.ValidateID(name) == nil {
+			id = name
+			isDataDir = true
+		} else {
+			continue
+		}
+		if stringid.ValidateID(id) != nil {
+			continue
+		}
+		if r.byid[id] != nil {
+			continue
+		}
+		p := filepath.Join(r.layerdir, name)
+		logrus.Debugf("removing %q", p)
+		if isDataDir {
+			moreErr := os.RemoveAll(p)
+			if moreErr != nil && err == nil {
+				err = moreErr
+			}
+		} else {
+			moreErr := os.Remove(p)
+			if moreErr != nil && err == nil {
+				err = moreErr
+			}
+		}
+	}
+
+	return err
 }
 
 func (r *layerStore) mountspath() string {
@@ -937,7 +980,9 @@ func (r *layerStore) load(lockedForWriting bool) (bool, error) {
 			tocsums[layer.TOCDigest] = append(tocsums[layer.TOCDigest], layer.ID)
 		}
 		if layer.MountLabel != "" {
-			selinux.ReserveLabel(layer.MountLabel)
+			if err := selinux.ReserveLabelV2(layer.MountLabel); err != nil && !errors.Is(err, selinux.ErrMCSAlreadyExists) {
+				return false, fmt.Errorf("unable to reserve SELinux label: %w", err)
+			}
 		}
 		layer.ReadOnly = !r.lockfile.IsReadWrite()
 		// The r.lockfile.IsReadWrite() condition maintains past practice:
@@ -1531,7 +1576,9 @@ func (r *layerStore) create(id string, parentLayer *Layer, names []string, mount
 		templateIDMappings = &idtools.IDMappings{}
 	}
 	if mountLabel != "" {
-		selinux.ReserveLabel(mountLabel)
+		if err := selinux.ReserveLabelV2(mountLabel); err != nil && !errors.Is(err, selinux.ErrMCSAlreadyExists) {
+			return nil, -1, fmt.Errorf("unable to reserve SELinux label: %w", err)
+		}
 	}
 
 	// Before actually creating the layer, make a persistent record of it
@@ -2078,7 +2125,6 @@ func (r *layerStore) internalDelete(id string) ([]tempdir.CleanupTempDirFunc, er
 		return cleanFunctions, err
 	}
 
-	cleanFunctions = append(cleanFunctions, tempDirectory.Cleanup)
 	if err := tempDirectory.StageDeletion(r.tspath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return cleanFunctions, err
 	}
@@ -2186,8 +2232,8 @@ func (r *layerStore) Wipe() error {
 	for id := range r.byid {
 		ids = append(ids, id)
 	}
-	sort.Slice(ids, func(i, j int) bool {
-		return r.byid[ids[i]].Created.After(r.byid[ids[j]].Created)
+	slices.SortFunc(ids, func(a, b string) int {
+		return -r.byid[a].Created.Compare(r.byid[b].Created)
 	})
 	for _, id := range ids {
 		if err := r.deleteWhileHoldingLock(id); err != nil {

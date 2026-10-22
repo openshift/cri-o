@@ -1,4 +1,4 @@
-go 1.26.4
+go 1.27.1
 
 module github.com/cri-o/cri-o
 
@@ -19,7 +19,7 @@ require (
 	github.com/containernetworking/cni v1.3.1
 	github.com/containernetworking/plugins v1.9.1
 	github.com/containers/conmon v2.0.20+incompatible
-	github.com/containers/conmon-rs v1.0.1
+	github.com/containers/conmon-rs v1.1.1
 	github.com/containers/kubensmnt v1.3.0
 	github.com/containers/ocicrypt v1.3.2
 	github.com/coreos/go-systemd/v22 v22.7.0
@@ -95,6 +95,7 @@ require (
 
 require (
 	capnproto.org/go/capnp/v3 v3.1.0-alpha.2 // indirect
+	cyphar.com/go-pathrs v0.2.5 // indirect
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/ProtonMail/go-crypto v1.4.1 // indirect
@@ -123,7 +124,6 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/disiqueira/gotree/v3 v3.0.2 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
-	github.com/docker/docker v28.5.1+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.7 // indirect
 	github.com/docker/go-connections v0.7.0 // indirect
 	github.com/docker/go-events v0.0.0-20190806004212-e31b211e4f1c // indirect
@@ -187,21 +187,20 @@ require (
 	github.com/mattn/go-shellwords v1.0.13 // indirect
 	github.com/mattn/go-sqlite3 v1.14.44 // indirect
 	github.com/miekg/pkcs11 v1.1.2 // indirect
-	github.com/mistifyio/go-zfs/v3 v3.1.0 // indirect
+	github.com/mistifyio/go-zfs/v4 v4.0.0 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
+	github.com/moby/moby/api v1.54.2 // indirect
+	github.com/moby/moby/client v0.4.1 // indirect
 	github.com/moby/spdystream v0.5.1 // indirect
-	github.com/moby/sys/atomicwriter v0.1.0 // indirect
 	github.com/moby/sys/sequential v0.6.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
-	github.com/morikuni/aec v1.1.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	github.com/olekukonko/cat v0.0.0-20250911104152-50322a0618f6 // indirect
 	github.com/olekukonko/errors v1.2.0 // indirect
 	github.com/olekukonko/ll v0.1.6 // indirect
 	github.com/olekukonko/tablewriter v1.1.4 // indirect
-	github.com/opencontainers/runc v1.5.1 // indirect
 	github.com/pjbgf/sha1cd v0.6.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/proglottis/gpgme v0.1.6 // indirect
@@ -239,12 +238,12 @@ require (
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
-	golang.org/x/mod v0.38.0 // indirect
+	golang.org/x/mod v0.39.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	golang.org/x/tools v0.48.0 // indirect
+	golang.org/x/tools v0.49.0 // indirect
 	google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260819154853-08b0e4226688 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260825221802-da73d73af1c5 // indirect
@@ -258,11 +257,4 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 	tags.cncf.io/container-device-interface/specs-go v1.1.1 // indirect
-)
-
-replace (
-	github.com/cyphar/filepath-securejoin => github.com/cyphar/filepath-securejoin v0.5.1
-	go.podman.io/common => gitlab.cee.redhat.com/sustaining-engineering/container-tools/src-git/container-libs/common v0.67.1
-	go.podman.io/image/v5 => gitlab.cee.redhat.com/sustaining-engineering/container-tools/src-git/container-libs/image/v5 v5.39.2-mr11
-	go.podman.io/storage => gitlab.cee.redhat.com/sustaining-engineering/container-tools/src-git/container-libs/storage v1.62.0-mr11
 )
