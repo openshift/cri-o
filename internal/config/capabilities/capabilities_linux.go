@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	common "github.com/containers/common/pkg/capabilities"
+	common "go.podman.io/common/pkg/capabilities"
 	"github.com/sirupsen/logrus"
 )
 

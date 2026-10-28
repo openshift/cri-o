@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	cstorage "github.com/containers/storage"
+	cstorage "go.podman.io/storage"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"

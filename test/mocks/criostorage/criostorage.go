@@ -13,8 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	types "github.com/containers/image/v5/types"
-	storage "github.com/containers/storage"
+	types "go.podman.io/image/v5/types"
+	storage "go.podman.io/storage"
 	storage0 "github.com/cri-o/cri-o/internal/storage"
 	gomock "go.uber.org/mock/gomock"
 )

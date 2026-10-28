@@ -3,7 +3,7 @@ package container_test
 import (
 	"os"
 
-	"github.com/containers/storage/pkg/unshare"
+	"go.podman.io/storage/pkg/unshare"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"

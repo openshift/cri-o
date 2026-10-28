@@ -12,9 +12,9 @@ import (
 
 	cnitypes "github.com/containernetworking/cni/pkg/types"
 	current "github.com/containernetworking/cni/pkg/types/100"
-	"github.com/containers/storage"
-	"github.com/containers/storage/pkg/idtools"
-	"github.com/containers/storage/pkg/unshare"
+	"go.podman.io/storage"
+	"go.podman.io/storage/pkg/idtools"
+	"go.podman.io/storage/pkg/unshare"
 	json "github.com/json-iterator/go"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
