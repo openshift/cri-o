@@ -110,7 +110,6 @@ type pullArguments struct {
 	sandboxCgroup string
 	credentials   imageTypes.DockerAuthConfig
 	namespace     string
-	imageServer   storage.ImageServer
 }
 
 // pullOperation is used to synchronize parallel pull operations via the
@@ -172,16 +171,7 @@ func (s *Server) restore(ctx context.Context) []storage.StorageImageID {
 	deletedPods := map[string]*sandbox.Sandbox{}
 
 	for i := range containers {
-		// use the default runtime service here, as ContainerMetadata is not
-		// treated differently for different runtimes.
-		runtimeSvc, err2 := s.StorageRuntimeServer(nil)
-		if err2 != nil {
-			log.Warnf(ctx, "Error getting runtime service for %s: %v, ignoring", containers[i].ID, err2)
-
-			continue
-		}
-
-		metadata, err2 := runtimeSvc.GetContainerMetadata(containers[i].ID)
+		metadata, err2 := s.ContainerServer.StorageRuntimeServer().GetContainerMetadata(containers[i].ID)
 		if err2 != nil {
 			log.Warnf(ctx, "Error parsing metadata for %s: %v, ignoring", containers[i].ID, err2)
 
@@ -468,12 +458,7 @@ func New(
 		os.Unsetenv("DBUS_SESSION_BUS_ADDRESS")
 	}
 
-	defaultImageServer, err := containerServer.StorageImageServer(nil)
-	if err != nil {
-		return nil, err
-	}
-
-	artifactStore, err := ociartifact.NewStore(containerServer.Store().GraphRoot(), config.AdditionalArtifactStores, config.SystemContext, defaultImageServer.PinnedImageRegexps())
+	artifactStore, err := ociartifact.NewStore(containerServer.Store().GraphRoot(), config.AdditionalArtifactStores, config.SystemContext, containerServer.StorageImageServer().PinnedImageRegexps())
 	if err != nil {
 		return nil, err
 	}
@@ -651,18 +636,9 @@ func (s *Server) startReloadWatcher(ctx context.Context) {
 			metrics.Instance().MetricDefaultRuntimeSet(s.config.DefaultRuntime)
 
 			// ImageServer compiles the list with regex for both
-			// pinned and sandbox/pause images, we need to update them.
-			// For this operation, we set the "runtime handler" parameter to "",
-			// so that the default ImageServer is used. There is no need to
-			// update pinned images for runtimes that manage the images themselves.
-			imageService, err := s.StorageImageServer(nil)
-			if err != nil {
-				log.Errorf(ctx, "Failed to get image server during config reload: %v", err)
-			} else {
-				imageService.UpdatePinnedImagesList(append(s.config.PinnedImages, s.config.PauseImage))
-				s.artifactStore.SetPinnedImageRegexps(imageService.PinnedImageRegexps())
-			}
-
+			// pinned and sandbox/pause images, we need to update them
+			s.ContainerServer.StorageImageServer().UpdatePinnedImagesList(append(s.config.PinnedImages, s.config.PauseImage))
+			s.artifactStore.SetPinnedImageRegexps(s.ContainerServer.StorageImageServer().PinnedImageRegexps())
 			log.Infof(ctx, "Configuration reload completed")
 			// Print the current configuration.
 			tomlConfig, err := s.config.ToString()
@@ -753,7 +729,7 @@ func (s *Server) wipeIfAppropriate(ctx context.Context, imagesToDelete []storage
 	// disk usage gets too high.
 	if shouldWipeImages {
 		for img := range imageMapToDelete {
-			if err := s.ContainerServer.StorageImageManager().DeleteImage(ctx, s.config.SystemContext, img); err != nil {
+			if err := s.ContainerServer.StorageImageServer().DeleteImage(s.config.SystemContext, img); err != nil {
 				log.Warnf(ctx, "Failed to remove image %s: %v", img, err)
 			}
 		}
