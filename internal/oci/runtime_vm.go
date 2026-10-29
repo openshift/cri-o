@@ -705,6 +705,7 @@ func (r *runtimeVM) StopContainer(ctx context.Context, c *Container, timeout int
 		err := r.waitCtrTerminate(sig, stopCh, timeoutDuration)
 		if err == nil {
 			c.state.Finished = time.Now()
+			c.state.Status = ContainerStateStopped
 
 			return nil
 		}
@@ -725,6 +726,7 @@ func (r *runtimeVM) StopContainer(ctx context.Context, c *Container, timeout int
 	}
 
 	c.state.Finished = time.Now()
+	c.state.Status = ContainerStateStopped
 
 	return nil
 }
@@ -791,8 +793,14 @@ func (r *runtimeVM) deleteContainer(c *Container, force bool) error {
 	cInfo, ok := r.ctrs[c.ID()]
 	r.Unlock()
 
-	if !ok && !force {
-		return errors.New("could not retrieve container information")
+	if !ok {
+		if c.state.Status == ContainerStateStopped {
+			return nil
+		}
+
+		if !force {
+			return errors.New("could not retrieve container information")
+		}
 	}
 
 	if err := cInfo.cio.Close(); err != nil && !force {
@@ -827,6 +835,19 @@ func (r *runtimeVM) UpdateContainerStatus(ctx context.Context, c *Container) err
 	return r.updateContainerStatus(ctx, c)
 }
 
+func markContainerStopped(c *Container) {
+	if c.state.Status != ContainerStateStopped || c.state.Finished.IsZero() {
+		c.state.Finished = time.Now()
+	}
+
+	if c.state.Status != ContainerStateStopped || c.state.ExitCode == nil {
+		exitCode := int32(255)
+		c.state.ExitCode = &exitCode
+	}
+
+	c.state.Status = ContainerStateStopped
+}
+
 // updateContainerStatus is a UpdateContainerStatus helper, which actually does the container's
 // status refresh.
 // It does **not** Lock the container, thus it's the caller responsibility to do so, when needed.
@@ -849,6 +870,14 @@ func (r *runtimeVM) updateContainerStatus(ctx context.Context, c *Container) err
 				return nil
 			}
 
+			if errors.Is(err, os.ErrNotExist) {
+				log.Warnf(ctx,
+					"Shim address file missing for %s, marking container stopped", c.ID())
+				markContainerStopped(c)
+
+				return nil
+			}
+
 			log.Warnf(ctx, "Failed to read shim address: %v", err)
 
 			return errors.New("runtime not correctly setup")
@@ -858,7 +887,13 @@ func (r *runtimeVM) updateContainerStatus(ctx context.Context, c *Container) err
 
 		conn, err := client.Connect(address, client.AnonDialer)
 		if err != nil {
-			return err
+			log.Warnf(ctx,
+				"Failed to reconnect to shim for %s, marking container stopped: %v",
+				c.ID(), err)
+
+			markContainerStopped(c)
+
+			return nil
 		}
 
 		options := ttrpc.WithOnClose(func() { conn.Close() })
@@ -1174,7 +1209,7 @@ func (r *runtimeVM) kill(ctrID, execID string, signal syscall.Signal) error {
 		ExecID: execID,
 		Signal: uint32(signal),
 		All:    false,
-	}); err != nil {
+	}); err != nil && (signal == 0 || !errors.Is(err, ttrpc.ErrClosed)) {
 		return errdefs.FromGRPC(err)
 	}
 
