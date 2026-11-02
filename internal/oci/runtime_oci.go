@@ -24,6 +24,7 @@ import (
 	json "github.com/json-iterator/go"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
+	"go.podman.io/common/pkg/crutils"
 	"go.podman.io/storage/pkg/pools"
 	"golang.org/x/sys/unix"
 	kwait "k8s.io/apimachinery/pkg/util/wait"
@@ -33,7 +34,6 @@ import (
 	utilexec "k8s.io/utils/exec"
 
 	"github.com/cri-o/cri-o/internal/config/cgmgr"
-	"github.com/cri-o/cri-o/internal/crutils"
 	"github.com/cri-o/cri-o/internal/lib/stats"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/pkg/config"
@@ -1989,7 +1989,7 @@ func (r *runtimeOCI) ServeExecContainer(
 	bool,
 	bool,
 ) (string, error) {
-	return "", nil
+	return "", fmt.Errorf("serve exec: %w", errors.ErrUnsupported)
 }
 
 func (r *runtimeOCI) ServeAttachContainer(
@@ -1999,5 +1999,13 @@ func (r *runtimeOCI) ServeAttachContainer(
 	bool,
 	bool,
 ) (string, error) {
-	return "", nil
+	return "", fmt.Errorf("serve attach: %w", errors.ErrUnsupported)
+}
+
+func (r *runtimeOCI) ServePortForwardContainer(
+	context.Context,
+	*Container,
+	string,
+) (string, error) {
+	return "", fmt.Errorf("serve port forward: %w", errors.ErrUnsupported)
 }

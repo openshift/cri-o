@@ -12,10 +12,10 @@ import (
 	"github.com/checkpoint-restore/go-criu/v8/stats"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
+	"go.podman.io/common/pkg/crutils"
 	"go.podman.io/storage/pkg/archive"
 
 	"github.com/cri-o/cri-o/internal/annotations"
-	"github.com/cri-o/cri-o/internal/crutils"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/oci"
 )
@@ -289,7 +289,9 @@ func (c *ContainerServer) prepareCheckpointExport(ctr *oci.Container) error {
 				return runtimeHandler
 			}
 
-			return c.config.DefaultRuntime
+			_, defaultRuntime := c.config.RuntimeHandlers()
+
+			return defaultRuntime
 		}(),
 		CheckpointedAt: time.Now(),
 		Restored:       ctr.Restore(),
