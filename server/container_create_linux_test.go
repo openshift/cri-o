@@ -172,7 +172,7 @@ func TestAddOCIBindsForDev(t *testing.T) {
 		MountLabel: "",
 	}
 
-	_, binds, _, err := sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, false, false, false, nil)
+	_, binds, _, err := sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, false, false, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -227,7 +227,7 @@ func TestAddOCIBindsForSys(t *testing.T) {
 		MountLabel: "",
 	}
 
-	_, binds, _, err := sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, false, false, false, nil)
+	_, binds, _, err := sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, false, false, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -284,7 +284,7 @@ func TestAddOCIBindsRROMounts(t *testing.T) {
 		MountLabel: "",
 	}
 
-	_, binds, _, err := sut.addOCIBindMounts(ctx, ctr, ctrInfo, false, false, false, false, true, nil)
+	_, binds, _, err := sut.addOCIBindMounts(ctx, ctr, ctrInfo, false, false, false, false, true)
 	if err != nil {
 		t.Errorf("Should not fail to create RRO mount, got: %v", err)
 	}
@@ -385,7 +385,7 @@ func TestAddOCIBindsRROMountsError(t *testing.T) {
 				MountLabel: "",
 			}
 
-			_, _, _, err = sut.addOCIBindMounts(ctx, ctr, ctrInfo, false, false, false, false, tc.rroSupport, nil)
+			_, _, _, err = sut.addOCIBindMounts(ctx, ctr, ctrInfo, false, false, false, false, tc.rroSupport)
 			if err == nil {
 				t.Error("Should fail to add an RRO mount with a specific error")
 			}
@@ -421,7 +421,7 @@ func TestAddOCIBindsCGroupRW(t *testing.T) {
 	}
 
 	//nolint:dogsled // test only needs the error return
-	_, _, _, err = sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, true, false, false, nil)
+	_, _, _, err = sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, true, false, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -462,7 +462,7 @@ func TestAddOCIBindsCGroupRW(t *testing.T) {
 	var hasCgroupRO bool
 
 	//nolint:dogsled // test only needs the error return
-	_, _, _, err = sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, false, false, false, nil)
+	_, _, _, err = sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, false, false, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -519,13 +519,13 @@ func TestAddOCIBindsErrorWithoutIDMap(t *testing.T) {
 	}
 
 	//nolint:dogsled // test only needs the error return
-	_, _, _, err = sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, false, false, false, nil)
+	_, _, _, err = sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, false, false, false)
 	if err == nil {
 		t.Errorf("Should have failed to create id mapped mount with no id map support")
 	}
 
 	//nolint:dogsled // test only needs the error return
-	_, _, _, err = sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, false, true, false, nil)
+	_, _, _, err = sut.addOCIBindMounts(t.Context(), ctr, ctrInfo, false, false, false, true, false)
 	if err != nil {
 		t.Errorf("%v", err)
 	}
@@ -587,6 +587,61 @@ func TestSetupContainerUserRejectsNewlineInHOME(t *testing.T) {
 				if strings.Contains(err.Error(), "newline") {
 					t.Errorf("unexpected newline error for valid HOME: %v", err)
 				}
+			}
+		})
+	}
+}
+
+func TestUserSpecifiedSELinuxType(t *testing.T) {
+	newCtr := func(containerType, sandboxType string) container.Container {
+		t.Helper()
+
+		ctr, err := container.New()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		cfg := &types.ContainerConfig{
+			Metadata: &types.ContainerMetadata{Name: "testctr"},
+			Linux: &types.LinuxContainerConfig{
+				SecurityContext: &types.LinuxContainerSecurityContext{
+					SelinuxOptions: &types.SELinuxOption{Type: containerType},
+				},
+			},
+		}
+		sbox := &types.PodSandboxConfig{
+			Metadata: &types.PodSandboxMetadata{Name: "testpod"},
+			Linux: &types.LinuxPodSandboxConfig{
+				SecurityContext: &types.LinuxSandboxSecurityContext{
+					SelinuxOptions: &types.SELinuxOption{Type: sandboxType},
+				},
+			},
+		}
+
+		if err := ctr.SetConfig(cfg, sbox); err != nil {
+			t.Fatal(err)
+		}
+
+		return ctr
+	}
+
+	tests := []struct {
+		name          string
+		containerType string
+		sandboxType   string
+		want          string
+	}{
+		{name: "no type specified"},
+		{name: "container type", containerType: "container_init_t", want: "container_init_t"},
+		{name: "sandbox type", sandboxType: "spc_t", want: "spc_t"},
+		{name: "container type overrides sandbox", containerType: "container_t", sandboxType: "spc_t", want: "container_t"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := userSpecifiedSELinuxType(newCtr(tt.containerType, tt.sandboxType))
+			if got != tt.want {
+				t.Errorf("userSpecifiedSELinuxType() = %q, want %q", got, tt.want)
 			}
 		})
 	}

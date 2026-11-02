@@ -549,12 +549,7 @@ func (s *Server) CreateContainer(ctx context.Context, req *types.CreateContainer
 	}
 
 	resourceCleaner.Add(ctx, "createCtr: deleting container "+ctr.ID()+" from storage", func() error {
-		runtimeSvc, err := s.StorageRuntimeServer(sb)
-		if err != nil {
-			return fmt.Errorf("failed to get runtime service for cleanup: %w", err)
-		}
-
-		if err := runtimeSvc.DeleteContainer(ctx, ctr.ID()); err != nil {
+		if err := s.ContainerServer.StorageRuntimeServer().DeleteContainer(ctx, ctr.ID()); err != nil {
 			return fmt.Errorf("failed to cleanup container storage: %w", err)
 		}
 
@@ -695,14 +690,22 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr container.Conta
 		if retErr != nil {
 			log.Infof(ctx, "CreateCtrLinux: deleting container %s from storage", containerInfo.ID)
 
-			runtimeSvc, err := s.StorageRuntimeServer(sb)
-			if err != nil {
-				log.Warnf(ctx, "Failed to get runtime service for cleanup: %v", err)
-			} else if err := runtimeSvc.DeleteContainer(ctx, containerInfo.ID); err != nil {
+			if err := s.ContainerServer.StorageRuntimeServer().DeleteContainer(ctx, containerInfo.ID); err != nil {
 				log.Warnf(ctx, "Failed to cleanup container directory: %v", err)
 			}
 		}
 	}()
+
+	containerImageConfig := containerInfo.Config
+	if containerImageConfig == nil {
+		return nil, fmt.Errorf("empty image config for %s", imgInfo.userRequestedImage)
+	}
+
+	// Process args must be set before configureSELinuxLabels so WillRunSystemd()
+	// can see /sbin/init or systemd. generate.New() defaults Args to ["sh"].
+	if err := ctr.SpecSetProcessArgs(containerImageConfig); err != nil {
+		return nil, err
+	}
 
 	mountLabel, processLabel, maybeRelabel, skipRelabel, err := s.configureSELinuxLabels(ctr, sb, containerInfo)
 	if err != nil {
@@ -734,7 +737,7 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr container.Conta
 		}
 	}()
 
-	containerVolumes, ociMounts, safeMounts, err := s.addOCIBindMounts(ctx, ctr, containerInfo, maybeRelabel, skipRelabel, cgroup2RW, idMapSupport, rroSupport, sb)
+	containerVolumes, ociMounts, safeMounts, err := s.addOCIBindMounts(ctx, ctr, containerInfo, maybeRelabel, skipRelabel, cgroup2RW, idMapSupport, rroSupport)
 	if err != nil {
 		return nil, err
 	}
@@ -750,12 +753,7 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr container.Conta
 
 	s.resourceStore.SetStageForResource(ctx, ctr.Name(), "container storage start")
 
-	runtimeSvc, err := s.StorageRuntimeServer(sb)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get runtime service for container %s(%s): %w", containerName, containerID, err)
-	}
-
-	mountPoint, err := runtimeSvc.StartContainer(containerID)
+	mountPoint, err := s.ContainerServer.StorageRuntimeServer().StartContainer(containerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to mount container %s(%s): %w", containerName, containerID, err)
 	}
@@ -764,7 +762,7 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr container.Conta
 		if retErr != nil {
 			log.Infof(ctx, "CreateCtrLinux: stopping storage container %s", containerID)
 
-			if err := runtimeSvc.StopContainer(ctx, containerID); err != nil {
+			if err := s.ContainerServer.StorageRuntimeServer().StopContainer(ctx, containerID); err != nil {
 				log.Warnf(ctx, "Couldn't stop storage container: %v: %v", containerID, err)
 			}
 		}
@@ -831,17 +829,6 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr container.Conta
 	usernsEnabled := containerIDMappings != nil
 	hostNet := securityContext.GetNamespaceOptions().GetNetwork() == types.NamespaceMode_NODE
 	addSysfsMounts(ctr, containerConfig, hostNet, usernsEnabled)
-
-	containerImageConfig := containerInfo.Config
-	if containerImageConfig == nil {
-		err = fmt.Errorf("empty image config for %s", imgInfo.userRequestedImage)
-
-		return nil, err
-	}
-
-	if err := ctr.SpecSetProcessArgs(containerImageConfig); err != nil {
-		return nil, err
-	}
 
 	if err := s.setupCgroupNamespace(ctr, specgen); err != nil {
 		return nil, err
@@ -1247,9 +1234,15 @@ func (s *Server) configureSELinuxLabels(ctr container.Container, sb *sandbox.San
 
 	// Newer versions of container-selinux, container-selinux-2.132.0 or newer,
 	// supply a container_init_t label. If CRI-O is running systemd or init inside
-	// the container and the process label is unset, the init selinux label is required
-	// to run the container.
-	if ctr.WillRunSystemd() && processLabel == "" {
+	// the container, the init selinux label is required unless the user
+	// explicitly requested a different SELinux type.
+	//
+	// processLabel is typically already populated with the storage-generated
+	// default (container_t) when SELinux is enabled, so a non-empty processLabel
+	// must not be treated as a user override. Checking the CRI SELinux type
+	// preserves user-specified labels while still applying container_init_t
+	// for the default systemd case.
+	if ctr.WillRunSystemd() && userSpecifiedSELinuxType(ctr) == "" {
 		processLabel, err = InitLabel(processLabel)
 		if err != nil {
 			return "", "", false, false, fmt.Errorf("failed to get init label: %w", err)
@@ -1269,6 +1262,21 @@ func (s *Server) configureSELinuxLabels(ctr container.Container, sb *sandbox.San
 	}
 
 	return mountLabel, processLabel, maybeRelabel, skipRelabel, nil
+}
+
+// userSpecifiedSELinuxType returns the SELinux type explicitly requested by the
+// container or its sandbox. An empty string means CRI-O should apply its default
+// labeling, including container_init_t for systemd/init containers.
+func userSpecifiedSELinuxType(ctr container.Container) string {
+	if t := ctr.Config().GetLinux().GetSecurityContext().GetSelinuxOptions().GetType(); t != "" {
+		return t
+	}
+
+	if ctr.SandboxConfig() == nil {
+		return ""
+	}
+
+	return ctr.SandboxConfig().GetLinux().GetSecurityContext().GetSelinuxOptions().GetType()
 }
 
 // createStorageContainer creates the storage layer container with the specified image and ID mappings.
@@ -1293,12 +1301,7 @@ func (s *Server) createStorageContainer(ctx context.Context, ctr container.Conta
 
 	s.resourceStore.SetStageForResource(ctx, ctr.Name(), "container storage creation")
 
-	runtimeSvc, err := s.StorageRuntimeServer(sb)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	containerInfo, err := runtimeSvc.CreateContainer(s.config.SystemContext,
+	containerInfo, err := s.ContainerServer.StorageRuntimeServer().CreateContainer(s.config.SystemContext,
 		sb.Name(), sb.ID(),
 		userRequestedImage, imageID,
 		containerName, containerID,
@@ -1324,26 +1327,20 @@ func (s *Server) resolveAndVerifyContainerImage(ctx context.Context, ctr contain
 	}
 
 	var imgResult *storage.ImageResult
-
-	imageService, err := s.StorageImageServer(sb)
-	if err != nil {
-		return nil, err
-	}
-
-	if id := imageService.HeuristicallyTryResolvingStringAsIDPrefix(userRequestedImage); id != nil {
-		imgResult, err = imageService.ImageStatusByID(s.config.SystemContext, *id)
+	if id := s.ContainerServer.StorageImageServer().HeuristicallyTryResolvingStringAsIDPrefix(userRequestedImage); id != nil {
+		imgResult, err = s.ContainerServer.StorageImageServer().ImageStatusByID(s.config.SystemContext, *id)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		potentialMatches, err := imageService.CandidatesForPotentiallyShortImageName(s.config.SystemContext, userRequestedImage)
+		potentialMatches, err := s.ContainerServer.StorageImageServer().CandidatesForPotentiallyShortImageName(s.config.SystemContext, userRequestedImage)
 		if err != nil {
 			return nil, err
 		}
 
 		var imgResultErr error
 		for _, name := range potentialMatches {
-			imgResult, imgResultErr = imageService.ImageStatusByName(s.config.SystemContext, name)
+			imgResult, imgResultErr = s.ContainerServer.StorageImageServer().ImageStatusByName(s.config.SystemContext, name)
 			if imgResultErr == nil {
 				break
 			}
@@ -1366,7 +1363,7 @@ func (s *Server) resolveAndVerifyContainerImage(ctx context.Context, ctr contain
 		someRepoDigest = imgResult.RepoDigests[0]
 	}
 
-	if err := s.verifyImageSignature(ctx, sb.Metadata().GetNamespace(), ctr.Config().GetImage().GetUserSpecifiedImage(), imgResult, sb); err != nil {
+	if err := s.verifyImageSignature(ctx, sb.Metadata().GetNamespace(), ctr.Config().GetImage().GetUserSpecifiedImage(), imgResult); err != nil {
 		return nil, err
 	}
 
@@ -1468,7 +1465,7 @@ func configureTimezone(tz, containerRunDir, mountPoint, mountLabel, etcPath, con
 }
 
 // verifyImageSignature verifies the signature of a container image.
-func (s *Server) verifyImageSignature(ctx context.Context, namespace, userSpecifiedImage string, status *storage.ImageResult, sb *sandbox.Sandbox) error {
+func (s *Server) verifyImageSignature(ctx context.Context, namespace, userSpecifiedImage string, status *storage.ImageResult) error {
 	systemCtx, err := s.contextForNamespace(namespace)
 	if err != nil {
 		return fmt.Errorf("get context for namespace: %w", err)
@@ -1492,12 +1489,7 @@ func (s *Server) verifyImageSignature(ctx context.Context, namespace, userSpecif
 			return fmt.Errorf("unable to get userSpecifiedImageRef from user specified image %q: %w", userSpecifiedImage, err)
 		}
 
-		imageServer, err := s.StorageImageServer(sb)
-		if err != nil {
-			return err
-		}
-
-		if err := imageServer.IsRunningImageAllowed(ctx, &systemCtx, userSpecifiedImageRef, status.ID); err != nil {
+		if err := s.ContainerServer.StorageImageServer().IsRunningImageAllowed(ctx, &systemCtx, userSpecifiedImageRef, status.ID); err != nil {
 			return err
 		}
 	}
