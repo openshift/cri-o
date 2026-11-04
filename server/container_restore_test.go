@@ -204,7 +204,7 @@ var _ = t.Describe("ContainerRestore", func() {
 			)
 
 			// Then
-			Expect(err.Error()).To(ContainSubstring(`failed to read "io.kubernetes.cri-o.Annotations": unexpected end of JSON input`))
+			Expect(err.Error()).To(ContainSubstring("PodSandboxId should not be empty"))
 		})
 	})
 	t.Describe("ContainerRestore from archive into new pod", func() {
@@ -290,7 +290,7 @@ var _ = t.Describe("ContainerRestore", func() {
 			)
 
 			// Then
-			Expect(err.Error()).To(Equal(`failed to read "io.kubernetes.cri-o.Annotations": unexpected end of JSON input`))
+			Expect(err.Error()).To(Equal("PodSandboxId should not be empty"))
 		})
 	})
 	t.Describe("ContainerRestore from archive into new pod", func() {
@@ -339,7 +339,7 @@ var _ = t.Describe("ContainerRestore", func() {
 			)
 
 			// Then
-			Expect(err.Error()).To(Equal(`failed to read "io.kubernetes.cri-o.Annotations": unexpected end of JSON input`))
+			Expect(err.Error()).To(Equal("PodSandboxId should not be empty"))
 		})
 	})
 	t.Describe("ContainerRestore from archive into new pod", func() {
