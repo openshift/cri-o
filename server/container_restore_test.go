@@ -271,7 +271,7 @@ var _ = t.Describe("ContainerRestore", func() {
 			)
 
 			// Then
-			Expect(err.Error()).To(Equal(`failed to read "io.kubernetes.cri-o.Annotations": unexpected end of JSON input`))
+			Expect(err.Error()).To(Equal(`failed to read "io.kubernetes.cri-o.Labels": unexpected end of JSON input`))
 		})
 	})
 	t.Describe("ContainerRestore from archive into new pod", func() {
@@ -319,7 +319,7 @@ var _ = t.Describe("ContainerRestore", func() {
 			)
 
 			// Then
-			Expect(err.Error()).To(Equal(`failed to read "io.kubernetes.cri-o.Annotations": unexpected end of JSON input`))
+			Expect(err.Error()).To(Equal(`failed to read "io.kubernetes.cri-o.Labels": unexpected end of JSON input`))
 		})
 	})
 	t.Describe("ContainerRestore from OCI archive", func() {
