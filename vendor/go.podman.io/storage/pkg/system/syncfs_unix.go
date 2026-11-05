@@ -8,6 +8,5 @@ import "golang.org/x/sys/unix"
 // On non-Linux Unix platforms, this falls back to sync(2) which
 // syncs all filesystems.
 func Syncfs(path string) error {
-	unix.Sync()
-	return nil
+	return unix.Sync()
 }
