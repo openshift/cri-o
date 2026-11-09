@@ -44,8 +44,13 @@ func validateLabels(labels map[string]string) error {
 
 func mergeEnvs(imageConfig *v1.Image, kubeEnvs []*types.KeyValue) []string {
 	envs := []string{}
+
 	if kubeEnvs == nil && imageConfig != nil {
-		envs = imageConfig.Config.Env
+		for _, imageEnv := range imageConfig.Config.Env {
+			if key, _, ok := strings.Cut(imageEnv, "="); ok && key != "" {
+				envs = append(envs, imageEnv)
+			}
+		}
 	} else {
 		for _, item := range kubeEnvs {
 			if item.Key == "" {
@@ -224,7 +229,7 @@ func (s *Server) getResourceOrWait(ctx context.Context, name, resourceType strin
 // This function exists until the support for runtime level allowed annotations is dropped.
 // toFind is used to find the workload for the specific pod or container, toFilter are the annotations
 // for which disallowed annotations will be filtered. They may be the same.
-// After this function, toFilter will no longer container disallowed annotations.
+// After this function, toFilter will no longer contain disallowed or internal annotations.
 func (s *Server) FilterDisallowedAnnotations(toFind, toFilter map[string]string, runtimeHandler string) error {
 	// Combine the two lists to create one. Both will ultimately end up filtering, and FilterDisallowedAnnotations
 	// will handle duplicates, if any.
