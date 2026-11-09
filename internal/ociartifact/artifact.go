@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/opencontainers/go-digest"
-	"github.com/cri-o/cri-o/internal/libartifact"
+	"go.podman.io/common/pkg/libartifact"
 	"go.podman.io/image/v5/docker/reference"
 	critypes "k8s.io/cri-api/pkg/apis/runtime/v1"
 
