@@ -377,9 +377,11 @@ var _ = t.Describe("ContainerRestore", func() {
 						`:"{\"name\":\"container-to-restore\"}",`+
 						`"io.kubernetes.cri-o.Annotations": "{\"name\":\"NAME\",`+
 						`\"io.kubernetes.container.hash\":\"b4eeb97f\",`+
-						`\"io.kubernetes.pod.uid\":\"old-sandbox-uid\"}",`+
+						`\"io.kubernetes.pod.uid\":\"old-sandbox-uid\",`+
+						`\"io.kubernetes.cri-o.LogPath\":\"/archive/controlled.log\"}",`+
 						`"io.kubernetes.cri-o.Labels": "{\"io.kubernetes.container.name\":\"counter\",`+
-						`\"io.kubernetes.pod.uid\":\"old-sandbox-uid\"}",`+
+						`\"io.kubernetes.pod.uid\":\"old-sandbox-uid\",`+
+						`\"io.kubernetes.cri-o.LogPath\":\"/archive/controlled.log\"}",`+
 						`"io.kubernetes.cri-o.SandboxID": "sandboxID"},`+
 						`"mounts": [{"destination": "/proc"},`+
 						`{"destination":"/data","source":"/data","options":`+
@@ -467,8 +469,6 @@ var _ = t.Describe("ContainerRestore", func() {
 							}, nil),
 					)
 				}
-				storeMock.EXPECT().GraphRoot().Return(emptyDir)
-
 				mockutils.InOrder(
 					imageLookup,
 
@@ -504,6 +504,15 @@ var _ = t.Describe("ContainerRestore", func() {
 				restoredContainer := sut.GetContainer(context.Background(), ctrID)
 				Expect(restoredContainer).ToNot(BeNil())
 				Expect(restoredContainer.Annotations()).To(Equal(containerConfig.GetAnnotations()))
+				Expect(restoredContainer.Labels()).To(Equal(map[string]string{
+					kubetypes.KubernetesContainerNameLabel: "NEW-NAME",
+				}))
+				Expect(restoredContainer.Labels()).NotTo(HaveKey(crioann.LogPath))
+				Expect(restoredContainer.Annotations()).NotTo(HaveKey(crioann.LogPath))
+				// The archive must not be able to set CRI-O internal annotations.
+				specLogPath := restoredContainer.Spec().Annotations[crioann.LogPath]
+				Expect(specLogPath).To(Equal(restoredContainer.LogPath()))
+				Expect(specLogPath).NotTo(Equal("/archive/controlled.log"))
 			})
 		}
 	})
