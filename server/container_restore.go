@@ -17,7 +17,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
-	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
 )
 
 // taken from Podman
@@ -26,6 +25,7 @@ func (s *Server) CRImportCheckpoint(
 	input, sbID, sandboxUID string,
 	createMounts []*types.Mount,
 	createAnnotations map[string]string,
+	createLabels map[string]string,
 ) (ctrID string, retErr error) {
 	// First get the container definition from the
 	// tarball to a temporary directory
@@ -81,7 +81,6 @@ func (s *Server) CRImportCheckpoint(
 	}
 
 	ctrMetadata := types.ContainerMetadata{}
-	originalLabels := make(map[string]string)
 
 	if dumpSpec.Annotations[annotations.ContainerManager] == "libpod" {
 		// This is an import from Podman
@@ -91,16 +90,6 @@ func (s *Server) CRImportCheckpoint(
 		if err := json.Unmarshal([]byte(dumpSpec.Annotations[annotations.Metadata]), &ctrMetadata); err != nil {
 			return "", fmt.Errorf("failed to read %q: %w", annotations.Metadata, err)
 		}
-
-		if err := json.Unmarshal([]byte(dumpSpec.Annotations[annotations.Labels]), &originalLabels); err != nil {
-			return "", fmt.Errorf("failed to read %q: %w", annotations.Labels, err)
-		}
-		if sandboxUID != "" {
-			if _, ok := originalLabels[kubetypes.KubernetesPodUIDLabel]; ok {
-				originalLabels[kubetypes.KubernetesPodUIDLabel] = sandboxUID
-			}
-		}
-
 	}
 
 	sb, err := s.getPodSandboxFromRequest(sbID)
@@ -134,7 +123,10 @@ func (s *Server) CRImportCheckpoint(
 			SecurityContext: &types.LinuxContainerSecurityContext{},
 		},
 		Annotations: createAnnotations,
-		Labels:      originalLabels,
+		// Like the annotations, take the labels from the CRI request and not
+		// from the checkpoint archive: labels are added to the OCI spec after
+		// the CRI-O internal annotations and would otherwise override them.
+		Labels: createLabels,
 	}
 
 	ignoreMounts := map[string]bool{

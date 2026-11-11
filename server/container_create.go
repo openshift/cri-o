@@ -351,6 +351,7 @@ func (s *Server) CreateContainer(ctx context.Context, req *types.CreateContainer
 			req.SandboxConfig.Metadata.Uid,
 			req.Config.Mounts,
 			req.Config.Annotations,
+			req.Config.Labels,
 		)
 		if err != nil {
 			return nil, err
