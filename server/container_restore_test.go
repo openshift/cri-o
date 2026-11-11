@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/containers/podman/v4/pkg/annotations"
 	"github.com/containers/podman/v4/pkg/criu"
 	cs "github.com/containers/storage"
 	"github.com/containers/storage/pkg/archive"
@@ -272,7 +273,7 @@ var _ = t.Describe("ContainerRestore", func() {
 			)
 
 			// Then
-			Expect(err.Error()).To(Equal(`failed to read "io.kubernetes.cri-o.Labels": unexpected end of JSON input`))
+			Expect(err.Error()).To(Equal(`PodSandboxId should not be empty`))
 		})
 	})
 	t.Describe("ContainerRestore from archive into new pod", func() {
@@ -320,11 +321,11 @@ var _ = t.Describe("ContainerRestore", func() {
 			)
 
 			// Then
-			Expect(err.Error()).To(Equal(`failed to read "io.kubernetes.cri-o.Labels": unexpected end of JSON input`))
+			Expect(err.Error()).To(Equal(`PodSandboxId should not be empty`))
 		})
 	})
 	t.Describe("ContainerRestore from archive into new pod", func() {
-		It("should fail because archive contains no io.kubernetes.cri-o.Labels", func() {
+		It("should not require io.kubernetes.cri-o.Labels in the archive", func() {
 			// Given
 			addContainerAndSandbox()
 			testContainer.SetStateAndSpoofPid(&oci.ContainerState{
@@ -371,7 +372,7 @@ var _ = t.Describe("ContainerRestore", func() {
 			)
 
 			// Then
-			Expect(err.Error()).To(Equal(`failed to read "io.kubernetes.cri-o.Labels": unexpected end of JSON input`))
+			Expect(err.Error()).To(Equal(`PodSandboxId should not be empty`))
 		})
 	})
 	t.Describe("ContainerRestore from archive into new pod", func() {
@@ -474,38 +475,7 @@ var _ = t.Describe("ContainerRestore", func() {
 				},
 			}
 
-			size := uint64(100)
-			gomock.InOrder(
-				imageServerMock.EXPECT().ResolveNames(
-					gomock.Any(), gomock.Any()).
-					Return([]string{"image"}, nil),
-
-				imageServerMock.EXPECT().ImageStatus(
-					gomock.Any(), gomock.Any()).
-					Return(&storage.ImageResult{
-						ID:   "image",
-						User: "10", Size: &size,
-						Annotations: map[string]string{
-							crioann.CheckpointAnnotationName: "foo",
-						},
-					}, nil),
-
-				runtimeServerMock.EXPECT().CreateContainer(gomock.Any(), gomock.Any(),
-					gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
-					gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
-					gomock.Any(), gomock.Any()).
-					Return(storage.ContainerInfo{
-						Config: &v1.Image{
-							Config: v1.ImageConfig{
-								Entrypoint: []string{"sh"},
-							},
-						},
-					},
-						nil,
-					),
-				runtimeServerMock.EXPECT().StartContainer(gomock.Any()).
-					Return(emptyDir, nil),
-			)
+			expectRestoredContainerCreation()
 
 			// When
 
@@ -518,6 +488,92 @@ var _ = t.Describe("ContainerRestore", func() {
 
 			// Then
 			Expect(err).To(BeNil())
+		})
+	})
+	t.Describe("ContainerRestore from archive into new pod", func() {
+		It("should not let the archive override CRI-O internal annotations", func() {
+			// Given
+			addContainerAndSandbox()
+			testContainer.SetStateAndSpoofPid(&oci.ContainerState{
+				State: specs.State{Status: oci.ContainerStateRunning},
+			})
+
+			// The archive tries to set an internal annotation through both
+			// its annotations and its labels.
+			err := os.WriteFile(
+				"spec.dump",
+				[]byte(`{"annotations":{"io.kubernetes.cri-o.Metadata"`+
+					`:"{\"name\":\"container-to-restore\"}",`+
+					`"io.kubernetes.cri-o.Annotations": "{\"name\":\"NAME\",`+
+					`\"io.kubernetes.cri-o.LogPath\":\"/archive/controlled.log\"}",`+
+					`"io.kubernetes.cri-o.Labels": "{\"io.kubernetes.container.name\":\"counter\",`+
+					`\"io.kubernetes.cri-o.LogPath\":\"/archive/controlled.log\"}"},`+
+					`"mounts": [{"destination": "/proc"}]}`),
+				0o644,
+			)
+			Expect(err).To(BeNil())
+			defer os.RemoveAll("spec.dump")
+			err = os.WriteFile("config.dump", []byte(`{"rootfsImageName": "image"}`), 0o644)
+			Expect(err).To(BeNil())
+			defer os.RemoveAll("config.dump")
+			outFile, err := os.Create("archive.tar")
+			Expect(err).To(BeNil())
+			defer outFile.Close()
+			input, err := archive.TarWithOptions(".", &archive.TarOptions{
+				Compression:      archive.Uncompressed,
+				IncludeSourceDir: true,
+				IncludeFiles:     []string{"spec.dump", "config.dump"},
+			})
+			Expect(err).To(BeNil())
+			defer os.RemoveAll("archive.tar")
+			_, err = io.Copy(outFile, input)
+			Expect(err).To(BeNil())
+			containerConfig := &types.ContainerConfig{
+				Image: &types.ImageSpec{
+					Image: "archive.tar",
+				},
+				Linux: &types.LinuxContainerConfig{
+					Resources:       &types.LinuxContainerResources{},
+					SecurityContext: &types.LinuxContainerSecurityContext{},
+				},
+				Labels: map[string]string{
+					"io.kubernetes.container.name": "counter",
+					"io.kubernetes.pod.name":       "pod-name",
+					"io.kubernetes.pod.namespace":  "pod-namespace",
+					"io.kubernetes.pod.uid":        "new-sandbox-uid",
+				},
+				Annotations: map[string]string{
+					"io.kubernetes.container.hash": "new-hash",
+				},
+			}
+
+			expectRestoredContainerCreation()
+
+			// When
+			ctrID, err := sut.CRImportCheckpoint(
+				context.Background(),
+				containerConfig,
+				sandboxID,
+				"new-sandbox-uid",
+			)
+
+			// Then
+			Expect(err).To(BeNil())
+			restoredContainer := sut.GetContainer(context.Background(), ctrID)
+			Expect(restoredContainer).NotTo(BeNil())
+			specLogPath := restoredContainer.Spec().Annotations[annotations.LogPath]
+			Expect(specLogPath).NotTo(Equal("/archive/controlled.log"))
+			Expect(specLogPath).To(Equal(restoredContainer.LogPath()))
+			Expect(restoredContainer.Labels()).To(Equal(map[string]string{
+				"io.kubernetes.container.name": "counter",
+				"io.kubernetes.pod.name":       "pod-name",
+				"io.kubernetes.pod.namespace":  "pod-namespace",
+				"io.kubernetes.pod.uid":        "new-sandbox-uid",
+			}))
+			Expect(restoredContainer.Annotations()).To(Equal(map[string]string{
+				"io.kubernetes.container.hash": "new-hash",
+			}))
+			Expect(restoredContainer.Metadata().Name).To(Equal("container-to-restore"))
 		})
 	})
 	t.Describe("ContainerRestore from OCI archive", func() {
@@ -575,3 +631,40 @@ var _ = t.Describe("ContainerRestore", func() {
 		})
 	})
 })
+
+// expectRestoredContainerCreation sets up the image and storage calls made
+// when CRImportCheckpoint creates the container to restore.
+func expectRestoredContainerCreation() {
+	size := uint64(100)
+	gomock.InOrder(
+		imageServerMock.EXPECT().ResolveNames(
+			gomock.Any(), gomock.Any()).
+			Return([]string{"image"}, nil),
+
+		imageServerMock.EXPECT().ImageStatus(
+			gomock.Any(), gomock.Any()).
+			Return(&storage.ImageResult{
+				ID:   "image",
+				User: "10", Size: &size,
+				Annotations: map[string]string{
+					crioann.CheckpointAnnotationName: "foo",
+				},
+			}, nil),
+
+		runtimeServerMock.EXPECT().CreateContainer(gomock.Any(), gomock.Any(),
+			gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+			gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+			gomock.Any(), gomock.Any()).
+			Return(storage.ContainerInfo{
+				Config: &v1.Image{
+					Config: v1.ImageConfig{
+						Entrypoint: []string{"sh"},
+					},
+				},
+			},
+				nil,
+			),
+		runtimeServerMock.EXPECT().StartContainer(gomock.Any()).
+			Return(emptyDir, nil),
+	)
+}
