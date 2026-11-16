@@ -15,17 +15,19 @@ import (
 	"github.com/intel/goresctrl/pkg/blockio"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
-	libartTypes "github.com/cri-o/cri-o/internal/libartifact/types"
+	libartTypes "go.podman.io/common/pkg/libartifact/types"
 	"go.podman.io/storage/pkg/idtools"
 	"go.podman.io/storage/pkg/mount"
 	"golang.org/x/sys/unix"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	crierrors "k8s.io/cri-api/pkg/errors"
+	kubeletTypes "k8s.io/kubelet/pkg/types"
 
 	"github.com/cri-o/cri-o/internal/config/device"
 	"github.com/cri-o/cri-o/internal/config/node"
 	ctrfactory "github.com/cri-o/cri-o/internal/factory/container"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
+	"github.com/cri-o/cri-o/internal/linklogs"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/internal/ociartifact"
@@ -199,6 +201,21 @@ func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container,
 		return nil, nil, nil, err
 	}
 
+	var logMounts *linklogs.Mounts
+
+	if sb != nil {
+		if volumeName, ok := v2.GetAnnotationValue(sb.Annotations(), v2.LinkLogs); ok {
+			logMounts, err = linklogs.NewMounts(
+				sb.Labels()[kubeletTypes.KubernetesPodUIDLabel],
+				volumeName,
+				mountInfos,
+			)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("identify linked log volume: %w", err)
+			}
+		}
+	}
+
 	imageVolumesPath, err := s.ensureImageVolumesPath(ctx, mounts)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("ensure image volumes path: %w", err)
@@ -232,7 +249,7 @@ func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container,
 				log.Debugf(ctx, "Skipping artifact mount because OCI artifact mount support is disabled")
 			}
 
-			volume, safeMount, err := s.mountImage(ctx, specgen, imageVolumesPath, m, ctrInfo.RunDir, namespace, sb)
+			volume, safeMount, err := s.mountImage(ctx, specgen, imageVolumesPath, m, ctrInfo.RunDir, namespace)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("%w: %w", crierrors.ErrImageVolumeMountFailed, err)
 			}
@@ -291,6 +308,13 @@ func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container,
 			}
 		}
 
+		// Include kubelet subPath bind aliases when enforcing read-only log access.
+		linked, err := logMounts.Contains(src)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("identify linked log mount %q: %w", src, err)
+		}
+
+		readOnly := m.GetReadonly() || linked
 		options := []string{"rbind"}
 
 		// mount propagation
@@ -330,6 +354,7 @@ func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container,
 
 		// Recursive Read-only (RRO) support requires the mount to be
 		// read-only and the mount propagation set to private.
+		// Validate the original request even when linked logs force read-only access.
 		switch {
 		case m.GetRecursiveReadOnly() && m.GetReadonly():
 			if !rroSupport {
@@ -352,7 +377,7 @@ func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container,
 				"recursive read-only mount conflicts with read-write mount for hostPath %q",
 				m.GetHostPath(),
 			)
-		case m.GetReadonly():
+		case readOnly:
 			options = append(options, "ro")
 		default:
 			options = append(options, "rw")
@@ -371,7 +396,7 @@ func (s *Server) addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container,
 		volumes = append(volumes, oci.ContainerVolume{
 			ContainerPath:     dest,
 			HostPath:          src,
-			Readonly:          m.GetReadonly(),
+			Readonly:          readOnly,
 			RecursiveReadOnly: m.GetRecursiveReadOnly(),
 			Propagation:       m.GetPropagation(),
 			SelinuxRelabel:    m.GetSelinuxRelabel(),
@@ -510,7 +535,7 @@ func FilterMountPathsBySubPath(ctx context.Context, artifact, subPath string, pa
 }
 
 // mountImage adds required image mounts to the provided spec generator and returns a corresponding ContainerVolume.
-func (s *Server) mountImage(ctx context.Context, specgen *generate.Generator, imageVolumesPath string, m *types.Mount, runDir, namespace string, sb *sandbox.Sandbox) (*oci.ContainerVolume, *safeMountInfo, error) {
+func (s *Server) mountImage(ctx context.Context, specgen *generate.Generator, imageVolumesPath string, m *types.Mount, runDir, namespace string) (*oci.ContainerVolume, *safeMountInfo, error) {
 	if m == nil || m.GetImage() == nil || m.GetImage().GetImage() == "" || m.GetContainerPath() == "" {
 		return nil, nil, fmt.Errorf("invalid mount specified: %+v", m)
 	}
@@ -531,7 +556,7 @@ func (s *Server) mountImage(ctx context.Context, specgen *generate.Generator, im
 	imageID := status.ID.IDStringForOutOfProcessConsumptionOnly()
 
 	// Check the signature of the image
-	if err := s.verifyImageSignature(ctx, namespace, m.GetImage().GetUserSpecifiedImage(), status, sb); err != nil {
+	if err := s.verifyImageSignature(ctx, namespace, m.GetImage().GetUserSpecifiedImage(), status); err != nil {
 		return nil, nil, err
 	}
 

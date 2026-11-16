@@ -50,8 +50,8 @@ type ContainerServer struct {
 
 	runtime              *oci.Runtime
 	store                cstorage.Store
-	storageImgSvcMgr     *storage.ImageServiceManager
-	storageRuntimeSvcMgr *storage.RuntimeServiceManager
+	storageImageServer   storage.ImageServer
+	storageRuntimeServer storage.RuntimeServer
 	ctrNameIndex         *registrar.Registrar
 	ctrIDIndex           *truncindex.TruncIndex
 	podNameIndex         *registrar.Registrar
@@ -137,12 +137,8 @@ func (c *ContainerServer) MountImageByID(ctx context.Context, imageID string) (s
 }
 
 // StorageImageServer returns the ImageServer for the ContainerServer.
-func (c *ContainerServer) StorageImageServer(sb *sandbox.Sandbox) (storage.ImageServer, error) {
-	if sb == nil {
-		return c.storageImgSvcMgr.GetImageService(nil)
-	}
-
-	return c.storageImgSvcMgr.GetImageService(sb)
+func (c *ContainerServer) StorageImageServer() storage.ImageServer {
+	return c.storageImageServer
 }
 
 // CtrIDIndex returns the TruncIndex for the ContainerServer.
@@ -161,17 +157,8 @@ func (c *ContainerServer) Config() *libconfig.Config {
 }
 
 // StorageRuntimeServer gets the runtime server for the ContainerServer.
-func (c *ContainerServer) StorageRuntimeServer(sb storage.SandboxInfo) (storage.RuntimeServer, error) {
-	if sb == nil {
-		return c.storageRuntimeSvcMgr.GetRuntimeService(nil)
-	}
-
-	return c.storageRuntimeSvcMgr.GetRuntimeService(sb)
-}
-
-// StorageImageManager gets the ImageServiceManager for the ContainerServer.
-func (c *ContainerServer) StorageImageManager() *storage.ImageServiceManager {
-	return c.storageImgSvcMgr
+func (c *ContainerServer) StorageRuntimeServer() storage.RuntimeServer {
+	return c.storageRuntimeServer
 }
 
 // New creates a new ContainerServer with options provided.
@@ -218,15 +205,12 @@ func New(ctx context.Context, configIface libconfig.Iface) (*ContainerServer, er
 		}
 	}
 
-	storageImageServiceMgr, err := storage.GetImageServiceManager(ctx, store, nil, config)
+	imageService, err := storage.GetImageService(ctx, store, nil, config)
 	if err != nil {
 		return nil, err
 	}
 
-	storageRuntimeServiceMgr, err := storage.GetRuntimeServiceManager(ctx, storageImageServiceMgr, nil, config)
-	if err != nil {
-		return nil, err
-	}
+	storageRuntimeService := storage.GetRuntimeService(ctx, imageService, nil)
 
 	runtime, err := oci.New(config)
 	if err != nil {
@@ -241,8 +225,8 @@ func New(ctx context.Context, configIface libconfig.Iface) (*ContainerServer, er
 	c := &ContainerServer{
 		runtime:              runtime,
 		store:                store,
-		storageImgSvcMgr:     storageImageServiceMgr,
-		storageRuntimeSvcMgr: storageRuntimeServiceMgr,
+		storageImageServer:   imageService,
+		storageRuntimeServer: storageRuntimeService,
 		ctrNameIndex:         registrar.NewRegistrar(),
 		ctrIDIndex:           truncindex.NewTruncIndex([]string{}),
 		podNameIndex:         registrar.NewRegistrar(),
@@ -962,8 +946,6 @@ func (c *ContainerServer) RemoveSandbox(ctx context.Context, id string) error {
 
 	c.RemoveStatsForSandbox(sb)
 	c.state.sandboxes.Delete(id)
-	c.storageImgSvcMgr.RemoveImageService(id)
-	c.storageRuntimeSvcMgr.RemoveRuntimeService(id)
 
 	return nil
 }

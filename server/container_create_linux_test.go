@@ -106,6 +106,7 @@ func TestAddOCIBindsRejectAbsentSources(t *testing.T) {
 				false,
 				false,
 				false,
+				nil,
 			)
 
 			if tc.wantReject {
