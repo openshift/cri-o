@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package generate
 
 import (
@@ -5,78 +8,23 @@ import (
 	"strings"
 
 	"github.com/containers/common/libimage"
-	"github.com/containers/common/pkg/config"
 	"github.com/containers/podman/v4/libpod/define"
-	"github.com/containers/podman/v4/pkg/rootless"
 	"github.com/containers/podman/v4/pkg/specgen"
 	"github.com/opencontainers/runtime-tools/generate"
-	"github.com/sirupsen/logrus"
-	"golang.org/x/sys/unix"
 )
 
 func addRlimits(s *specgen.SpecGenerator, g *generate.Generator) {
-	var (
-		isRootless = rootless.IsRootless()
-		nofileSet  = false
-		nprocSet   = false
-	)
-
-	if s.Rlimits == nil {
-		g.Config.Process.Rlimits = nil
-		return
-	}
+	g.Config.Process.Rlimits = nil
 
 	for _, u := range s.Rlimits {
 		name := "RLIMIT_" + strings.ToUpper(u.Type)
-		if name == "RLIMIT_NOFILE" {
-			nofileSet = true
-		} else if name == "RLIMIT_NPROC" {
-			nprocSet = true
-		}
+		u = subNegativeOne(u)
 		g.AddProcessRlimits(name, u.Hard, u.Soft)
-	}
-
-	// If not explicitly overridden by the user, default number of open
-	// files and number of processes to the maximum they can be set to
-	// (without overriding a sysctl)
-	if !nofileSet {
-		max := rlimT(define.RLimitDefaultValue)
-		current := rlimT(define.RLimitDefaultValue)
-		if isRootless {
-			var rlimit unix.Rlimit
-			if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &rlimit); err != nil {
-				logrus.Warnf("Failed to return RLIMIT_NOFILE ulimit %q", err)
-			}
-			if rlimT(rlimit.Cur) < current {
-				current = rlimT(rlimit.Cur)
-			}
-			if rlimT(rlimit.Max) < max {
-				max = rlimT(rlimit.Max)
-			}
-		}
-		g.AddProcessRlimits("RLIMIT_NOFILE", uint64(max), uint64(current))
-	}
-	if !nprocSet {
-		max := rlimT(define.RLimitDefaultValue)
-		current := rlimT(define.RLimitDefaultValue)
-		if isRootless {
-			var rlimit unix.Rlimit
-			if err := unix.Getrlimit(unix.RLIMIT_NPROC, &rlimit); err != nil {
-				logrus.Warnf("Failed to return RLIMIT_NPROC ulimit %q", err)
-			}
-			if rlimT(rlimit.Cur) < current {
-				current = rlimT(rlimit.Cur)
-			}
-			if rlimT(rlimit.Max) < max {
-				max = rlimT(rlimit.Max)
-			}
-		}
-		g.AddProcessRlimits("RLIMIT_NPROC", uint64(max), uint64(current))
 	}
 }
 
 // Produce the final command for the container.
-func makeCommand(s *specgen.SpecGenerator, imageData *libimage.ImageData, rtc *config.Config) ([]string, error) {
+func makeCommand(s *specgen.SpecGenerator, imageData *libimage.ImageData) ([]string, error) {
 	finalCommand := []string{}
 
 	entrypoint := s.Entrypoint
@@ -103,13 +51,7 @@ func makeCommand(s *specgen.SpecGenerator, imageData *libimage.ImageData, rtc *c
 	}
 
 	if s.Init {
-		initPath := s.InitPath
-		if initPath == "" && rtc != nil {
-			initPath = rtc.Engine.InitPath
-		}
-		if initPath == "" {
-			return nil, fmt.Errorf("no path to init binary found but container requested an init")
-		}
+		// bind mount for this binary is added in addContainerInitBinary()
 		finalCommand = append([]string{define.ContainerInitPath, "--"}, finalCommand...)
 	}
 

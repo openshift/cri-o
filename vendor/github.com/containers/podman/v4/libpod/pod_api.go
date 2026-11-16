@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package libpod
 
 import (
@@ -40,7 +43,12 @@ func (p *Pod) startInitContainers(ctx context.Context) error {
 			icLock := initCon.lock
 			icLock.Lock()
 			var time *uint
-			if err := p.runtime.removeContainer(ctx, initCon, false, false, true, false, time); err != nil {
+			opts := ctrRmOpts{
+				RemovePod: true,
+				Timeout:   time,
+			}
+
+			if _, _, err := p.runtime.removeContainer(ctx, initCon, opts); err != nil {
 				icLock.Unlock()
 				return fmt.Errorf("failed to remove once init container %s: %w", initCon.ID(), err)
 			}
@@ -201,6 +209,13 @@ func (p *Pod) stopWithTimeout(ctx context.Context, cleanup bool, timeout int) (m
 	}
 
 	if err := p.maybeStopServiceContainer(); err != nil {
+		return nil, err
+	}
+
+	if err := p.updatePod(); err != nil {
+		return nil, err
+	}
+	if err := p.removePodCgroup(); err != nil {
 		return nil, err
 	}
 
@@ -741,6 +756,8 @@ func (p *Pod) Inspect() (*define.InspectPodData, error) {
 		CPUSetMems:          p.CPUSetMems(),
 		BlkioDeviceWriteBps: p.BlkiThrottleWriteBps(),
 		CPUShares:           p.CPUShares(),
+		RestartPolicy:       p.config.RestartPolicy,
+		LockNumber:          p.lock.ID(),
 	}
 
 	return &inspectData, nil

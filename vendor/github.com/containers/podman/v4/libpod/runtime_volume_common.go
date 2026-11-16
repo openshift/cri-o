@@ -1,4 +1,5 @@
-//go:build linux || freebsd
+//go:build !remote && (linux || freebsd)
+// +build !remote
 // +build linux freebsd
 
 package libpod
@@ -20,6 +21,7 @@ import (
 	"github.com/containers/storage/pkg/idtools"
 	"github.com/containers/storage/pkg/stringid"
 	pluginapi "github.com/docker/go-plugins-helpers/volume"
+	"github.com/opencontainers/selinux/go-selinux"
 	"github.com/sirupsen/logrus"
 )
 
@@ -53,12 +55,18 @@ func (r *Runtime) newVolume(ctx context.Context, noCreatePluginVolume bool, opti
 	volume.config.CreatedTime = time.Now()
 
 	// Check if volume with given name exists.
-	if !volume.ignoreIfExists {
-		exists, err := r.state.HasVolume(volume.config.Name)
-		if err != nil {
-			return nil, fmt.Errorf("checking if volume with name %s exists: %w", volume.config.Name, err)
-		}
-		if exists {
+	exists, err := r.state.HasVolume(volume.config.Name)
+	if err != nil {
+		return nil, fmt.Errorf("checking if volume with name %s exists: %w", volume.config.Name, err)
+	}
+	if exists {
+		if volume.ignoreIfExists {
+			existingVolume, err := r.state.Volume(volume.config.Name)
+			if err != nil {
+				return nil, fmt.Errorf("reading volume from state: %w", err)
+			}
+			return existingVolume, nil
+		} else {
 			return nil, fmt.Errorf("volume with name %s already exists: %w", volume.config.Name, define.ErrVolumeExists)
 		}
 	}
@@ -77,7 +85,7 @@ func (r *Runtime) newVolume(ctx context.Context, noCreatePluginVolume bool, opti
 		for key, val := range volume.config.Options {
 			switch strings.ToLower(key) {
 			case "device":
-				if strings.ToLower(volume.config.Options["type"]) == "bind" {
+				if strings.ToLower(volume.config.Options["type"]) == define.TypeBind {
 					if _, err := os.Stat(val); err != nil {
 						return nil, fmt.Errorf("invalid volume option %s for driver 'local': %w", key, err)
 					}
@@ -120,7 +128,14 @@ func (r *Runtime) newVolume(ctx context.Context, noCreatePluginVolume bool, opti
 
 		// Create a backing container in c/storage.
 		storageConfig := storage.ContainerOptions{
-			LabelOpts: []string{"filetype:container_file_t:s0"},
+			LabelOpts: []string{"filetype:container_file_t", "level:s0"},
+		}
+		if len(volume.config.MountLabel) > 0 {
+			context, err := selinux.NewContext(volume.config.MountLabel)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get SELinux context from %s: %w", volume.config.MountLabel, err)
+			}
+			storageConfig.LabelOpts = []string{fmt.Sprintf("filetype:%s", context["type"])}
 		}
 		if _, err := r.storageService.CreateContainerStorage(ctx, r.imageContext, imgString, image.ID(), volume.config.StorageName, volume.config.StorageID, storageConfig); err != nil {
 			return nil, fmt.Errorf("creating backing storage for image driver: %w", err)
@@ -161,31 +176,34 @@ func (r *Runtime) newVolume(ctx context.Context, noCreatePluginVolume bool, opti
 		if err := idtools.SafeChown(fullVolPath, volume.config.UID, volume.config.GID); err != nil {
 			return nil, fmt.Errorf("chowning volume directory %q to %d:%d: %w", fullVolPath, volume.config.UID, volume.config.GID, err)
 		}
-		if err := LabelVolumePath(fullVolPath); err != nil {
+		if err := LabelVolumePath(fullVolPath, volume.config.MountLabel); err != nil {
 			return nil, err
 		}
-		if volume.config.DisableQuota {
+		switch {
+		case volume.config.DisableQuota:
 			if volume.config.Size > 0 || volume.config.Inodes > 0 {
 				return nil, errors.New("volume options size and inodes cannot be used without quota")
 			}
-		} else {
+		case volume.config.Options["type"] == define.TypeTmpfs:
+			// tmpfs only supports Size
+			if volume.config.Inodes > 0 {
+				return nil, errors.New("volume option inodes not supported on tmpfs filesystem")
+			}
+		case volume.config.Inodes > 0 || volume.config.Size > 0:
 			projectQuotaSupported := false
 			q, err := quota.NewControl(r.config.Engine.VolumePath)
 			if err == nil {
 				projectQuotaSupported = true
 			}
-			quota := quota.Quota{}
-			if volume.config.Size > 0 || volume.config.Inodes > 0 {
-				if !projectQuotaSupported {
-					return nil, errors.New("volume options size and inodes not supported. Filesystem does not support Project Quota")
-				}
-				quota.Size = volume.config.Size
-				quota.Inodes = volume.config.Inodes
+			if !projectQuotaSupported {
+				return nil, errors.New("volume options size and inodes not supported. Filesystem does not support Project Quota")
 			}
-			if projectQuotaSupported {
-				if err := q.SetQuota(fullVolPath, quota); err != nil {
-					return nil, fmt.Errorf("failed to set size quota size=%d inodes=%d for volume directory %q: %w", volume.config.Size, volume.config.Inodes, fullVolPath, err)
-				}
+			quota := quota.Quota{
+				Inodes: volume.config.Inodes,
+				Size:   volume.config.Size,
+			}
+			if err := q.SetQuota(fullVolPath, quota); err != nil {
+				return nil, fmt.Errorf("failed to set size quota size=%d inodes=%d for volume directory %q: %w", volume.config.Size, volume.config.Inodes, fullVolPath, err)
 			}
 		}
 
@@ -211,13 +229,6 @@ func (r *Runtime) newVolume(ctx context.Context, noCreatePluginVolume bool, opti
 
 	// Add the volume to state
 	if err := r.state.AddVolume(volume); err != nil {
-		if volume.ignoreIfExists && errors.Is(err, define.ErrVolumeExists) {
-			existingVolume, err := r.state.Volume(volume.config.Name)
-			if err != nil {
-				return nil, fmt.Errorf("reading volume from state: %w", err)
-			}
-			return existingVolume, nil
-		}
 		return nil, fmt.Errorf("adding volume to state: %w", err)
 	}
 	defer volume.newVolumeEvent(events.Create)
@@ -380,7 +391,11 @@ func (r *Runtime) removeVolume(ctx context.Context, v *Volume, force bool, timeo
 
 			logrus.Debugf("Removing container %s (depends on volume %q)", ctr.ID(), v.Name())
 
-			if err := r.removeContainer(ctx, ctr, force, false, false, false, timeout); err != nil {
+			opts := ctrRmOpts{
+				Force:   force,
+				Timeout: timeout,
+			}
+			if _, _, err := r.removeContainer(ctx, ctr, opts); err != nil {
 				return fmt.Errorf("removing container %s that depends on volume %s: %w", ctr.ID(), v.Name(), err)
 			}
 		}

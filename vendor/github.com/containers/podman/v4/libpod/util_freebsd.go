@@ -1,5 +1,5 @@
-//go:build freebsd
-// +build freebsd
+//go:build !remote
+// +build !remote
 
 package libpod
 
@@ -25,7 +25,7 @@ func deleteSystemdCgroup(path string, resources *spec.LinuxResources) error {
 }
 
 // No equivalent on FreeBSD?
-func LabelVolumePath(path string) error {
+func LabelVolumePath(path, mountLabel string) error {
 	return nil
 }
 

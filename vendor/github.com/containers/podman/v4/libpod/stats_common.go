@@ -1,4 +1,5 @@
-//go:build linux || freebsd
+//go:build !remote && (linux || freebsd)
+// +build !remote
 // +build linux freebsd
 
 package libpod
@@ -46,4 +47,9 @@ func (c *Container) GetContainerStats(previousStats *define.ContainerStats) (*de
 		return nil, err
 	}
 	return stats, nil
+}
+
+// GetOnlineCPUs returns the number of online CPUs as set in the container cpu-set using sched_getaffinity
+func GetOnlineCPUs(container *Container) (int, error) {
+	return getOnlineCPUs(container)
 }

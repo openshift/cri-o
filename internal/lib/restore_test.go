@@ -26,7 +26,7 @@ var _ = t.Describe("ContainerRestore", func() {
 		beforeEach()
 		createDummyConfig()
 		mockRuncInLibConfigCheckpoint()
-		if !criu.CheckForCriu(criu.PodCriuVersion) {
+		if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 			Skip("CRIU is missing or too old.")
 		}
 	})

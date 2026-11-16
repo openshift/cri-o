@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package libpod
 
 import (
@@ -7,25 +10,19 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/containers/common/libnetwork/types"
 	"github.com/containers/common/pkg/config"
 	"github.com/containers/podman/v4/libpod/define"
-	"github.com/containers/podman/v4/utils"
-	"github.com/fsnotify/fsnotify"
+	"github.com/containers/podman/v4/pkg/api/handlers/utils/apiutil"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/sirupsen/logrus"
-)
-
-// Runtime API constants
-const (
-	unknownPackage = "Unknown"
 )
 
 // FuncTimer helps measure the execution time of a function
@@ -44,57 +41,6 @@ func MountExists(specMounts []spec.Mount, dest string) bool {
 		}
 	}
 	return false
-}
-
-// WaitForFile waits until a file has been created or the given timeout has occurred
-func WaitForFile(path string, chWait chan error, timeout time.Duration) (bool, error) {
-	var inotifyEvents chan fsnotify.Event
-	watcher, err := fsnotify.NewWatcher()
-	if err == nil {
-		if err := watcher.Add(filepath.Dir(path)); err == nil {
-			inotifyEvents = watcher.Events
-		}
-		defer func() {
-			if err := watcher.Close(); err != nil {
-				logrus.Errorf("Failed to close fsnotify watcher: %v", err)
-			}
-		}()
-	}
-
-	var timeoutChan <-chan time.Time
-
-	if timeout != 0 {
-		timeoutChan = time.After(timeout)
-	}
-
-	for {
-		select {
-		case e := <-chWait:
-			return true, e
-		case <-inotifyEvents:
-			_, err := os.Stat(path)
-			if err == nil {
-				return false, nil
-			}
-			if !os.IsNotExist(err) {
-				return false, err
-			}
-		case <-time.After(25 * time.Millisecond):
-			// Check periodically for the file existence.  It is needed
-			// if the inotify watcher could not have been created.  It is
-			// also useful when using inotify as if for any reasons we missed
-			// a notification, we won't hang the process.
-			_, err := os.Stat(path)
-			if err == nil {
-				return false, nil
-			}
-			if !os.IsNotExist(err) {
-				return false, err
-			}
-		case <-timeoutChan:
-			return false, fmt.Errorf("timed out waiting for file %s: %w", path, define.ErrInternal)
-		}
-	}
 }
 
 type byDestination []spec.Mount
@@ -143,57 +89,6 @@ func JSONDeepCopy(from, to interface{}) error {
 		return err
 	}
 	return json.Unmarshal(tmp, to)
-}
-
-func queryPackageVersion(cmdArg ...string) string {
-	output := unknownPackage
-	if 1 < len(cmdArg) {
-		cmd := exec.Command(cmdArg[0], cmdArg[1:]...)
-		if outp, err := cmd.Output(); err == nil {
-			output = string(outp)
-			if cmdArg[0] == "/usr/bin/dpkg" {
-				r := strings.Split(output, ": ")
-				queryFormat := `${Package}_${Version}_${Architecture}`
-				cmd = exec.Command("/usr/bin/dpkg-query", "-f", queryFormat, "-W", r[0])
-				if outp, err := cmd.Output(); err == nil {
-					output = string(outp)
-				}
-			}
-		}
-		if cmdArg[0] == "/sbin/apk" {
-			prefix := cmdArg[len(cmdArg)-1] + " is owned by "
-			output = strings.Replace(output, prefix, "", 1)
-		}
-	}
-	return strings.Trim(output, "\n")
-}
-
-func packageVersion(program string) string { // program is full path
-	packagers := [][]string{
-		{"/usr/bin/rpm", "-q", "-f"},
-		{"/usr/bin/dpkg", "-S"},                // Debian, Ubuntu
-		{"/usr/bin/pacman", "-Qo"},             // Arch
-		{"/usr/bin/qfile", "-qv"},              // Gentoo (quick)
-		{"/usr/bin/equery", "b"},               // Gentoo (slow)
-		{"/sbin/apk", "info", "-W"},            // Alpine
-		{"/usr/local/sbin/pkg", "which", "-q"}, // FreeBSD
-	}
-
-	for _, cmd := range packagers {
-		cmd = append(cmd, program)
-		if out := queryPackageVersion(cmd...); out != unknownPackage {
-			return out
-		}
-	}
-	return unknownPackage
-}
-
-func programVersion(mountProgram string) (string, error) {
-	output, err := utils.ExecCmd(mountProgram, "--version")
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSuffix(output, "\n"), nil
 }
 
 // DefaultSeccompPath returns the path to the default seccomp.json file
@@ -292,22 +187,36 @@ func makeHTTPAttachHeader(stream byte, length uint32) []byte {
 
 // writeHijackHeader writes a header appropriate for the type of HTTP Hijack
 // that occurred in a hijacked HTTP connection used for attach.
-func writeHijackHeader(r *http.Request, conn io.Writer) {
+func writeHijackHeader(r *http.Request, conn io.Writer, tty bool) {
 	// AttachHeader is the literal header sent for upgraded/hijacked connections for
 	// attach, sourced from Docker at:
 	// https://raw.githubusercontent.com/moby/moby/b95fad8e51bd064be4f4e58a996924f343846c85/api/server/router/container/container_routes.go
 	// Using literally to ensure compatibility with existing clients.
+
+	// New docker API uses a different header for the non tty case.
+	// Lets do the same for libpod. Only do this for the new api versions to not break older clients.
+	header := "application/vnd.docker.raw-stream"
+	if !tty {
+		version := "4.7.0"
+		if !apiutil.IsLibpodRequest(r) {
+			version = "1.42.0" // docker only used two digest "1.42" but our semver lib needs the extra .0 to work
+		}
+		if _, err := apiutil.SupportedVersion(r, ">= "+version); err == nil {
+			header = "application/vnd.docker.multiplexed-stream"
+		}
+	}
+
 	c := r.Header.Get("Connection")
 	proto := r.Header.Get("Upgrade")
 	if len(proto) == 0 || !strings.EqualFold(c, "Upgrade") {
 		// OK - can't upgrade if not requested or protocol is not specified
 		fmt.Fprintf(conn,
-			"HTTP/1.1 200 OK\r\nContent-Type: application/vnd.docker.raw-stream\r\n\r\n")
+			"HTTP/1.1 200 OK\r\nContent-Type: %s\r\n\r\n", header)
 	} else {
 		// Upgraded
 		fmt.Fprintf(conn,
-			"HTTP/1.1 101 UPGRADED\r\nContent-Type: application/vnd.docker.raw-stream\r\nConnection: Upgrade\r\nUpgrade: %s\r\n\r\n",
-			proto)
+			"HTTP/1.1 101 UPGRADED\r\nContent-Type: %s\r\nConnection: Upgrade\r\nUpgrade: %s\r\n\r\n",
+			proto, header)
 	}
 }
 
@@ -327,7 +236,7 @@ func makeInspectPorts(bindings []types.PortMapping, expose map[uint16][]string) 
 				hostPorts := portBindings[key]
 				hostPorts = append(hostPorts, define.InspectHostPort{
 					HostIP:   port.HostIP,
-					HostPort: fmt.Sprintf("%d", port.HostPort+i),
+					HostPort: strconv.FormatUint(uint64(port.HostPort+i), 10),
 				})
 				portBindings[key] = hostPorts
 			}

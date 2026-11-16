@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package libpod
 
 import (
@@ -42,11 +45,15 @@ func (r *Runtime) RemoveContainersForImageCallback(ctx context.Context) libimage
 				if err != nil {
 					return fmt.Errorf("container %s is in pod %s, but pod cannot be retrieved: %w", ctr.ID(), ctr.config.Pod, err)
 				}
-				if err := r.removePod(ctx, pod, true, true, timeout); err != nil {
+				if _, err := r.removePod(ctx, pod, true, true, timeout); err != nil {
 					return fmt.Errorf("removing image %s: container %s using image could not be removed: %w", imageID, ctr.ID(), err)
 				}
 			} else {
-				if err := r.removeContainer(ctx, ctr, true, false, false, false, timeout); err != nil {
+				opts := ctrRmOpts{
+					Force:   true,
+					Timeout: timeout,
+				}
+				if _, _, err := r.removeContainer(ctx, ctr, opts); err != nil {
 					return fmt.Errorf("removing image %s: container %s using image could not be removed: %w", imageID, ctr.ID(), err)
 				}
 			}
@@ -81,7 +88,7 @@ func (r *Runtime) IsExternalContainerCallback(_ context.Context) libimage.IsExte
 	// NOTE: pruning external containers is subject to race conditions
 	// (e.g., when a container gets removed). To address this and similar
 	// races, pruning had to happen inside c/storage.  Containers has to be
-	// labelled with "podman/libpod" along with callbacks similar to
+	// labeled with "podman/libpod" along with callbacks similar to
 	// libimage.
 	return func(idOrName string) (bool, error) {
 		_, err := r.LookupContainer(idOrName)

@@ -13,7 +13,7 @@ import (
 	"github.com/containers/storage/pkg/unshare"
 	"github.com/containers/storage/types"
 	securejoin "github.com/cyphar/filepath-securejoin"
-	libcontainerUser "github.com/moby/sys/user"
+	libcontainerUser "github.com/opencontainers/runc/libcontainer/user"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )

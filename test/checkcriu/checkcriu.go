@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	if !criu.CheckForCriu(criu.PodCriuVersion) {
+	if err := criu.CheckForCriu(criu.PodCriuVersion); err != nil {
 		os.Exit(1)
 	}
 

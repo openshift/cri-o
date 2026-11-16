@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package libpod
 
 import (
@@ -79,8 +82,8 @@ func (c *Container) Init(ctx context.Context, recursive bool) error {
 // ContainerStatePaused via Pause(), or to ContainerStateStopped by the process
 // stopping (either due to exit, or being forced to stop by the Kill or Stop API
 // calls).
-// Start requites that all dependency containers (e.g. pod infra containers) be
-// running before being run. The recursive parameter, if set, will start all
+// Start requires that all dependency containers (e.g. pod infra containers) are
+// running before starting the container. The recursive parameter, if set, will start all
 // dependencies before starting this container.
 func (c *Container) Start(ctx context.Context, recursive bool) (finalErr error) {
 	defer func() {
@@ -113,7 +116,7 @@ func (c *Container) Start(ctx context.Context, recursive bool) (finalErr error) 
 	}
 
 	// Start the container
-	return c.start()
+	return c.start(ctx)
 }
 
 // Update updates the given container.
@@ -254,14 +257,6 @@ func (c *Container) StopWithTimeout(timeout uint) (finalErr error) {
 		}
 	}
 
-	if c.ensureState(define.ContainerStateStopped, define.ContainerStateExited) {
-		return define.ErrCtrStopped
-	}
-
-	if !c.ensureState(define.ContainerStateCreated, define.ContainerStateRunning, define.ContainerStateStopping) {
-		return fmt.Errorf("can only stop created or running containers. %s is in state %s: %w", c.ID(), c.state.State.String(), define.ErrCtrStateInvalid)
-	}
-
 	return c.stop(timeout)
 }
 
@@ -300,7 +295,7 @@ func (c *Container) Kill(signal uint) error {
 		return c.waitForConmonToExitAndSave()
 	}
 
-	return nil
+	return c.save()
 }
 
 // Attach attaches to a container.
@@ -600,24 +595,45 @@ func (c *Container) WaitForExit(ctx context.Context, pollInterval time.Duration)
 			conmonAlive, err := c.ociRuntime.CheckConmonRunning(c)
 			switch {
 			case errors.Is(err, define.ErrNoSuchCtr):
+				// Container has been removed, so we assume the
+				// exit code is present in the DB.
 				containerRemoved = true
 			case err != nil:
 				return false, -1, err
 			case !conmonAlive:
+				// Give the exit code at most 20 seconds to
+				// show up in the DB.  That should largely be
+				// enough for the cleanup process.
 				timerDuration := time.Second * 20
 				conmonTimer = *time.NewTimer(timerDuration)
 				conmonTimerSet = true
+			case conmonAlive:
+				// Continue waiting if conmon's still running.
+				return false, -1, nil
 			}
 		}
 
+		timedout := ""
 		if !containerRemoved {
 			// If conmon is dead for more than $timerDuration or if the
 			// container has exited properly, try to look up the exit code.
 			select {
 			case <-conmonTimer.C:
 				logrus.Debugf("Exceeded conmon timeout waiting for container %s to exit", id)
+				timedout = " [exceeded conmon timeout waiting for container to exit]"
 			default:
-				if !c.ensureState(define.ContainerStateExited, define.ContainerStateConfigured) {
+				switch c.state.State {
+				case define.ContainerStateExited, define.ContainerStateConfigured:
+					// Container exited, so we can look up the exit code.
+				case define.ContainerStateStopped:
+					// Continue looping unless the restart policy is always.
+					// In this case, the container would never transition to
+					// the exited state, so we need to look up the exit code.
+					if c.config.RestartPolicy != define.RestartPolicyAlways {
+						return false, -1, nil
+					}
+				default:
+					// Continue looping
 					return false, -1, nil
 				}
 			}
@@ -625,11 +641,13 @@ func (c *Container) WaitForExit(ctx context.Context, pollInterval time.Duration)
 
 		exitCode, err := c.runtime.state.GetContainerExitCode(id)
 		if err != nil {
-			if errors.Is(err, define.ErrNoSuchExitCode) && c.ensureState(define.ContainerStateConfigured, define.ContainerStateCreated) {
-				// The container never ran.
-				return true, 0, nil
+			if errors.Is(err, define.ErrNoSuchExitCode) {
+				// If the container is configured or created, we must assume it never ran.
+				if c.ensureState(define.ContainerStateConfigured, define.ContainerStateCreated) {
+					return true, 0, nil
+				}
 			}
-			return true, -1, fmt.Errorf("%w (container in state %s)", err, c.state.State)
+			return true, -1, fmt.Errorf("%w (container in state %s)%s", err, c.state.State, timedout)
 		}
 
 		return true, exitCode, nil
@@ -668,7 +686,7 @@ type waitResult struct {
 	err  error
 }
 
-func (c *Container) WaitForConditionWithInterval(ctx context.Context, waitTimeout time.Duration, conditions ...define.ContainerStatus) (int32, error) {
+func (c *Container) WaitForConditionWithInterval(ctx context.Context, waitTimeout time.Duration, conditions ...string) (int32, error) {
 	if !c.valid {
 		return -1, define.ErrCtrRemoved
 	}
@@ -683,13 +701,26 @@ func (c *Container) WaitForConditionWithInterval(ctx context.Context, waitTimeou
 	resultChan := make(chan waitResult)
 	waitForExit := false
 	wantedStates := make(map[define.ContainerStatus]bool, len(conditions))
+	wantedHealthStates := make(map[string]bool)
 
-	for _, condition := range conditions {
-		switch condition {
-		case define.ContainerStateExited, define.ContainerStateStopped:
-			waitForExit = true
+	for _, rawCondition := range conditions {
+		switch rawCondition {
+		case define.HealthCheckHealthy, define.HealthCheckUnhealthy:
+			if !c.HasHealthCheck() {
+				return -1, fmt.Errorf("cannot use condition %q: container %s has no healthcheck", rawCondition, c.ID())
+			}
+			wantedHealthStates[rawCondition] = true
 		default:
-			wantedStates[condition] = true
+			condition, err := define.StringToContainerStatus(rawCondition)
+			if err != nil {
+				return -1, err
+			}
+			switch condition {
+			case define.ContainerStateExited, define.ContainerStateStopped:
+				waitForExit = true
+			default:
+				wantedStates[condition] = true
+			}
 		}
 	}
 
@@ -712,20 +743,33 @@ func (c *Container) WaitForConditionWithInterval(ctx context.Context, waitTimeou
 		}()
 	}
 
-	if len(wantedStates) > 0 {
+	if len(wantedStates) > 0 || len(wantedHealthStates) > 0 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 
 			for {
-				state, err := c.State()
-				if err != nil {
-					trySend(-1, err)
-					return
+				if len(wantedStates) > 0 {
+					state, err := c.State()
+					if err != nil {
+						trySend(-1, err)
+						return
+					}
+					if _, found := wantedStates[state]; found {
+						trySend(-1, nil)
+						return
+					}
 				}
-				if _, found := wantedStates[state]; found {
-					trySend(-1, nil)
-					return
+				if len(wantedHealthStates) > 0 {
+					status, err := c.HealthCheckStatus()
+					if err != nil {
+						trySend(-1, err)
+						return
+					}
+					if _, found := wantedHealthStates[status]; found {
+						trySend(-1, nil)
+						return
+					}
 				}
 				select {
 				case <-ctx.Done():
@@ -756,7 +800,7 @@ func (c *Container) Cleanup(ctx context.Context) error {
 		defer c.lock.Unlock()
 
 		if err := c.syncContainer(); err != nil {
-			// When the container has already been removed, the OCI runtime directory remain.
+			// When the container has already been removed, the OCI runtime directory remains.
 			if errors.Is(err, define.ErrNoSuchCtr) || errors.Is(err, define.ErrCtrRemoved) {
 				if err := c.cleanupRuntime(ctx); err != nil {
 					return fmt.Errorf("cleaning up container %s from OCI runtime: %w", c.ID(), err)
@@ -771,6 +815,11 @@ func (c *Container) Cleanup(ctx context.Context) error {
 	// Check if state is good
 	if !c.ensureState(define.ContainerStateConfigured, define.ContainerStateCreated, define.ContainerStateStopped, define.ContainerStateStopping, define.ContainerStateExited) {
 		return fmt.Errorf("container %s is running or paused, refusing to clean up: %w", c.ID(), define.ErrCtrStateInvalid)
+	}
+
+	// if the container was not created in the oci runtime or was already cleaned up, then do nothing
+	if c.ensureState(define.ContainerStateConfigured, define.ContainerStateExited) {
+		return nil
 	}
 
 	// Handle restart policy.
@@ -788,10 +837,12 @@ func (c *Container) Cleanup(ctx context.Context) error {
 
 	// make sure all the container processes are terminated if we are running without a pid namespace.
 	hasPidNs := false
-	for _, i := range c.config.Spec.Linux.Namespaces {
-		if i.Type == spec.PIDNamespace {
-			hasPidNs = true
-			break
+	if c.config.Spec.Linux != nil {
+		for _, i := range c.config.Spec.Linux.Namespaces {
+			if i.Type == spec.PIDNamespace {
+				hasPidNs = true
+				break
+			}
 		}
 	}
 	if !hasPidNs {
@@ -850,7 +901,7 @@ func (c *Container) Batch(batchFunc func(*Container) error) error {
 // Most of the time, Podman does not explicitly query the OCI runtime for
 // container status, and instead relies upon exit files created by conmon.
 // This can cause a disconnect between running state and what Podman sees in
-// cases where Conmon was killed unexpected, or runc was upgraded.
+// cases where Conmon was killed unexpectedly, or runc was upgraded.
 // Running a manual Sync() ensures that container state will be correct in
 // such situations.
 func (c *Container) Sync() error {

@@ -21,6 +21,9 @@ type PlayKubeOptions struct {
 	// Down indicates whether to bring contents of a yaml file "down"
 	// as in stop
 	Down bool
+	// ExitCodePropagation decides how the main PID of the Kube service
+	// should exit depending on the containers' exit codes.
+	ExitCodePropagation string
 	// Replace indicates whether to delete and recreate a yaml file
 	Replace bool
 	// Do not create /etc/hosts within the pod's containers,
@@ -56,6 +59,9 @@ type PlayKubeOptions struct {
 	Start types.OptionalBool
 	// ServiceContainer - creates a service container that is started before and is stopped after all pods.
 	ServiceContainer bool
+	// UseLongAnnotations - use annotations that were not truncated to the
+	// Kubernetes maximum length of 63 characters
+	UseLongAnnotations bool
 	// Userns - define the user namespace to use.
 	Userns string
 	// IsRemote - was the request triggered by running podman-remote
@@ -64,6 +70,11 @@ type PlayKubeOptions struct {
 	Force bool
 	// PublishPorts - configure how to expose ports configured inside the K8S YAML file
 	PublishPorts []string
+	// PublishAllPorts - whether to publish all ports defined in the K8S YAML file
+	// (containerPort, hostPort) otherwise only hostPort will be published
+	PublishAllPorts bool
+	// Wait - indicates whether to return after having created the pods
+	Wait bool
 }
 
 // PlayKubePod represents a single pod and associated containers created by play kube
@@ -94,7 +105,12 @@ type PlayKubeReport struct {
 	// Volumes - volumes created by play kube.
 	Volumes []PlayKubeVolume
 	PlayKubeTeardown
+	// Secrets - secrets created by play kube
 	Secrets []PlaySecret
+	// ServiceContainerID - ID of the service container if one is created
+	ServiceContainerID string
+	// If set, exit with the specified exit code.
+	ExitCode *int32
 }
 
 type KubePlayReport = PlayKubeReport
@@ -110,6 +126,7 @@ type PlayKubeTeardown struct {
 	StopReport     []*PodStopReport
 	RmReport       []*PodRmReport
 	VolumeRmReport []*VolumeRmReport
+	SecretRmReport []*SecretRmReport
 }
 
 type PlaySecret struct {

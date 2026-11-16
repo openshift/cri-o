@@ -1,4 +1,5 @@
-//go:build linux || freebsd
+//go:build !remote && (linux || freebsd)
+// +build !remote
 // +build linux freebsd
 
 package libpod
@@ -23,7 +24,7 @@ import (
 )
 
 // convertPortMappings will remove the HostIP part from the ports when running inside podman machine.
-// This is need because a HostIP of 127.0.0.1 would now allow the gvproxy forwarder to reach to open ports.
+// This is needed because a HostIP of 127.0.0.1 would now allow the gvproxy forwarder to reach to open ports.
 // For machine the HostIP must only be used by gvproxy and never in the VM.
 func (c *Container) convertPortMappings() []types.PortMapping {
 	if !machine.IsGvProxyBased() || len(c.config.PortMappings) == 0 {
@@ -39,8 +40,8 @@ func (c *Container) convertPortMappings() []types.PortMapping {
 }
 
 func (c *Container) getNetworkOptions(networkOpts map[string]types.PerNetworkOptions) types.NetworkOptions {
-	nameservers := make([]string, 0, len(c.runtime.config.Containers.DNSServers)+len(c.config.DNSServer))
-	nameservers = append(nameservers, c.runtime.config.Containers.DNSServers...)
+	nameservers := make([]string, 0, len(c.runtime.config.Containers.DNSServers.Get())+len(c.config.DNSServer))
+	nameservers = append(nameservers, c.runtime.config.Containers.DNSServers.Get()...)
 	for _, ip := range c.config.DNSServer {
 		nameservers = append(nameservers, ip.String())
 	}
@@ -61,7 +62,7 @@ func (c *Container) getNetworkOptions(networkOpts map[string]types.PerNetworkOpt
 	return opts
 }
 
-// setUpNetwork will set up the the networks, on error it will also tear down the cni
+// setUpNetwork will set up the networks, on error it will also tear down the cni
 // networks. If rootless it will join/create the rootless network namespace.
 func (r *Runtime) setUpNetwork(ns string, opts types.NetworkOptions) (map[string]types.StatusBlock, error) {
 	rootlessNetNS, err := r.GetRootlessNetNs(true)
@@ -115,7 +116,7 @@ func (r *Runtime) teardownNetworkBackend(ns string, opts types.NetworkOptions) e
 		// execute the network setup in the rootless net ns
 		err = rootlessNetNS.Do(tearDownPod)
 		if cerr := rootlessNetNS.Cleanup(r); cerr != nil {
-			logrus.WithError(err).Error("failed to clean up rootless netns")
+			logrus.WithError(cerr).Error("failed to clean up rootless netns")
 		}
 		rootlessNetNS.Lock.Unlock()
 	} else {
@@ -174,10 +175,10 @@ func (r *Runtime) reloadContainerNetwork(ctr *Container) (map[string]types.Statu
 
 	err := r.teardownNetwork(ctr)
 	if err != nil {
-		// teardownNetwork will error if the iptables rules do not exists and this is the case after
+		// teardownNetwork will error if the iptables rules do not exist and this is the case after
 		// a firewall reload. The purpose of network reload is to recreate the rules if they do
 		// not exists so we should not log this specific error as error. This would confuse users otherwise.
-		// iptables-legacy and iptables-nft will create different errors make sure to match both.
+		// iptables-legacy and iptables-nft will create different errors. Make sure to match both.
 		b, rerr := regexp.MatchString("Couldn't load target `CNI-[a-f0-9]{24}':No such file or directory|Chain 'CNI-[a-f0-9]{24}' does not exist", err.Error())
 		if rerr == nil && !b {
 			logrus.Error(err)
@@ -240,18 +241,32 @@ func (c *Container) getContainerNetworkInfo() (*define.InspectNetworkSettings, e
 		return nil, err
 	}
 
+	setDefaultNetworks := func() {
+		settings.Networks = make(map[string]*define.InspectAdditionalNetwork, 1)
+		name := c.NetworkMode()
+		addedNet := new(define.InspectAdditionalNetwork)
+		addedNet.NetworkID = name
+		settings.Networks[name] = addedNet
+	}
+
 	if c.state.NetNS == "" {
-		if networkNSPath := c.joinedNetworkNSPath(); networkNSPath != "" {
+		if networkNSPath, set := c.joinedNetworkNSPath(); networkNSPath != "" {
 			if result, err := c.inspectJoinedNetworkNS(networkNSPath); err == nil {
 				// fallback to dummy configuration
 				settings.InspectBasicNetworkConfig = resultToBasicNetworkConfig(result)
-				return settings, nil
+			} else {
+				// do not propagate error inspecting a joined network ns
+				logrus.Errorf("Inspecting network namespace: %s of container %s: %v", networkNSPath, c.ID(), err)
 			}
-			// do not propagate error inspecting a joined network ns
-			logrus.Errorf("Inspecting network namespace: %s of container %s: %v", networkNSPath, c.ID(), err)
+			return settings, nil
+		} else if set {
+			// network none case, if running allow user to join netns via sandbox key
+			// https://github.com/containers/podman/issues/16716
+			if c.state.PID > 0 {
+				settings.SandboxKey = fmt.Sprintf("/proc/%d/ns/net", c.state.PID)
+			}
 		}
 		// We can't do more if the network is down.
-
 		// We still want to make dummy configurations for each network
 		// the container joined.
 		if len(networks) > 0 {
@@ -262,6 +277,8 @@ func (c *Container) getContainerNetworkInfo() (*define.InspectNetworkSettings, e
 				cniNet.Aliases = opts.Aliases
 				settings.Networks[net] = cniNet
 			}
+		} else {
+			setDefaultNetworks()
 		}
 
 		return settings, nil
@@ -282,7 +299,7 @@ func (c *Container) getContainerNetworkInfo() (*define.InspectNetworkSettings, e
 			return nil, fmt.Errorf("network inspection mismatch: asked to join %d network(s) %v, but have information on %d network(s): %w", len(networks), networks, len(netStatus), define.ErrInternal)
 		}
 
-		settings.Networks = make(map[string]*define.InspectAdditionalNetwork)
+		settings.Networks = make(map[string]*define.InspectAdditionalNetwork, len(networks))
 
 		for name, opts := range networks {
 			result := netStatus[name]
@@ -300,6 +317,8 @@ func (c *Container) getContainerNetworkInfo() (*define.InspectNetworkSettings, e
 		if !(len(networks) == 1 && isDefaultNet) {
 			return settings, nil
 		}
+	} else {
+		setDefaultNetworks()
 	}
 
 	// If not joining networks, we should have at most 1 result
@@ -373,7 +392,7 @@ func (c *Container) NetworkDisconnect(nameOrID, netName string, force bool) erro
 		return err
 	}
 
-	// check if network exists and if the input is a ID we get the name
+	// check if network exists and if the input is an ID we get the name
 	// CNI and netavark and the libpod db only uses names so it is important that we only use the name
 	netName, err = c.runtime.normalizeNetworkName(netName)
 	if err != nil {
@@ -487,7 +506,7 @@ func (c *Container) NetworkConnect(nameOrID, netName string, netOpts types.PerNe
 		return err
 	}
 
-	// check if network exists and if the input is a ID we get the name
+	// check if network exists and if the input is an ID we get the name
 	// CNI and netavark and the libpod db only uses names so it is important that we only use the name
 	netName, err = c.runtime.normalizeNetworkName(netName)
 	if err != nil {
@@ -501,8 +520,7 @@ func (c *Container) NetworkConnect(nameOrID, netName string, netOpts types.PerNe
 	// get network status before we connect
 	networkStatus := c.getNetworkStatus()
 
-	// always add the short id as alias for docker compat
-	netOpts.Aliases = append(netOpts.Aliases, c.config.ID[:12])
+	netOpts.Aliases = append(netOpts.Aliases, getExtraNetworkAliases(c)...)
 
 	if netOpts.InterfaceName == "" {
 		netOpts.InterfaceName = getFreeInterfaceName(networks)
@@ -513,7 +531,7 @@ func (c *Container) NetworkConnect(nameOrID, netName string, netOpts types.PerNe
 
 	if err := c.runtime.state.NetworkConnect(c, netName, netOpts); err != nil {
 		// Docker compat: treat requests to attach already attached networks as a no-op, ignoring opts
-		if errors.Is(err, define.ErrNetworkConnected) && c.ensureState(define.ContainerStateConfigured) {
+		if errors.Is(err, define.ErrNetworkConnected) && !c.ensureState(define.ContainerStateRunning, define.ContainerStateCreated) {
 			return nil
 		}
 
@@ -571,10 +589,7 @@ func (c *Container) NetworkConnect(nameOrID, netName string, netOpts types.PerNe
 		}
 	}
 
-	ipv6, err := c.checkForIPv6(networkStatus)
-	if err != nil {
-		return err
-	}
+	ipv6 := c.checkForIPv6(networkStatus)
 
 	// Update resolv.conf if required
 	stringIPs := make([]string, 0, len(results[netName].DNSServerIPs))
@@ -628,6 +643,16 @@ func getFreeInterfaceName(networks map[string]types.PerNetworkOptions) string {
 		}
 	}
 	return ""
+}
+
+func getExtraNetworkAliases(c *Container) []string {
+	// always add the short id as alias for docker compat
+	alias := []string{c.config.ID[:12]}
+	// if an explicit hostname was set add it as well
+	if c.config.Spec.Hostname != "" {
+		alias = append(alias, c.config.Spec.Hostname)
+	}
+	return alias
 }
 
 // DisconnectContainerFromNetwork removes a container from its network
