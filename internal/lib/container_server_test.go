@@ -109,10 +109,9 @@ var _ = t.Describe("ContainerServer", func() {
 		It("should succeed to get the StorageImageServer", func() {
 			// Given
 			// When
-			res, err := sut.StorageImageServer(nil)
+			res := sut.StorageImageServer()
 
 			// Then
-			Expect(err).ToNot(HaveOccurred())
 			Expect(res).NotTo(BeNil())
 		})
 
@@ -146,10 +145,9 @@ var _ = t.Describe("ContainerServer", func() {
 		It("should succeed to get the StorageRuntimeServer", func() {
 			// Given
 			// When
-			res, err := sut.StorageRuntimeServer(nil)
+			res := sut.StorageRuntimeServer()
 
 			// Then
-			Expect(err).ToNot(HaveOccurred())
 			Expect(res).NotTo(BeNil())
 		})
 	})
