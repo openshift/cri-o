@@ -17,6 +17,7 @@ ExecStart=/usr/local/bin/crio \
           $CRIO_METRICS_OPTIONS
 ExecReload=/bin/kill -s HUP $MAINPID
 TasksMax=infinity
+LimitNOFILE=1048576:1048576
 LimitNPROC=1048576
 LimitCORE=infinity
 OOMScoreAdjust=-999
