@@ -111,12 +111,17 @@ export BUILDTAGS="$BUILDTAGS containers_image_sequoia"
 export GO111MODULE=off
 # https://bugzilla.redhat.com/show_bug.cgi?id=1825623
 export VERSION=%{version}
-export LDFLAGS="${LDFLAGS:-} -X %{import_path}/internal/version.Version=%{version}-%{release}"
+# Keep any build-provided LDFLAGS for the pinns C link, but keep the Go-only
+# "-X <pkg>.Version=..." ldflag out of it: that flag is invalid for cc/ld and
+# makes `make bin/pinns` fail (ld: cannot find github.com/...Version=...).
+_base_ldflags="${LDFLAGS:-}"
+export LDFLAGS="${_base_ldflags} -X %{import_path}/internal/version.Version=%{version}-%{release}"
 
 # build crio
 %gobuild -o bin/%{service_name} %{import_path}/cmd/%{service_name}
 
 # build pinns and docs
+export LDFLAGS="${_base_ldflags}"
 %{__make} bin/pinns
 GO_MD2MAN=go-md2man %{__make} docs
 %endif
