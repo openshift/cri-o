@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/containers/image/v5/docker/reference"
-	imageTypes "github.com/containers/image/v5/types"
+	"go.podman.io/image/v5/docker/reference"
+	imageTypes "go.podman.io/image/v5/types"
 	encconfig "github.com/containers/ocicrypt/config"
 	"github.com/cri-o/crio-credential-provider/pkg/auth"
 	"github.com/docker/distribution/registry/api/errcode"

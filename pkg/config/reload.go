@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/containers/image/v5/pkg/sysregistriesv2"
+	"go.podman.io/image/v5/pkg/sysregistriesv2"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/sirupsen/logrus"

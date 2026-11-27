@@ -7,8 +7,8 @@ import (
 	"os"
 
 	criu "github.com/checkpoint-restore/go-criu/v7/utils"
-	"github.com/containers/storage/pkg/archive"
-	"github.com/containers/storage/pkg/unshare"
+	"go.podman.io/storage/pkg/archive"
+	"go.podman.io/storage/pkg/unshare"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"

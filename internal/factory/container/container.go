@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/containers/storage/pkg/stringid"
+	"go.podman.io/storage/pkg/stringid"
 	"github.com/moby/sys/capability"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"

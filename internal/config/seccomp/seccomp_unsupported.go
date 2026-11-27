@@ -5,8 +5,8 @@ package seccomp
 import (
 	"context"
 
-	"github.com/containers/common/pkg/seccomp"
-	imagetypes "github.com/containers/image/v5/types"
+	"go.podman.io/common/pkg/seccomp"
+	imagetypes "go.podman.io/image/v5/types"
 	"github.com/opencontainers/runtime-tools/generate"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )

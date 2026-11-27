@@ -28,12 +28,11 @@ const (
 	// InitrdAsset is an initrd asset.
 	InitrdAsset AssetType = "initrd"
 
-	// SecureBootAsset is a secure boot asset.
-	// (IBM Z Secure Execution only)
-	SecureBootAsset AssetType = "secure_boot"
-
 	// HypervisorAsset is an hypervisor asset.
 	HypervisorAsset AssetType = "hypervisor"
+
+	// HypervisorCtlAsset is a hypervisor control asset.
+	HypervisorCtlAsset AssetType = "hypervisorctl"
 
 	// JailerAsset is a jailer asset.
 	JailerAsset AssetType = "jailer"
@@ -54,6 +53,7 @@ func AssetTypes() []AssetType {
 		FirmwareAsset,
 		FirmwareVolumeAsset,
 		HypervisorAsset,
+		HypervisorCtlAsset,
 		ImageAsset,
 		InitrdAsset,
 		JailerAsset,
@@ -88,6 +88,8 @@ func (t AssetType) Annotations() (string, string, error) {
 		return annotations.InitrdPath, annotations.InitrdHash, nil
 	case HypervisorAsset:
 		return annotations.HypervisorPath, annotations.HypervisorHash, nil
+	case HypervisorCtlAsset:
+		return annotations.HypervisorCtlPath, annotations.HypervisorCtlHash, nil
 	case JailerAsset:
 		return annotations.JailerPath, annotations.JailerHash, nil
 	case FirmwareAsset:

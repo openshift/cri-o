@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	cstorage "github.com/containers/storage"
+	cstorage "go.podman.io/storage"
 	"github.com/sirupsen/logrus"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
